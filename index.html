@@ -246,6 +246,7 @@ const ROUNDS = {
     {key:"pol_pallet",label:"POL Pallet",type:"number"},{key:"part_pallet",label:"Part Pallet",type:"number"},
     {key:"pol_singles",label:"Pollination Singles",type:"number"},
     {key:"sugar_feed",label:"Sugar Feed",type:"sugar_feed"},
+    {key:"queen_yard",label:"Queen Yard",type:"queen_yard"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
   ]},
   queen:{label:"Queens / Thyme",short:"Queens / Thyme",color:"#7a4fa8",bg:"#f0e8fb",fields:[
@@ -727,6 +728,7 @@ function calcSummary(opName){
   const sites=allSitesFor(opName);
   // include custom yards
   let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,pol=0,part=0,carrot=0;
+  const breederSites=[],finisherSites=[];
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
   let st=0,sc=0,logged=0,flagged=0;
   sites.forEach(site=>{
@@ -756,6 +758,10 @@ function calcSummary(opName){
     on34+=lastVal('on_34');
     hcFdOn+=lastVal('honeycomb_fd');
     hcHdOn+=lastVal('honeycomb_hd');
+    // Breeders/finishers from most recent real spring entry
+    const springForQ=STATE.entries[eKey(opName,site,'spring')]?.find(e=>!e._movement);
+    if(parseInt(springForQ?.breeders)>0) breederSites.push({site,count:parseInt(springForQ.breeders)});
+    if(parseInt(springForQ?.finishers)>0) finisherSites.push({site,count:parseInt(springForQ.finishers)});
     // Spring score from most recent spring entry
     const springE=STATE.entries[eKey(opName,site,'spring')]?.[0];
     const bd=springE?.score_breakdown||{};
@@ -763,7 +769,7 @@ function calcSummary(opName){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(STATE.entries[eKey(opName,site,'spring')]?.[0]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged};
+  return{hives,dead,alive,deadHives,singles,doubles,light,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
 }
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -927,6 +933,22 @@ function renderSummaryPanel(opName){
     });
     boxDiv.appendChild(boxGrid);
     panel.appendChild(boxDiv);
+  }
+  // Breeders / Finishers section
+  if(s.breederSites.length>0||s.finisherSites.length>0){
+    const qyDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
+    qyDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Queen Yard'));
+    if(s.breederSites.length>0){
+      qyDiv.appendChild(h('div',{style:{fontSize:'11px',color:'#c39bd3',fontWeight:'700',marginBottom:'4px'}},'Breeders'));
+      s.breederSites.forEach(b=>qyDiv.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'13px',color:'#fff',marginBottom:'3px'}},
+        h('span',null,b.site),h('span',{style:{fontWeight:'700',color:'#c39bd3'}},b.count+' hive'+(b.count!==1?'s':'')))));
+    }
+    if(s.finisherSites.length>0){
+      qyDiv.appendChild(h('div',{style:{fontSize:'11px',color:'#7ecb8f',fontWeight:'700',marginBottom:'4px',marginTop:s.breederSites.length?'8px':'0'}},'Finishers'));
+      s.finisherSites.forEach(f=>qyDiv.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'13px',color:'#fff',marginBottom:'3px'}},
+        h('span',null,f.site),h('span',{style:{fontWeight:'700',color:'#7ecb8f'}},f.count+' hive'+(f.count!==1?'s':'')))));
+    }
+    panel.appendChild(qyDiv);
   }
   // Hives in orchards from movements
   const orchTotals=getOrchardTotals();
@@ -1539,6 +1561,20 @@ function renderForm(){
         cell.appendChild(ni);grid.appendChild(cell);
       });
       fw.appendChild(grid);
+    } else if(f.type==='queen_yard'){
+      const qyWrap=h('div',{style:{marginBottom:'0'}});
+      qyWrap.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#7a4fa8',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px',paddingTop:'4px',borderTop:'1px solid #f0e8fb'}},'Queen Yard'));
+      const qyGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+      [{label:'Breeders',key:'breeders',color:'#7a4fa8'},{label:'Finishers',key:'finishers',color:'#3d7a4f'}].forEach(({label,key,color})=>{
+        const nw=h('div',null);
+        nw.appendChild(h('label',{style:{fontSize:'10px',color:color,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
+        const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'9px 10px',border:`.5px solid ${color}55`,borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+        if(vals[key]) ni.value=vals[key];
+        ni.addEventListener('input',e=>STATE.formVals[key]=e.target.value);
+        nw.appendChild(ni);qyGrid.appendChild(nw);
+      });
+      qyWrap.appendChild(qyGrid);
+      fw.appendChild(qyWrap);
     } else if(f.type==='check_note'){
       // Compact text field for check description, inline below check number
       const cnWrap=h('div',{style:{marginBottom:'0'}});
