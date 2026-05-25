@@ -123,15 +123,16 @@ const OPERATIONS = {
     "South":{type:"run",sites:["Woolshed","Sheeps Head","DOC Gate","DOC Aerial","Conroys","Thompsons"]},
     "Little Valley":{type:"run",sites:["Long Gully","Zig Zag","Balage","House","Dump"]},
     "Tarras":{type:"run",sites:["Sam's","Sam's Road / WP"]},
-    "Thyme":{type:"run",sites:["Hintons","Hintons Top","Cowins Rock","Cowins Top","Doc Snail"]},
-    "Snows":{type:"standalone",sites:["Snows"]}
   }},
   "DH Alex":{color:"#1e2a3a",accent:"#6ab0e0",yards:{
     "Middlemarch":{type:"run",sites:["Old Woolshed","Stoneyards","Pot Shed","Simpson","Swing Bridge","Davey Railway"]},
     "Moonlight":{type:"run",sites:["Cattle Yards","Lane Way","Dairy"]},
     "Hurirapa":{type:"run",sites:["Dikes Pines","Attadale","Attadale Pines","Dikes Rocks","Hugo","Tombs","Thompsons"]},
     "Roads End":{type:"run",sites:["Templetons","Nethorn Creek","Stoker Pines","Stoker Rocks","Stoker Tussocks","Pines","Zig Zag","Hopes"]},
-    "Clarks":{type:"run",sites:["Powerlines","Tree Fence","Withers","Waveys","Rockfield Woolshed","Rockfield Rock"]}
+    "Clarks":{type:"run",sites:["Powerlines","Tree Fence","Withers","Waveys","Rockfield Woolshed","Rockfield Rock"]},
+    "Thyme":{type:"run",sites:["Hintons","Hintons Top","Cowins Rock","Cowins Top","Doc Snail"]},
+    "Snows":{type:"standalone",sites:["Snows"]},
+    "Maniototo":{type:"run",sites:["Linburn Side Road","Linburn Sheep Dip","Clachanburn Treeline","Gaz's","Sangters","Clachanburn Deer Fence","Ridgeway Homestead","Dam Wall","California","O'Neil River","Barney's Lane","Mulhollonds","Appletons"]}
   }},
   "DH MM":{color:"#2a1e1a",accent:"#e0a06a",yards:{
     "Sutton":{type:"run",sites:["Shed","Patricias House","Old House","John Paradise","Norms Cottage"]},
@@ -146,6 +147,97 @@ const OPERATIONS = {
 
 const TREATMENTS = ["","Bayvarol","Apivar","Apitraz","Oxalic Staple","Swedish Cloth","Formic Pro","Vape"];
 
+const ORCHARDS = ["Hintons","McIntosh","Strode Road","Cherryburn","Kreignook","Northcroft","Hopcroft","Lochaburn Main","Lochaburn North","Ardgour Valley","Central Orchard (JPC)","Smiling Tiger","Smiths Way","Clutha Cherries","West Dunstan","Altitude","Pisa View","Rivercrest","O'Cherry","MP3","Denleys","Carrots"];
+
+// All yard sites from A2Bee and DH Alex available for movements
+const POL_SITES_BASE = []; // populated after OPERATIONS defined
+
+function getPOLSites(){
+  const base=[...POL_SITES_BASE];
+  ['A2Bee','DH Alex','DH MM'].forEach(opName=>{
+    Object.values(getYards(opName)).forEach(y=>y.sites.forEach(s=>{if(!base.includes(s))base.push(s);}));
+  });
+  return base;
+}
+// Populate POL_SITES_BASE from A2Bee, DH Alex, DH MM
+['A2Bee','DH Alex','DH MM'].forEach(opName=>{
+  Object.values(OPERATIONS[opName].yards).forEach(y=>y.sites.forEach(s=>{if(!POL_SITES_BASE.includes(s))POL_SITES_BASE.push(s);}));
+});
+
+// Movement storage — separate from diary entries
+function loadMovements(){try{return JSON.parse(localStorage.getItem('apiary_movements')||'[]');}catch(e){return[];}}
+function saveMovements(m){try{localStorage.setItem('apiary_movements',JSON.stringify(m));}catch(e){}}
+
+async function addMovement(mov){
+  const movements=[...loadMovements(),mov];
+  saveMovements(movements);
+  await pushToSupabase('hive_movements',movements);
+  // Auto-log movement entries into yard site diaries
+  const totalOnLoad=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)||0);
+  const hiveChange = totalOnLoad>0 ? totalOnLoad : mov.hives ? parseInt(mov.hives)||0 : (parseInt(mov.pallets)||0)*4+(mov.half_pallet?2:0)+(parseInt(mov.singles)||0);
+
+  async function logToSite(siteKey, opName, isDeduction){
+    if(!siteKey||!opName) return;
+    const k = eKey(opName, siteKey, 'spring');
+    const existing = STATE.entries[k]||[];
+    const lastHives = parseInt(existing[0]?.hives)||0;
+    const newHives = isDeduction ? Math.max(0,lastHives-hiveChange) : lastHives+hiveChange;
+    let desc;
+    const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'s':'');
+  const hiveStr=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)>0?` alive, ${mov.dead_hives} dead`+' hives':' alive hives');
+  const hiveDetail=parseInt(mov.alive_hives)>0?' ('+hiveStr+')':'';
+  if(mov.direction==='to_orchard') desc=`MOVEMENT OUT: ${truckStr}${hiveDetail} → ${mov.to_orchard}`;
+    else if(mov.direction==='from_orchard') desc=`MOVEMENT IN: ${truckStr}${hiveDetail} ← ${mov.from_orchard}`;
+    else if(isDeduction) desc=`MOVED OUT: ${truckStr}${hiveDetail} → ${mov.to_site}`;
+    else desc=`MOVED IN: ${truckStr}${hiveDetail} ← ${mov.from_site}`;
+    const movEntry = {
+      date: mov.date,
+      hives: String(newHives),
+      comments: desc,
+      logged_by: mov.logged_by,
+      saved_at: new Date().toISOString(),
+      _movement: true
+    };
+    const updated = {...STATE.entries, [k]: [movEntry, ...existing]};
+    saveLocal(updated);
+    await pushToSupabase(k, updated[k]);
+    STATE.entries = updated;
+  }
+
+  if(mov.direction==='to_orchard'){
+    await logToSite(mov.from_site, mov.from_op, true);
+  } else if(mov.direction==='from_orchard'){
+    await logToSite(mov.to_site, mov.to_op, false);
+  } else if(mov.direction==='yard_yard'){
+    await logToSite(mov.from_site, mov.from_op, true);   // deduct from source
+    await logToSite(mov.to_site, mov.to_op, false);      // add to destination
+  }
+}
+
+function getOrchardTotals(){
+  // Returns {orchard: {pallets, singles, hives}} from all movements
+  const movements=loadMovements();
+  const totals={};
+  ORCHARDS.forEach(o=>totals[o]={pallets:0,singles:0,hives:0});
+  movements.forEach(m=>{
+    const pallets=parseInt(m.pallets)||0;
+    const singles=parseInt(m.singles)||0;
+    const hives=pallets*4+singles;
+    if(m.direction==='to_orchard'){
+      const o=m.to_orchard;
+      if(!totals[o])totals[o]={pallets:0,singles:0,hives:0};
+      totals[o].pallets+=pallets;totals[o].singles+=singles;totals[o].hives+=hives;
+    } else {
+      const o=m.from_orchard;
+      if(!totals[o])totals[o]={pallets:0,singles:0,hives:0};
+      totals[o].pallets=Math.max(0,totals[o].pallets-pallets);
+      totals[o].singles=Math.max(0,totals[o].singles-singles);
+      totals[o].hives=Math.max(0,totals[o].hives-hives);
+    }
+  });
+  return totals;
+}
+
 const ROUNDS = {
   spring:{label:"Spring / Pollination",short:"Spring / Pollination",color:"#3d7a4f",bg:"#e6f2eb",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
@@ -153,6 +245,7 @@ const ROUNDS = {
     {key:"dead",label:"Dead",type:"number"},{key:"check",label:"Check",type:"number"},
     {key:"score_breakdown",label:"Spring Score",type:"score_grid"},
     {key:"pol_pallet",label:"POL Pallet",type:"number"},{key:"part_pallet",label:"Part Pallet",type:"number"},
+    {key:"pol_singles",label:"Pollination Singles",type:"number"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
   ]},
   queen:{label:"Queens / Thyme",short:"Queens / Thyme",color:"#7a4fa8",bg:"#f0e8fb",fields:[
@@ -160,7 +253,8 @@ const ROUNDS = {
     {key:"doubles",label:"Doubles",type:"number"},{key:"dead",label:"Dead",type:"number"},
     {key:"check",label:"Check",type:"number"},{key:"qr",label:"QR",type:"number"},
     {key:"virgin",label:"Virgin",type:"number"},{key:"cell_needed",label:"Cell needed",type:"number"},
-    {key:"tops",label:"Tops",type:"number"},{key:"carrot",label:"Carrot",type:"number"},
+    {key:"tops",label:"Tops",type:"number"},{key:"splits",label:"Splits taken",type:"number"},
+    {key:"carrot",label:"Carrot pallets",type:"number"},{key:"carrot_score",label:"Carrot Score",type:"carrot_grid"},
     {key:"fd_harv",label:"FD Harv",type:"number"},{key:"harv_34",label:"3/4 Harv",type:"number"},
     {key:"on_34",label:"3/4 on",type:"number"},{key:"fd_on",label:"FD on",type:"number"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
@@ -169,7 +263,8 @@ const ROUNDS = {
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"light",label:"Light",type:"number"},
     {key:"dead",label:"Dead",type:"number"},{key:"check",label:"Check",type:"number"},
-    {key:"carrot",label:"Carrot",type:"number"},{key:"fd_harv",label:"FD Harv",type:"number"},
+    {key:"carrot",label:"Carrot pallets",type:"number"},{key:"carrot_score",label:"Carrot Score",type:"carrot_grid"},
+    {key:"fd_harv",label:"FD Harv",type:"number"},
     {key:"harv_34",label:"3/4 Harv",type:"number"},{key:"on_34",label:"3/4 on",type:"number"},
     {key:"fd_on",label:"FD on",type:"number"},
     {key:"honeycomb_fd",label:"Honeycomb Full Depth",type:"number"},
@@ -179,12 +274,18 @@ const ROUNDS = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const todayStr = () => new Date().toISOString().slice(0,10);
+const todayStr = () => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+};
 const daysBetween = d => d?Math.floor((Date.now()-new Date(d).getTime())/86400000):null;
 const fmtDate = d=>{ if(!d) return ''; const [y,m,day]=d.split('-'); return `${day}/${m}/${y.slice(2)}`; };
 const scoreColor = v=>{const n=parseInt(v);if(isNaN(n))return"#ccc";if(n<=1)return"#e24b4a";if(n<=3)return"#ef9f27";return"#3d7a4f";};
 const eKey = (op,site,rk)=>`${op}__${site}__${rk}`;
-const allSitesFor = op=>Object.values(OPERATIONS[op].yards).flatMap(y=>y.sites);
+const allSitesFor = op=>Object.values(getYards(op)).flatMap(y=>y.sites);
 
 function showToast(msg, duration=2500){
   const t=document.getElementById('toast');
@@ -194,6 +295,32 @@ function showToast(msg, duration=2500){
 
 // ── Storage (localStorage + Supabase) ─────────────────────────────────────────
 function loadLocal(){try{return JSON.parse(localStorage.getItem('apiary_entries')||'{}');}catch(e){return{};}}
+function loadCustomYards(){try{return JSON.parse(localStorage.getItem('apiary_custom_yards')||'{}');}catch(e){return{};}}
+function saveCustomYards(y){try{localStorage.setItem('apiary_custom_yards',JSON.stringify(y));}catch(e){}}
+// Merge custom yards into OPERATIONS at runtime
+function getYards(opName){
+  const base=OPERATIONS[opName].yards;
+  const custom=loadCustomYards()[opName]||{};
+  return {...base,...custom};
+}
+function addCustomSite(opName,batchName,siteName){
+  const cy=loadCustomYards();
+  if(!cy[opName])cy[opName]={};
+  if(!cy[opName][batchName])cy[opName][batchName]={type:'run',sites:[]};
+  if(!cy[opName][batchName].sites.includes(siteName))cy[opName][batchName].sites.push(siteName);
+  saveCustomYards(cy);
+  // Sync to Supabase
+  pushToSupabase('custom_yards',cy);
+}
+function removeCustomSite(opName,batchName,siteName){
+  const cy=loadCustomYards();
+  if(!cy[opName]?.[batchName]) return;
+  cy[opName][batchName].sites=cy[opName][batchName].sites.filter(s=>s!==siteName);
+  if(!cy[opName][batchName].sites.length) delete cy[opName][batchName];
+  if(!Object.keys(cy[opName]||{}).length) delete cy[opName];
+  saveCustomYards(cy);
+  pushToSupabase('custom_yards',cy);
+}
 function saveLocal(entries){try{localStorage.setItem('apiary_entries',JSON.stringify(entries));}catch(e){}}
 
 // ── Flag storage ─────────────────────────────────────────────────────────────
@@ -201,21 +328,25 @@ function loadFlags(){try{return JSON.parse(localStorage.getItem('apiary_flags')|
 function saveFlags(flags){try{localStorage.setItem('apiary_flags',JSON.stringify(flags));}catch(e){}}
 function flagKey(op,site){return `${op}__${site}__flag`;}
 function getFlag(op,site){const f=loadFlags();return f[flagKey(op,site)]||null;}
-function setFlag(op,site,comment){
+async function setFlag(op,site,comment){
   const f=loadFlags();
-  if(comment){f[flagKey(op,site)]={comment,by:STATE.userName||'',date:todayStr()};}
-  else{delete f[flagKey(op,site)];}
-  saveFlags(f);
-  // Also push to supabase
   const k=flagKey(op,site);
-  if(comment) pushToSupabase(k,{comment,by:STATE.userName||'',date:todayStr()});
-  else pushToSupabase(k,null);
+  if(comment){
+    const val={comment,by:STATE.userName||'',date:todayStr()};
+    f[k]=val;
+    saveFlags(f);
+    await pushToSupabase(k,val);
+  } else {
+    delete f[k];
+    saveFlags(f);
+    await pushToSupabase(k,{deleted:true}); // mark as deleted in supabase
+  }
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let STATE={
   op:null,tab:'overview',round:'spring',
-  run:null,site:null,diaryView:'runs',editing:null,
+  run:null,site:null,diaryView:'runs',editing:null,selectedOrchard:null,
   entries:loadLocal(),formVals:{},
   syncStatus:'online', // online|syncing|offline|error
   userName: localStorage.getItem('apiary_user')||null,
@@ -263,8 +394,29 @@ async function pullFromSupabase(){
     if(error)throw error;
     if(data&&data.length){
       const merged={...STATE.entries};
-      data.forEach(row=>{merged[row.entry_key]=row.data;});
+      const mergedFlags=loadFlags();
+      data.forEach(row=>{
+        if(row.entry_key==='hive_movements'){
+          if(row.data&&Array.isArray(row.data)) saveMovements(row.data);
+          return;
+        }
+        if(row.entry_key==='custom_yards'){
+          if(row.data&&typeof row.data==='object') saveCustomYards(row.data);
+          return;
+        }
+        if(row.entry_key.endsWith('__flag')){
+          // It's a flag — restore to local flags store
+          if(row.data&&!row.data.deleted){
+            mergedFlags[row.entry_key]=row.data;
+          } else {
+            delete mergedFlags[row.entry_key];
+          }
+        } else {
+          merged[row.entry_key]=row.data;
+        }
+      });
       saveLocal(merged);
+      saveFlags(mergedFlags);
       STATE.entries=merged;
     }
     updateSyncDot('online');
@@ -325,7 +477,7 @@ function buildDailyReport(opName, date, userName){
         hasData=true;
         todayEntries.forEach(e=>{
           batchLines.push(`\n  ${site} — ${rd.label}`);
-          const fields=['hives','singles','doubles','light','dead','check','pol_pallet','part_pallet','qr','virgin','cell_needed','tops','carrot','fd_harv','harv_34','on_34','fd_on'];
+          const fields=['hives','singles','doubles','light','dead','check','pol_pallet','part_pallet','pol_singles','qr','virgin','cell_needed','tops','splits','carrot','fd_harv','harv_34','on_34','fd_on'];
           fields.forEach(k=>{if(e[k]!==undefined&&e[k]!==''){batchLines.push(`    ${k.replace(/_/g,' ')}: ${e[k]}`)}});
           if(e.score_breakdown){
             const bd=e.score_breakdown;
@@ -414,9 +566,10 @@ function buildFullReport(opName){
         list.forEach(e=>{
           totalEntries++;
           batchLines.push('  '+site+' — '+rd.label+' — '+fmtDate(e.date)+(e.logged_by?' ('+e.logged_by+')':''));
-          const fields=['hives','singles','doubles','light','dead','check','pol_pallet','part_pallet','qr','virgin','cell_needed','tops','carrot','fd_harv','harv_34','on_34','fd_on','honeycomb_fd','honeycomb_hd'];
+          const fields=['hives','singles','doubles','light','dead','check','pol_pallet','part_pallet','pol_singles','qr','virgin','cell_needed','tops','splits','carrot','fd_harv','harv_34','on_34','fd_on','honeycomb_fd','honeycomb_hd'];
           fields.forEach(k=>{if(e[k]!==undefined&&e[k]!=='')batchLines.push('    '+k.replace(/_/g,' ')+': '+e[k]);});
           if(e.score_breakdown){const bd=e.score_breakdown;const parts=[0,1,2,3,4,5,6].filter(n=>bd[n]&&bd[n]!=='').map(n=>n+':'+bd[n]);if(parts.length)batchLines.push('    Spring scores: '+parts.join(', '));}
+          if(e.carrot_score){const cbd=e.carrot_score;const cparts=[0,1,2,3,4,5,6,7,8,9,10].filter(n=>cbd[n]&&cbd[n]!=='').map(n=>n+':'+cbd[n]);if(cparts.length)batchLines.push('    Carrot scores: '+cparts.join(', '));}
           if(e.treatment) batchLines.push('    Treatment: '+e.treatment);
           if(e.comments) batchLines.push('    Notes: '+e.comments);
         });
@@ -473,7 +626,7 @@ async function maybeQuarterlyBackup(){
 function exportCSV(opName){
   const sites=allSitesFor(opName);
   const yards=OPERATIONS[opName].yards;
-  const rows=[['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','QR','Virgin','Cell Needed','Tops','Carrot','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments']];
+  const rows=[['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','Pol Singles','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments']];
   sites.forEach(site=>{
     const batch=Object.entries(yards).find(([,d])=>d.sites.includes(site))?.[0]||'';
     Object.keys(ROUNDS).forEach(rk=>{
@@ -482,7 +635,7 @@ function exportCSV(opName){
         const bd=e.score_breakdown||{};
         let st=0,sc=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){st+=n*v;sc+=v;}});
         const avg=sc>0?(st/sc).toFixed(1):'';
-        rows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.qr||'',e.virgin||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
+        rows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.qr||'',e.virgin||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
       });
     });
   });
@@ -512,25 +665,44 @@ function exportCSV(opName){
 // ── Summary calc ──────────────────────────────────────────────────────────────
 function calcSummary(opName){
   const sites=allSitesFor(opName);
+  // include custom yards
   let hives=0,dead=0,singles=0,doubles=0,light=0,pol=0,part=0,carrot=0;
+  let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
   let st=0,sc=0,logged=0,flagged=0;
   sites.forEach(site=>{
-    let best=null;
-    Object.keys(ROUNDS).forEach(rk=>{const e=STATE.entries[eKey(opName,site,rk)]?.[0];if(e&&(!best||e.date>best.date))best=e;});
-    const dates=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).map(e=>e.date));
-    const latest=dates.sort().reverse()[0];
-    if(!latest||daysBetween(latest)>21)flagged++;
+    // Find the single most recent entry across ALL rounds for this site
+    let best=null, bestRk=null;
+    Object.keys(ROUNDS).forEach(rk=>{
+      const list=STATE.entries[eKey(opName,site,rk)]||[];
+      list.forEach(e=>{if(!best||e.date>best.date){best=e;bestRk=rk;}});
+    });
+    // Also find most recent date for overdue check
+    const allDates=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).map(e=>e.date));
+    const latestDate=allDates.sort().reverse()[0];
+    if(!latestDate||daysBetween(latestDate)>21)flagged++;
     if(!best)return;
     logged++;
-    const n=k=>{const v=parseInt(best[k]);return isNaN(v)?0:v;};
-    hives+=n('hives');dead+=n('dead');singles+=n('singles');doubles+=n('doubles');
-    light+=n('light');pol+=n('pol_pallet');part+=n('part_pallet');carrot+=n('carrot');
-    const bd=STATE.entries[eKey(opName,site,'spring')]?.[0]?.score_breakdown||{};
+    // For each field, use the most recent entry that actually has a value for it
+    // This prevents empty fields in a new entry zeroing out previous counts
+    const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const lastVal=k=>{
+      for(const e of allSiteEntries){const v=parseInt(e[k]);if(!isNaN(v)&&v!==0)return v;}
+      return 0;
+    };
+    hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');
+    light+=lastVal('light');pol+=lastVal('pol_pallet');part+=lastVal('part_pallet');carrot+=lastVal('carrot');
+    fdOn+=lastVal('fd_on');
+    on34+=lastVal('on_34');
+    hcFdOn+=lastVal('honeycomb_fd');
+    hcHdOn+=lastVal('honeycomb_hd');
+    // Spring score from most recent spring entry
+    const springE=STATE.entries[eKey(opName,site,'spring')]?.[0];
+    const bd=springE?.score_breakdown||{};
     [0,1,2,3,4,5,6].forEach(s=>{const v=parseInt(bd[s]);if(!isNaN(v)&&v>0){st+=s*v;sc+=v;}});
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(STATE.entries[eKey(opName,site,'spring')]?.[0]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,singles,doubles,light,pol,part,carrot,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged};
+  return{hives,dead,singles,doubles,light,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged};
 }
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -566,6 +738,7 @@ function renderNamePrompt(){
     localStorage.setItem('apiary_user',name);
     STATE.userName=name;
     overlay.remove();
+    render(); // re-render so name shows and op selector updates
   }},'Continue');
   card.appendChild(inp);card.appendChild(btn);
   overlay.appendChild(card);
@@ -610,8 +783,53 @@ function renderOpSelector(){
       if(s.avgScore)statsDiv.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}},h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.05em'}},'Spring avg'),scoreCircle(Math.round(parseFloat(s.avgScore)),26,13)));
       card.appendChild(statsDiv);
     }
+    // ── Flagged sites on op card ──
+    const opSites=Object.values(op.yards).flatMap(y=>y.sites);
+    const flaggedSites=opSites.filter(site=>getFlag(name,site));
+    if(flaggedSites.length>0){
+      const flagDiv=h('div',{style:{borderTop:'1px solid rgba(255,255,255,0.12)',paddingTop:'10px',marginTop: s.logged>0?'0':'0'}});
+      flagDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'6px'}},'Flagged sites'));
+      flaggedSites.forEach(site=>{
+        const flag=getFlag(name,site);
+        const row=h('div',{style:{display:'flex',gap:'6px',alignItems:'flex-start',marginBottom:'5px',cursor:'pointer'},
+          onClick:(e)=>{e.stopPropagation();showFlagModal(name,site);}});
+        row.appendChild(h('span',{style:{color:'#ef9f27',fontWeight:'700',flexShrink:'0',fontSize:'13px'}},'!'));
+        row.appendChild(h('div',null,
+          h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.85)',fontWeight:'600'}},site),
+          h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)'}},flag.comment)
+        ));
+        flagDiv.appendChild(row);
+      });
+      card.appendChild(flagDiv);
+    }
     wrap.appendChild(card);
   });
+  // ── Hive Movements card ──
+  const movCard=h('button',{style:{width:'100%',maxWidth:'360px',marginBottom:'14px',padding:'16px 18px 14px',borderRadius:'14px',cursor:'pointer',textAlign:'left',border:'none',background:'#2a1f3d',borderTop:'3px solid #9b59b6'},
+    onClick:()=>setState({op:'__movements__',tab:'movements'})});
+  const movTotals=getOrchardTotals();
+  const totalInOrchards=Object.values(movTotals).reduce((a,o)=>a+o.hives,0);
+  const totalMovements=loadMovements().length;
+  movCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:totalMovements>0?'12px':'0'}},
+    h('div',null,
+      h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Hive Movements'),
+      h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},'Pollination in/out tracking')
+    ),
+    h('div',{style:{fontSize:'22px',color:'#c39bd3',opacity:'0.8'}},'›')
+  ));
+  if(totalMovements>0){
+    movCard.appendChild(h('div',{style:{borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:'10px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}},
+      h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 6px',textAlign:'center'}},
+        h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},totalInOrchards),
+        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.05em',marginTop:'2px'}},'In orchards')
+      ),
+      h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 6px',textAlign:'center'}},
+        h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},totalMovements),
+        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.05em',marginTop:'2px'}},'Movements')
+      )
+    ));
+  }
+  wrap.appendChild(movCard);
   wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'20px',color:'#fff',fontSize:'13px',fontWeight:'600',cursor:'pointer'},onClick:()=>{Object.keys(OPERATIONS).forEach(op=>exportCSV(op));}},'Export all data (CSV)'));
   return wrap;
 }
@@ -629,25 +847,197 @@ function renderSummaryPanel(opName){
   [{l:'Singles',v:s.singles},{l:'Doubles',v:s.doubles},{l:'Light',v:s.light}].forEach(st=>g3.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},st.v),h('div',{className:'stat-lbl'},st.l))));
   panel.appendChild(g3);
   if(s.pol+s.part+s.carrot>0){const g3b=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});[{l:'POL Pallet',v:s.pol},{l:'Part Pallet',v:s.part},{l:'Carrot',v:s.carrot}].forEach(st=>g3b.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},st.v),h('div',{className:'stat-lbl'},st.l))));panel.appendChild(g3b);}
+  // Boxes on hives
+  if(s.fdOn+s.on34+s.hcFdOn+s.hcHdOn>0){
+    const boxDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
+    boxDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Boxes on hives'));
+    const boxGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'6px'}});
+    [{l:'FD on',v:s.fdOn},{l:'3/4 on',v:s.on34},{l:'HC FD',v:s.hcFdOn},{l:'HC 1/2',v:s.hcHdOn}].forEach(st=>{
+      boxGrid.appendChild(h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center'}},
+        h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},st.v),
+        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l)
+      ));
+    });
+    boxDiv.appendChild(boxGrid);
+    panel.appendChild(boxDiv);
+  }
+  // Hives in orchards from movements
+  const orchTotals=getOrchardTotals();
+  const hivesInOrchards=Object.values(orchTotals).reduce((a,o)=>a+o.hives,0);
+  if(hivesInOrchards>0){
+    const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},s.hives),h('div',{className:'stat-lbl'},'Hives in yards')));
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},hivesInOrchards),h('div',{className:'stat-lbl'},'In orchards')));
+    panel.appendChild(orchDiv);
+  }
   if(s.avgScore){
     const sw=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px'}},h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},`Spring score — avg across ${s.scoreHives} hives`));
     const sr=h('div',{style:{display:'flex',alignItems:'center',gap:'12px'}});
     sr.appendChild(scoreCircle(Math.round(parseFloat(s.avgScore)),44,18));
     const maxBar=Math.max(1,...s.barCounts);
     const bars=h('div',{style:{flex:'1',display:'flex',gap:'4px',alignItems:'flex-end',height:'36px'}});
-    [0,1,2,3,4,5,6].forEach(i=>{const cnt=s.barCounts[i];const bh=cnt>0?Math.max(6,Math.round((cnt/maxBar)*28)):3;bars.appendChild(h('div',{style:{flex:'1',display:'flex',flexDirection:'column',alignItems:'center',gap:'3px'}},h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',lineHeight:'1'}},cnt>0?cnt:''),h('div',{style:{width:'100%',height:bh+'px',background:scoreColor(i),borderRadius:'2px',opacity:cnt>0?'1':'0.18'}}),h('div',{style:{fontSize:'9px',color:'rgba(255,255,255,0.45)',lineHeight:'1'}},i)));});
+    [0,1,2,3,4,5,6].forEach(i=>{const cnt=s.barCounts[i];const bh=cnt>0?Math.max(6,Math.round((cnt/maxBar)*28)):3;bars.appendChild(h('div',{style:{flex:'1',display:'flex',flexDirection:'column',alignItems:'center',gap:'3px'}},h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',lineHeight:'1'}},cnt>0?cnt:''),h('div',{style:{width:'100%',height:bh+'px',background:scoreColor(i),borderRadius:'2px',opacity:cnt>0?'1':'0.18'}}),h('div',{style:{fontSize:'9px',color:'rgba(255,255,255,0.45)',lineHeight:'1'}},i===6?'6+':i)));});
     sr.appendChild(bars);sw.appendChild(sr);panel.appendChild(sw);
   }
   return panel;
 }
 
 function renderOverviewTab(){
-  const op=STATE.op,yards=OPERATIONS[op].yards;
+  const op=STATE.op,yards=getYards(op);
   const screen=h('div',{className:'screen'});
   screen.appendChild(renderSummaryPanel(op));
-  Object.entries(yards).forEach(([batchName,batchData])=>{
-    const section=h('div',{style:{marginBottom:'18px'}},h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.08em',color:'#888',marginBottom:'7px',paddingLeft:'2px'}},batchName,batchData.type==='standalone'?h('span',{style:{color:'#bbb',fontWeight:'400'}},' · single site'):null));
-    batchData.sites.forEach(site=>{
+
+  // ── Search bar ──
+  const searchWrap=h('div',{style:{position:'relative',marginBottom:'14px'}});
+  const searchInp=h('input',{type:'text',placeholder:'Search yards…',style:{display:'block',width:'100%',padding:'9px 10px 9px 34px',border:'.5px solid #ddd',borderRadius:'20px',fontSize:'14px',background:'#fff',boxSizing:'border-box'}});
+  searchWrap.appendChild(h('div',{style:{position:'absolute',left:'11px',top:'50%',transform:'translateY(-50%)',fontSize:'14px',color:'#bbb',pointerEvents:'none'}},'⌕'));
+  searchWrap.appendChild(searchInp);
+  const clearBtn=h('button',{style:{position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',background:'none',border:'none',fontSize:'18px',color:'#bbb',cursor:'pointer',display:'none',padding:'0',lineHeight:'1'}},'×');
+  searchWrap.appendChild(clearBtn);
+  screen.appendChild(searchWrap);
+
+  const resultsContainer=h('div',null);
+  screen.appendChild(resultsContainer);
+
+  function renderYards(query){
+    resultsContainer.innerHTML='';
+    const q=(query||'').toLowerCase().trim();
+    let anyResults=false;
+    Object.entries(yards).forEach(([batchName,batchData])=>{
+      const matchingSites=batchData.sites.filter(site=>!q||site.toLowerCase().includes(q)||batchName.toLowerCase().includes(q));
+      if(!matchingSites.length) return;
+      anyResults=true;
+      const section=h('div',{style:{marginBottom:'18px'}});
+      section.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.08em',color:'#888',marginBottom:'7px',paddingLeft:'2px'}},batchName,batchData.type==='standalone'?h('span',{style:{color:'#bbb',fontWeight:'400'}},' · single site'):null));
+      matchingSites.forEach(site=>{
+        const allE=Object.entries(ROUNDS).map(([rk,r])=>{const list=STATE.entries[eKey(op,site,rk)]||[];return list.length?{roundDef:r,entry:list[0]}:null;}).filter(Boolean);
+        const latest=allE.sort((a,b)=>b.entry.date.localeCompare(a.entry.date))[0]||null;
+        const days=latest?daysBetween(latest.entry.date):null;
+        const overdue=!latest||days>21;
+        const bd=STATE.entries[eKey(op,site,'spring')]?.[0]?.score_breakdown||{};
+        let at=0,ac=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+        const avg=ac>0?Math.round(at/ac):null;
+        const card=h('div',{className:'card'+(overdue?' overdue':''),style:{position:'relative',overflow:'hidden',flexDirection:'column',alignItems:'stretch'},onClick:()=>setState({tab:'diary',run:batchName,site,diaryView:'entries',round:STATE.round})});
+        if(overdue)card.appendChild(h('div',{className:'flag-tag'},!latest?'NOT VISITED':`${days}d AGO`));
+        const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
+        const left=h('div',{style:{flex:'1',paddingRight:'8px'}},h('div',{style:{fontWeight:'600',fontSize:'14px',marginBottom:'3px'}},site));
+        if(latest){left.appendChild(h('div',{style:{fontSize:'12px',color:'#777'}},latest.roundDef.short+' · '+fmtDate(latest.entry.date)+(!overdue&&days!==null?' · '+days+'d ago':'')));if(latest.entry.treatment)left.appendChild(h('div',{className:'tx-pill'},'Tx: '+latest.entry.treatment));}
+        else left.appendChild(h('div',{style:{fontSize:'12px',color:'#bbb'}},'No entries yet'));
+        row.appendChild(left);
+        const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center',flexShrink:'0'}});
+        if(latest?.entry?.hives)right.appendChild(h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'18px',fontWeight:'700',lineHeight:'1'}},latest.entry.hives),h('div',{style:{fontSize:'10px',color:'#999',textTransform:'uppercase'}},'hives')));
+        if(avg!==null)right.appendChild(scoreCircle(avg,32,14));
+        row.appendChild(right);card.appendChild(row);
+        if(latest?.entry?.comments)card.appendChild(h('div',{style:{marginTop:'7px',fontSize:'12px',color:'#555',background:'#f8f8f6',borderRadius:'5px',padding:'5px 8px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},latest.entry.comments));
+        const flag=getFlag(op,site);
+        if(flag){
+          const fb=h('div',{style:{marginTop:'7px',background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'6px',padding:'6px 10px',fontSize:'12px',color:'#b07800',display:'flex',gap:'6px',alignItems:'flex-start',cursor:'pointer'}},
+            h('span',{style:{fontWeight:'700',flexShrink:'0'}},'! '),h('span',null,flag.comment));
+          fb.addEventListener('click',e=>{e.stopPropagation();showFlagModal(op,site);});
+          card.appendChild(fb);
+        }
+        section.appendChild(card);
+      });
+      resultsContainer.appendChild(section);
+    });
+    if(!anyResults&&q){
+      resultsContainer.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},'No yards found for "'+query+'"'));
+    }
+  }
+
+  searchInp.addEventListener('input',e=>{
+    const q=e.target.value;
+    clearBtn.style.display=q?'block':'none';
+    renderYards(q);
+  });
+  clearBtn.addEventListener('click',()=>{
+    searchInp.value='';
+    clearBtn.style.display='none';
+    renderYards('');
+  });
+
+  renderYards('');
+  return screen;
+}
+
+function renderSummaryPanel(opName){
+  const s=calcSummary(opName);
+  const panel=h('div',{style:{background:'#1a2e1a',borderRadius:'12px',padding:'13px 14px 14px',marginBottom:'18px'}},
+    h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:'10px'}},`Fleet summary · ${s.logged}/${s.total} sites logged`)
+  );
+  if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
+  const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
+  [{l:'Total hives',v:s.hives},{l:'Dead',v:s.dead,red:s.dead>0}].forEach(st=>g2.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v),h('div',{className:'stat-lbl'},st.l))));
+  panel.appendChild(g2);
+  const g3=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
+  [{l:'Singles',v:s.singles},{l:'Doubles',v:s.doubles},{l:'Light',v:s.light}].forEach(st=>g3.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},st.v),h('div',{className:'stat-lbl'},st.l))));
+  panel.appendChild(g3);
+  if(s.pol+s.part+s.carrot>0){const g3b=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});[{l:'POL Pallet',v:s.pol},{l:'Part Pallet',v:s.part},{l:'Carrot',v:s.carrot}].forEach(st=>g3b.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},st.v),h('div',{className:'stat-lbl'},st.l))));panel.appendChild(g3b);}
+  // Boxes on hives
+  if(s.fdOn+s.on34+s.hcFdOn+s.hcHdOn>0){
+    const boxDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
+    boxDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Boxes on hives'));
+    const boxGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'6px'}});
+    [{l:'FD on',v:s.fdOn},{l:'3/4 on',v:s.on34},{l:'HC FD',v:s.hcFdOn},{l:'HC 1/2',v:s.hcHdOn}].forEach(st=>{
+      boxGrid.appendChild(h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center'}},
+        h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},st.v),
+        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l)
+      ));
+    });
+    boxDiv.appendChild(boxGrid);
+    panel.appendChild(boxDiv);
+  }
+  // Hives in orchards from movements
+  const orchTotals=getOrchardTotals();
+  const hivesInOrchards=Object.values(orchTotals).reduce((a,o)=>a+o.hives,0);
+  if(hivesInOrchards>0){
+    const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},s.hives),h('div',{className:'stat-lbl'},'Hives in yards')));
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},hivesInOrchards),h('div',{className:'stat-lbl'},'In orchards')));
+    panel.appendChild(orchDiv);
+  }
+  if(s.avgScore){
+    const sw=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px'}},h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},`Spring score — avg across ${s.scoreHives} hives`));
+    const sr=h('div',{style:{display:'flex',alignItems:'center',gap:'12px'}});
+    sr.appendChild(scoreCircle(Math.round(parseFloat(s.avgScore)),44,18));
+    const maxBar=Math.max(1,...s.barCounts);
+    const bars=h('div',{style:{flex:'1',display:'flex',gap:'4px',alignItems:'flex-end',height:'36px'}});
+    [0,1,2,3,4,5,6].forEach(i=>{const cnt=s.barCounts[i];const bh=cnt>0?Math.max(6,Math.round((cnt/maxBar)*28)):3;bars.appendChild(h('div',{style:{flex:'1',display:'flex',flexDirection:'column',alignItems:'center',gap:'3px'}},h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',lineHeight:'1'}},cnt>0?cnt:''),h('div',{style:{width:'100%',height:bh+'px',background:scoreColor(i),borderRadius:'2px',opacity:cnt>0?'1':'0.18'}}),h('div',{style:{fontSize:'9px',color:'rgba(255,255,255,0.45)',lineHeight:'1'}},i===6?'6+':i)));});
+    sr.appendChild(bars);sw.appendChild(sr);panel.appendChild(sw);
+  }
+  return panel;
+}
+
+function renderOverviewTab(){
+  const op=STATE.op,yards=getYards(op);
+  const screen=h('div',{className:'screen'});
+  screen.appendChild(renderSummaryPanel(op));
+
+  // ── Search bar ──
+  const searchWrap=h('div',{style:{position:'relative',marginBottom:'14px'}});
+  const searchInp=h('input',{type:'text',placeholder:'Search yards…',style:{display:'block',width:'100%',padding:'9px 10px 9px 34px',border:'.5px solid #ddd',borderRadius:'20px',fontSize:'14px',background:'#fff',boxSizing:'border-box'}});
+  // Search icon
+  searchWrap.appendChild(h('div',{style:{position:'absolute',left:'11px',top:'50%',transform:'translateY(-50%)',fontSize:'15px',color:'#bbb',pointerEvents:'none'}},'🔍'));
+  searchWrap.appendChild(searchInp);
+  const clearBtn=h('button',{style:{position:'absolute',right:'10px',top:'50%',transform:'translateY(-50%)',background:'none',border:'none',fontSize:'16px',color:'#bbb',cursor:'pointer',display:'none',padding:'0',lineHeight:'1'}},'×');
+  searchWrap.appendChild(clearBtn);
+  screen.appendChild(searchWrap);
+
+  // Results container — rebuilt on every keystroke
+  const resultsContainer=h('div',null);
+  screen.appendChild(resultsContainer);
+
+  function renderYards(query){
+    resultsContainer.innerHTML='';
+    const q=(query||'').toLowerCase().trim();
+    let anyResults=false;
+    Object.entries(yards).forEach(([batchName,batchData])=>{
+      const matchingSites=batchData.sites.filter(site=>!q||site.toLowerCase().includes(q)||batchName.toLowerCase().includes(q));
+      if(!matchingSites.length) return;
+      anyResults=true;
+      const section=h('div',{style:{marginBottom:'18px'}});
+      section.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.08em',color:'#888',marginBottom:'7px',paddingLeft:'2px'}},batchName,batchData.type==='standalone'?h('span',{style:{color:'#bbb',fontWeight:'400'}},' · single site'):null));
+      matchingSites.forEach(site=>{
       const allE=Object.entries(ROUNDS).map(([rk,r])=>{const list=STATE.entries[eKey(op,site,rk)]||[];return list.length?{roundDef:r,entry:list[0]}:null;}).filter(Boolean);
       const latest=allE.sort((a,b)=>b.entry.date.localeCompare(a.entry.date))[0]||null;
       const days=latest?daysBetween(latest.entry.date):null;
@@ -678,14 +1068,31 @@ function renderOverviewTab(){
         card.appendChild(fb);
       }
       section.appendChild(card);
+      });
+      resultsContainer.appendChild(section);
     });
-    screen.appendChild(section);
+    if(!anyResults&&q){
+      resultsContainer.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},'No yards found for "'+query+'"'));
+    }
+  }
+
+  searchInp.addEventListener('input',e=>{
+    const q=e.target.value;
+    clearBtn.style.display=q?'block':'none';
+    renderYards(q);
   });
+  clearBtn.addEventListener('click',()=>{
+    searchInp.value='';
+    clearBtn.style.display='none';
+    renderYards('');
+  });
+
+  renderYards('');
   return screen;
 }
 
 function renderBatchList(){
-  const op=STATE.op,round=STATE.round,rd=ROUNDS[round],yards=OPERATIONS[op].yards;
+  const op=STATE.op,round=STATE.round,rd=ROUNDS[round],yards=getYards(op);
   const wrap=h('div',null,h('div',{className:'section-label'},'Select batch'));
   Object.entries(yards).forEach(([batch,data])=>{
     const total=data.sites.reduce((a,s)=>a+Object.keys(ROUNDS).reduce((b,rk)=>b+(STATE.entries[eKey(op,s,rk)]?.length||0),0),0);
@@ -703,7 +1110,7 @@ function renderBatchList(){
 
 function renderSitesList(){
   const op=STATE.op,round=STATE.round,rd=ROUNDS[round],batch=STATE.run;
-  const data=OPERATIONS[op].yards[batch];
+  const data=getYards(op)[batch];
   const wrap=h('div',null,h('div',{className:'section-label'},'Select site'));
   data.sites.forEach(site=>{
     const slist=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map(e=>({...e,_rk:rk}))).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
@@ -766,8 +1173,12 @@ function renderEntriesList(){
     hl.appendChild(h('span',{style:{fontSize:'11px',background:rd.bg||'#eee',color:rd.color,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},rd.label));
     if(entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
-    if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by));
+    if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
     if(rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
+    // Carrot score avg in header
+    const cbd2=entry.carrot_score||{};
+    let cat2=0,cac2=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(cbd2[n]);if(!isNaN(v)&&v>0){cat2+=n*v;cac2+=v;}});
+    if(cac2>0){const cavg2=Math.round(cat2/cac2);const cbg=cavg2<=2?'#e24b4a':cavg2<=5?'#ef9f27':cavg2<=7?'#c8b400':'#3d7a4f';hl.appendChild(h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:cbg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:'11px',flexShrink:'0'}},cavg2));}
     hdr.appendChild(hl);
     const chev=h('span',{style:{color:'#bbb',fontSize:'16px',flexShrink:'0'}},'▼');
     hdr.appendChild(chev);
@@ -775,7 +1186,24 @@ function renderEntriesList(){
     const skip=['date','comments','score_breakdown','treatment','logged_by'];
     const fields=rd.fields.filter(f=>!skip.includes(f.key)&&entry[f.key]!==undefined&&entry[f.key]!=='');
     if(fields.length){const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});fields.forEach(f=>grid.appendChild(h('div',null,h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),h('div',{style:{fontWeight:'600',fontSize:'14px'}},entry[f.key]))));body.appendChild(grid);}
-    if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},scoreCircle(n,26,12),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
+    if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
+    // Carrot score breakdown
+    const cbd=entry.carrot_score||{};
+    const hasCarrotScores=Object.values(cbd).some(v=>v!==''&&v!==undefined&&v!==null);
+    if(hasCarrotScores){
+      let cat=0,cac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(cbd[n]);if(!isNaN(v)&&v>0){cat+=n*v;cac+=v;}});
+      const cavg=cac>0?Math.round(cat/cac):null;
+      const carrotBg=n=>n<=2?'#e24b4a':n<=5?'#ef9f27':n<=7?'#c8b400':'#3d7a4f';
+      body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Carrot Score'+(cavg!==null?' — avg '+cavg:'')));
+      const csr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});
+      [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=cbd[n];if(!v&&v!==0)return;
+        csr.appendChild(h('div',{style:{textAlign:'center',minWidth:'30px'}},
+          h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:carrotBg(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'8px':'11px'}},n===10?'10+':n),
+          h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)
+        ));
+      });
+      body.appendChild(csr);
+    }
     if(entry.comments)body.appendChild(h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}},entry.comments));
     const btnRow=h('div',{style:{display:'flex',gap:'8px',marginTop:'10px'}});
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #bbb',borderRadius:'6px',fontSize:'13px',cursor:'pointer'},
@@ -844,13 +1272,36 @@ function renderForm(){
       TREATMENTS.forEach(t=>{const opt=h('option',{value:t},t||'— None —');if(vals[f.key]===t)opt.selected=true;sel.appendChild(opt);});
       sel.addEventListener('change',e=>STATE.formVals[f.key]=e.target.value);
       fw.appendChild(sel);
+    } else if(f.type==='select'){
+      fw.appendChild(h('label',{className:'lbl'},f.label));
+      const sel=h('select',{className:'inp'});
+      (f.options||[]).forEach(t=>{const opt=h('option',{value:t},t===''?'—':t);if(vals[f.key]===t)opt.selected=true;sel.appendChild(opt);});
+      sel.addEventListener('change',e=>STATE.formVals[f.key]=e.target.value);
+      fw.appendChild(sel);
     } else if(f.type==='score_grid'){
       fw.appendChild(h('label',{className:'lbl'},'Spring Score — hives per score'));
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:'5px',marginTop:'4px'}});
       [0,1,2,3,4,5,6].forEach(n=>{
-        const cell=h('div',{style:{textAlign:'center'}},scoreCircle(n,28,13));
+        const cell=h('div',{style:{textAlign:'center'}},
+          h('div',{style:{width:'28px',height:'28px',borderRadius:'50%',margin:'0 auto 4px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'13px'}},n===6?'6+':n)
+        );
         const ni=h('input',{type:'number',inputmode:'numeric',min:'0',value:(vals.score_breakdown||{})[n]||'',placeholder:'—',style:{width:'100%',padding:'5px 2px',border:'.5px solid #ccc',borderRadius:'5px',fontSize:'13px',textAlign:'center',boxSizing:'border-box',background:'#fafafa'}});
         ni.addEventListener('input',e=>{if(!STATE.formVals.score_breakdown)STATE.formVals.score_breakdown={};STATE.formVals.score_breakdown[n]=e.target.value;});
+        cell.appendChild(ni);grid.appendChild(cell);
+      });
+      fw.appendChild(grid);
+    } else if(f.type==='carrot_grid'){
+      fw.appendChild(h('label',{className:'lbl'},'Carrot Score — hives per score'));
+      // 0-10, two rows of 6 then 5
+      const grid=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:'5px',marginTop:'4px'}});
+      [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{
+        const col=n<=5?scoreColor(Math.round(n/10*6)):scoreColor(Math.round(n/10*6));
+        // Use a colour scale: 0-3 red/amber, 4-7 amber/yellow, 8-10 green
+        const bg=n<=2?'#e24b4a':n<=5?'#ef9f27':n<=7?'#c8b400':'#3d7a4f';
+        const cell=h('div',{style:{textAlign:'center'}});
+        cell.appendChild(h('div',{style:{width:'28px',height:'28px',borderRadius:'50%',margin:'0 auto 4px',background:bg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'9px':'12px'}},n===10?'10+':n));
+        const ni=h('input',{type:'number',inputmode:'numeric',min:'0',value:(vals.carrot_score||{})[n]||'',placeholder:'—',style:{width:'100%',padding:'5px 2px',border:'.5px solid #ccc',borderRadius:'5px',fontSize:'13px',textAlign:'center',boxSizing:'border-box',background:'#fafafa'}});
+        ni.addEventListener('input',e=>{if(!STATE.formVals.carrot_score)STATE.formVals.carrot_score={};STATE.formVals.carrot_score[n]=e.target.value;});
         cell.appendChild(ni);grid.appendChild(cell);
       });
       fw.appendChild(grid);
@@ -860,7 +1311,14 @@ function renderForm(){
   fc.appendChild(h('button',{className:'save-btn',style:{background:rd.color},onClick:async()=>{
     const k=eKey(op,site,round);
     const {_flag,...formData}=STATE.formVals;
-    const entry={...formData,logged_by:STATE.userName||'Unknown',saved_at:new Date().toISOString()};
+    // Preserve original logged_by; add edited_by if this is an edit
+    const originalLoggedBy=formData.logged_by||STATE.userName||'Unknown';
+    const entry={
+      ...formData,
+      logged_by:originalLoggedBy,
+      ...(STATE.editing!==null && originalLoggedBy!==STATE.userName ? {edited_by:STATE.userName||'Unknown',edited_at:new Date().toISOString()} : {}),
+      saved_at:formData.saved_at||new Date().toISOString()
+    };
     if(_flag&&entry.comments){setFlag(op,site,entry.comments);}
     const existing=STATE.entries[k]||[];
     let updated;
@@ -907,7 +1365,7 @@ function renderRoundPicker(){
   wrap.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'18px'}},'What are you logging today?'));
   Object.entries(ROUNDS).forEach(([k,r])=>{
     const btn=h('button',{style:{width:'100%',padding:'14px 16px',background:'#fff',border:`.5px solid ${r.color}33`,borderLeft:`4px solid ${r.color}`,borderRadius:'10px',marginBottom:'10px',cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'},
-      onClick:()=>setState({round:k,diaryView:'form',editing:null,formVals:{date:new Date().toISOString().slice(0,10)}})});
+      onClick:()=>setState({round:k,diaryView:'form',editing:null,formVals:{date:todayStr()}})});
     btn.appendChild(h('div',null,
       h('div',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},r.label),
       h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},
@@ -953,7 +1411,7 @@ function showFlagModal(op, site){
     card.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'600',marginBottom:'14px'}},'Remove this flag?'));
     const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
-      onClick:()=>{setFlag(op,site,null);showToast('Flag removed');overlay.remove();setState({});}
+      onClick:()=>{setFlag(op,site,null).then(()=>setState({}));showToast('Flag removed');overlay.remove();}
     },'Yes, remove'));
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
       onClick:()=>overlay.remove()
@@ -970,7 +1428,7 @@ function showFlagModal(op, site){
       onClick:()=>{
         const txt=ta.value.trim();
         if(!txt){showToast('Enter a note first');return;}
-        setFlag(op,site,txt);showToast('Site flagged');overlay.remove();setState({});
+        setFlag(op,site,txt).then(()=>setState({}));showToast('Site flagged');overlay.remove();
       }
     },'Flag site'));
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
@@ -985,13 +1443,835 @@ function showFlagModal(op, site){
   document.body.appendChild(overlay);
 }
 
+function renderMovementsScreen(){
+  const movColor='#9b59b6';
+  const app=h('div',{className:'app'});
+  // Header
+  const header=h('div',{style:{background:'#2a1f3d',color:'#fff',padding:'14px 16px 0',flexShrink:'0'}});
+  const topRow=h('div',{className:'header-top'});
+  topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
+  topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
+  topRow.appendChild(h('div',{className:'sync-dot',style:{marginLeft:'auto'}}));
+  header.appendChild(topRow);
+  header.appendChild(h('div',{className:'header-title'},'Hive Movements'));
+  const tb=h('div',{className:'tab-bar'});
+  [{key:'movements',label:'Log Movement'},{key:'orchards',label:'Orchards'},{key:'history',label:'History'}].forEach(t=>{
+    tb.appendChild(h('button',{className:'tab-btn'+(STATE.tab===t.key?' active':''),
+      style:STATE.tab===t.key?{'--op-accent':movColor}:{},
+      onClick:()=>setState({tab:t.key})},t.label));
+  });
+  header.appendChild(tb);
+  app.appendChild(header);
+  document.documentElement.style.setProperty('--op-color','#2a1f3d');
+  document.documentElement.style.setProperty('--op-accent',movColor);
+
+  const screen=h('div',{className:'screen'});
+
+  // ── Log Movement tab ──
+  if(STATE.tab==='movements'){
+    const loadDate={val:todayStr()};
+    const loadDirection={val:'to_orchard'};
+    const loadNotes={val:''};
+    const loadDriver={val:''};
+    const loadVehicle={val:''};
+    // pickups: [{id, site, op, pallets, singles, splits:[{dest, dest_op, pallets, singles}]}]
+    const pickups=[];
+    let nextId=1;
+
+    const DRIVERS=['Adam','Neil','Em','Zeke','Shaun','Other'];
+    const VEHICLES=['Landcruiser','DH Hilux',"Neil's ute","Shaun's ute",'Big Truck'];
+
+    const wrap=h('div',null);
+
+    // Direction toggle
+    const dirRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'14px'}});
+    function updateDirBtns(){
+      const vals=['to_orchard','from_orchard','yard_yard'];
+      [...dirRow.children].forEach((b,i)=>{
+        const active=vals[i]===loadDirection.val;
+        b.style.border='2px solid '+(active?movColor:'#ddd');
+        b.style.background=active?'#f3e8ff':'#fff';
+        b.style.color=active?movColor:'#555';
+      });
+    }
+    [['to_orchard','Yard → Orchard'],['from_orchard','Orchard → Yard'],['yard_yard','Yard → Yard']].forEach(([val,label])=>{
+      dirRow.appendChild(h('button',{style:{padding:'8px 6px',borderRadius:'8px',border:'2px solid '+(loadDirection.val===val?movColor:'#ddd'),background:loadDirection.val===val?'#f3e8ff':'#fff',color:loadDirection.val===val?movColor:'#555',fontWeight:'600',fontSize:'12px',cursor:'pointer'},
+        onClick:()=>{loadDirection.val=val;pickups.length=0;updateDirBtns();rebuildAll();}}
+      ,label));
+    });
+
+    // Header card
+    const headerCard=h('div',{className:'form-card',style:{marginBottom:'12px'}});
+    headerCard.appendChild(h('label',{className:'lbl'},'Date'));
+    const di=h('input',{type:'date',value:loadDate.val,style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',marginBottom:'12px',boxSizing:'border-box'}});
+    di.addEventListener('change',e=>loadDate.val=e.target.value);
+    headerCard.appendChild(di);
+    headerCard.appendChild(h('div',{className:'lbl',style:{marginBottom:'6px'}},'Direction'));
+    headerCard.appendChild(dirRow);
+
+    // Driver + vehicle row
+    const dvRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'12px',marginTop:'12px'}});
+    // Driver
+    const driverWrap=h('div',null);
+    driverWrap.appendChild(h('label',{className:'lbl'},'Driver'));
+    const driverSel=h('select',{style:{display:'block',width:'100%',padding:'9px 8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fafafa',boxSizing:'border-box'}});
+    driverSel.appendChild(h('option',{value:''},'— Driver —'));
+    DRIVERS.forEach(d=>driverSel.appendChild(h('option',{value:d},d)));
+    driverSel.addEventListener('change',e=>{
+      loadDriver.val=e.target.value;
+      // If Other, show text input
+      if(e.target.value==='Other'){
+        const existing=headerCard.querySelector('#driver-other-input');
+        if(!existing){
+          const oi=h('input',{id:'driver-other-input',type:'text',placeholder:'Enter name',style:{display:'block',width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fafafa',boxSizing:'border-box',marginTop:'6px'}});
+          oi.addEventListener('input',ev=>loadDriver.val=ev.target.value);
+          driverWrap.appendChild(oi);
+        }
+      } else {
+        const oi=headerCard.querySelector('#driver-other-input');
+        if(oi) oi.remove();
+      }
+    });
+    driverWrap.appendChild(driverSel);
+    dvRow.appendChild(driverWrap);
+    // Vehicle
+    const vehWrap=h('div',null);
+    vehWrap.appendChild(h('label',{className:'lbl'},'Vehicle'));
+    const vehSel=h('select',{style:{display:'block',width:'100%',padding:'9px 8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fafafa',boxSizing:'border-box'}});
+    vehSel.appendChild(h('option',{value:''},'— Vehicle —'));
+    VEHICLES.forEach(v=>vehSel.appendChild(h('option',{value:v},v)));
+    vehSel.addEventListener('change',e=>loadVehicle.val=e.target.value);
+    vehWrap.appendChild(vehSel);
+    dvRow.appendChild(vehWrap);
+    headerCard.appendChild(dvRow);
+
+    headerCard.appendChild(h('label',{className:'lbl'},'Notes (optional)'));
+    const ta=h('textarea',{rows:'2',placeholder:'e.g. Truck run 1',style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',resize:'vertical',boxSizing:'border-box'}});
+    ta.addEventListener('input',e=>loadNotes.val=e.target.value);
+    headerCard.appendChild(ta);
+    wrap.appendChild(headerCard);
+
+    const pickupContainer=h('div',null);
+    wrap.appendChild(pickupContainer);
+    const addPickupArea=h('div',null);
+    wrap.appendChild(addPickupArea);
+
+    function totalHivesForPickup(p){
+      // If alive+dead hives entered, use that; otherwise estimate from pallets
+      const alive=parseInt(p.alive_hives)||0;
+      const dead=parseInt(p.dead_hives)||0;
+      if(alive+dead>0) return alive+dead;
+      return (parseInt(p.pallets)||0)*4+(p.half_pallet?2:0)+(parseInt(p.singles)||0);
+    }
+    function remaining(p){
+      const used=(p.splits||[]).reduce((a,s)=>(a+(parseInt(s.hives)||0)),0);
+      return Math.max(0,totalHivesForPickup(p)-used);
+    }
+
+    function renderPickups(){
+      pickupContainer.innerHTML='';
+      if(!pickups.length) return;
+      const allDone=pickups.every(p=>remaining(p)===0);
+      const totalSplits=pickups.reduce((a,p)=>a+(p.splits||[]).length,0);
+      const anyUnassigned=pickups.some(p=>remaining(p)>0);
+
+      // ── Assign all to one destination ──
+      if(anyUnassigned){
+        const assignAllCard=h('div',{style:{background:'#f8f4ff',border:'1.5px solid '+movColor,borderRadius:'10px',padding:'10px 12px',marginBottom:'10px'}});
+        assignAllCard.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:movColor,marginBottom:'8px'}},'Assign all to one destination'));
+
+        let allDestSel, allDestNav, allDestDisplay;
+
+        if(loadDirection.val==='yard_yard'){
+          // Navigator for yard destination
+          allDestDisplay=h('div',{style:{display:'none',marginBottom:'6px'}});
+          allDestNav=h('div',{style:{marginBottom:'6px'}});
+          assignAllCard.appendChild(allDestNav);
+          assignAllCard.appendChild(allDestDisplay);
+          makeSiteNavigator(allDestNav,(site,opName)=>{
+            allDestNav._site=site; allDestNav._op=opName;
+            allDestNav.style.display='none';
+            allDestDisplay.style.display='block';
+            allDestDisplay.innerHTML='';
+            allDestDisplay.appendChild(h('div',{style:{background:'#fff',border:'1px solid '+movColor,borderRadius:'6px',padding:'7px 10px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}},
+              h('span',{style:{fontSize:'13px',fontWeight:'600'}},site+' ('+opName+')'),
+              h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'12px',cursor:'pointer'},
+                onClick:()=>{allDestNav._site='';allDestNav.style.display='block';allDestDisplay.style.display='none';}
+              },'Change')
+            ));
+            renderAssignAllBtn();
+          }, null);
+        } else {
+          // Dropdown for orchard or yard
+          allDestSel=h('select',{style:{display:'block',width:'100%',padding:'8px 10px',border:'1px solid '+movColor,borderRadius:'7px',fontSize:'14px',background:'#fff',marginBottom:'8px',boxSizing:'border-box'}});
+          allDestSel.appendChild(h('option',{value:''},loadDirection.val==='to_orchard'?'— Select orchard —':'— Select yard site —'));
+          (loadDirection.val==='to_orchard'?ORCHARDS:getPOLSites()).forEach(o=>allDestSel.appendChild(h('option',{value:o},o)));
+          allDestSel.addEventListener('change',renderAssignAllBtn);
+          assignAllCard.appendChild(allDestSel);
+        }
+
+        const assignAllBtnWrap=h('div',null);
+        assignAllCard.appendChild(assignAllBtnWrap);
+
+        function renderAssignAllBtn(){
+          assignAllBtnWrap.innerHTML='';
+          const dest=loadDirection.val==='yard_yard'?(allDestNav?._site||''):(allDestSel?.value||'');
+          if(!dest) return;
+          const destOp=loadDirection.val==='yard_yard'?(allDestNav?._op||''):
+            loadDirection.val==='from_orchard'?(Object.values(OPERATIONS['A2Bee'].yards).flatMap(y=>y.sites).includes(dest)?'A2Bee':'DH Alex'):'';
+          assignAllBtnWrap.appendChild(h('button',{
+            style:{width:'100%',padding:'9px',background:movColor,color:'#fff',border:'none',borderRadius:'7px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
+            onClick:()=>{
+              // Assign all remaining hives from every pickup to this destination
+              pickups.forEach(p=>{
+                const rem=remaining(p);
+                if(rem<=0) return;
+                // Calculate remaining pallets/singles
+                const usedPallets=(p.splits||[]).reduce((a,s)=>a+(parseInt(s.pallets)||0),0);
+                const usedSingles=(p.splits||[]).reduce((a,s)=>a+(parseInt(s.singles)||0),0);
+                        if(!p.splits)p.splits=[];
+                p.splits.push({dest,dest_op:destOp,hives:remaining(p)});
+              });
+              renderPickups();
+            }
+          },'Assign all unassigned → '+dest));
+        }
+        if(loadDirection.val!=='yard_yard') renderAssignAllBtn();
+        pickupContainer.appendChild(assignAllCard);
+      }
+
+      // Each pickup card
+      pickups.forEach(p=>{
+        const rem=remaining(p);
+        const isDone=rem===0;
+        const totalHives=totalHivesForPickup(p);
+        const assignedHives=totalHives-rem;
+        const pct=totalHives>0?Math.round((assignedHives/totalHives)*100):0;
+        const card=h('div',{style:{background:'#fff',border:`2px solid ${isDone?'#3d7a4f':'#ef9f27'}`,borderRadius:'10px',padding:'10px 12px',marginBottom:'8px'}});
+
+        // Header row — prominent site name + pallet count
+        const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'6px'}});
+        const leftDiv=h('div',{style:{flex:'1'}});
+        leftDiv.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',color:'#222',marginBottom:'4px'}},p.site));
+        // Truck space row
+        const countRow=h('div',{style:{display:'flex',gap:'8px',alignItems:'center',marginBottom:'4px',flexWrap:'wrap'}});
+        const palStr=(parseInt(p.pallets)||0)+(p.half_pallet?'½':'')+'p';
+        countRow.appendChild(h('span',{style:{fontSize:'20px',fontWeight:'800',color:isDone?'#3d7a4f':'#ef9f27',lineHeight:'1'}},palStr));
+        if(parseInt(p.singles)>0) countRow.appendChild(h('span',{style:{fontSize:'18px',fontWeight:'800',color:'#888',lineHeight:'1'}},p.singles+'s'));
+        // Alive/dead counts
+        if(parseInt(p.alive_hives)>0||parseInt(p.dead_hives)>0){
+          countRow.appendChild(h('span',{style:{fontSize:'13px',color:'#3d7a4f',fontWeight:'700',background:'#e6f2eb',borderRadius:'10px',padding:'2px 8px'}},`${p.alive_hives||0} alive`));
+          if(parseInt(p.dead_hives)>0) countRow.appendChild(h('span',{style:{fontSize:'13px',color:'#e24b4a',fontWeight:'700',background:'#fde8e8',borderRadius:'10px',padding:'2px 8px'}},`${p.dead_hives} dead`));
+        } else {
+          countRow.appendChild(h('span',{style:{fontSize:'12px',color:'#aaa'}},'= '+totalHives+' hives'));
+        }
+        leftDiv.appendChild(countRow);
+        // Progress bar
+        const barBg=h('div',{style:{width:'100%',height:'6px',background:'#f0f0ee',borderRadius:'3px',overflow:'hidden',marginBottom:'4px'}});
+        barBg.appendChild(h('div',{style:{width:pct+'%',height:'100%',background:isDone?'#3d7a4f':'#ef9f27',borderRadius:'3px',transition:'width .3s'}}));
+        leftDiv.appendChild(barBg);
+        leftDiv.appendChild(h('div',{style:{fontSize:'11px',color:isDone?'#3d7a4f':'#ef9f27',fontWeight:'600'}},
+          isDone?'All assigned ✓':`${assignedHives}/${totalHives} hives assigned (${rem} remaining)`
+        ));
+        topRow.appendChild(leftDiv);
+        const rightDiv=h('div',{style:{display:'flex',alignItems:'flex-start',gap:'6px',marginLeft:'8px',flexShrink:'0'}});
+        rightDiv.appendChild(h('button',{style:{background:'none',border:'none',color:'#e24b4a',fontSize:'20px',cursor:'pointer',padding:'0',lineHeight:'1'},
+          onClick:()=>{const idx=pickups.findIndex(x=>x.id===p.id);if(idx>-1)pickups.splice(idx,1);rebuildAll();}
+        },'×'));
+        topRow.appendChild(rightDiv);
+        card.appendChild(topRow);
+
+        // Existing splits
+        if((p.splits||[]).length>0){
+          p.splits.forEach((s,si)=>{
+            const splitRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0faf3',borderRadius:'6px',padding:'5px 8px',marginBottom:'4px'}});
+            splitRow.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},`→ ${s.dest} — ${s.hives||0} hive${(s.hives||0)!==1?'s':''}`));
+            splitRow.appendChild(h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'14px',cursor:'pointer',padding:'0'},
+              onClick:()=>{p.splits.splice(si,1);renderPickups();}
+            },'×'));
+            card.appendChild(splitRow);
+          });
+        }
+
+        // Add split form (inline, only if hives remaining)
+        if(rem>0){
+          const splitForm=h('div',{style:{marginTop:'8px',paddingTop:'8px',borderTop:'.5px solid #f0f0f0'}});
+          const destSel=h('select',{style:{display:'block',width:'100%',padding:'7px 8px',border:'1px solid #ef9f27',borderRadius:'6px',fontSize:'13px',background:'#fffbf0',marginBottom:'6px',boxSizing:'border-box'}});
+          if(loadDirection.val==='yard_yard'){
+            // Use op→batch→site navigator for destination
+            destSel.style.display='none'; // hide the select, use navigator instead
+            const destNavArea=h('div',{style:{marginBottom:'6px'}});
+            const destSelectedDisplay=h('div',{style:{display:'none',marginBottom:'6px'}});
+            splitForm.appendChild(destNavArea);
+            splitForm.appendChild(destSelectedDisplay);
+            makeSiteNavigator(destNavArea,(site,opName)=>{
+              destSel.value=site;
+              // store for split save
+              destSel._selectedSite=site;
+              destSel._selectedOp=opName;
+              destNavArea.style.display='none';
+              destSelectedDisplay.style.display='block';
+              destSelectedDisplay.innerHTML='';
+              destSelectedDisplay.appendChild(h('div',{style:{background:'#f0faf3',border:'1px solid #3d7a4f',borderRadius:'6px',padding:'7px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+                h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333'}},site+' ('+opName+')'),
+                h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'12px',cursor:'pointer'},
+                  onClick:()=>{destSel._selectedSite='';destNavArea.style.display='block';destSelectedDisplay.style.display='none';}
+                },'Change')
+              ));
+            }, p.site);
+          } else {
+            const destLabel=loadDirection.val==='to_orchard'?'— Assign orchard —':'— Assign yard site —';
+            const destOptions=loadDirection.val==='to_orchard'?ORCHARDS:getPOLSites();
+            destSel.appendChild(h('option',{value:''},destLabel));
+            destOptions.forEach(o=>{if(o!==p.site)destSel.appendChild(h('option',{value:o},o));});
+            splitForm.appendChild(destSel);
+          }
+
+          // Hive count for this split
+          const rem2=remaining(p);
+          const splitHiveWrap=h('div',{style:{marginBottom:'6px'}});
+          splitHiveWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},`Hives (${rem2} remaining)`));
+          const splitHiveInp=h('input',{type:'number',inputmode:'numeric',min:'1',max:String(rem2),placeholder:String(rem2),style:{width:'100%',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+          splitHiveInp.value=rem2; // default to all remaining
+          splitHiveWrap.appendChild(splitHiveInp);
+          splitForm.appendChild(splitHiveWrap);
+
+          splitForm.appendChild(h('button',{style:{width:'100%',padding:'7px',background:'rgba(155,89,182,0.1)',border:'1px solid '+movColor,borderRadius:'6px',fontSize:'12px',fontWeight:'700',color:movColor,cursor:'pointer'},
+            onClick:()=>{
+              const dest=loadDirection.val==='yard_yard'?(destSel._selectedSite||''):destSel.value;
+              if(!dest){showToast(loadDirection.val==='to_orchard'?'Select an orchard':'Select a yard site');return;}
+              const sh=parseInt(splitHiveInp.value)||0;
+              if(!sh){showToast('Enter number of hives for this split');return;}
+              if(sh>remaining(p)){showToast(`Only ${remaining(p)} hives remaining to assign`);return;}
+              const destOp=loadDirection.val==='yard_yard'?(destSel._selectedOp||''):(loadDirection.val==='from_orchard'?(Object.values(OPERATIONS['A2Bee'].yards).flatMap(y=>y.sites).includes(dest)?'A2Bee':'DH Alex'):'');
+              if(!p.splits)p.splits=[];
+              p.splits.push({dest,dest_op:destOp,hives:sh});
+              renderPickups();
+            }
+          },'+ Assign'));
+          card.appendChild(splitForm);
+        }
+        pickupContainer.appendChild(card);
+      });
+
+      // Save button — shown once all pickups have all hives assigned
+      if(pickups.length>0){
+        const allDone2=pickups.every(p=>remaining(p)===0&&(p.splits||[]).length>0);
+        const anyAssigned=pickups.some(p=>(p.splits||[]).length>0);
+        if(anyAssigned){
+          const label=allDone2?`Save load (${totalSplits} movement${totalSplits!==1?'s':''})`:`${pickups.filter(p=>remaining(p)>0).length} pickup${pickups.filter(p=>remaining(p)>0).length!==1?'s':''} still unassigned`;
+          pickupContainer.appendChild(h('button',{
+            style:{width:'100%',padding:'13px',background:allDone2?movColor:'#aaa',color:'#fff',border:'none',borderRadius:'8px',fontSize:'15px',fontWeight:'700',cursor:'pointer',marginTop:'8px'},
+            onClick:async()=>{
+              if(!allDone2){
+                // Build a clear warning showing exactly which pickups have unassigned hives
+                const probs=pickups.filter(p=>remaining(p)>0);
+                const existing=document.getElementById('unassigned-warning');
+                if(existing) existing.remove();
+                const warn=h('div',{id:'unassigned-warning',style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+                const box=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'20px',width:'100%',maxWidth:'340px'}});
+                box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'6px',color:'#c0392b'}},'Unassigned hives'));
+                box.appendChild(h('div',{style:{fontSize:'13px',color:'#666',marginBottom:'12px'}},'The following pickups have hives not yet assigned to a destination:'));
+                probs.forEach(p=>{
+                  const rem2=remaining(p);
+                  box.appendChild(h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px'}},
+                    h('div',{style:{fontWeight:'700',fontSize:'14px'}},p.site),
+                    h('div',{style:{fontSize:'13px',color:'#ef9f27',fontWeight:'600'}},`${rem2} hive${rem2!==1?'s':''} (${Math.floor(rem2/4)}p ${rem2%4}s) unassigned`)
+                  ));
+                });
+                box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'14px'}},'Go back and assign them, or save anyway if the count was a mistake.'));
+                const btnRow3=h('div',{style:{display:'flex',gap:'8px'}});
+                btnRow3.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+                  onClick:()=>warn.remove()},'Fix it'));
+                btnRow3.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
+                  onClick:async()=>{warn.remove();/* fall through to save */
+                    const ts2=Date.now();let j=0;
+                    for(const p of pickups){for(const s of (p.splits||[])){
+                      const isOutMov2=loadDirection.val==='to_orchard';const isYYMov2=loadDirection.val==='yard_yard';
+                      await addMovement({direction:loadDirection.val,date:loadDate.val,notes:loadNotes.val,driver:loadDriver.val,vehicle:loadVehicle.val,from_site:(isOutMov2||isYYMov2)?p.site:'',from_op:(isOutMov2||isYYMov2)?p.op:'',to_orchard:isOutMov2?s.dest:'',from_orchard:(!isOutMov2&&!isYYMov2)?p.site:'',to_site:(!isOutMov2)?s.dest:'',to_op:(!isOutMov2)?s.dest_op:'',pallets:s.pallets,singles:s.singles,logged_by:STATE.userName||'Unknown',id:ts2+(j++),truckload_id:ts2});
+                    }}
+                    showToast(`${totalSplits} movements saved`);setState({tab:'orchards'});
+                  }},'Save anyway'));
+                box.appendChild(btnRow3);
+                warn.appendChild(box);
+                warn.addEventListener('click',e=>{if(e.target===warn)warn.remove();});
+                document.body.appendChild(warn);
+                return;
+              }
+              const ts=Date.now();
+              let i=0;
+              for(const p of pickups){
+                for(const s of (p.splits||[])){
+                  const isOut=loadDirection.val==='to_orchard';
+                  const isOutMov=loadDirection.val==='to_orchard';
+                  const isYYMov=loadDirection.val==='yard_yard';
+                  const mov={
+                    direction:loadDirection.val,
+                    date:loadDate.val,
+                    notes:loadNotes.val,
+                    driver:loadDriver.val,
+                    vehicle:loadVehicle.val,
+                    from_site:(isOutMov||isYYMov)?p.site:'',
+                    from_op:(isOutMov||isYYMov)?p.op:'',
+                    to_orchard:isOutMov?s.dest:'',
+                    from_orchard:(!isOutMov&&!isYYMov)?p.site:'',
+                    to_site:(!isOutMov)?s.dest:'',
+                    to_op:(!isOutMov)?s.dest_op:'',
+                    pallets:p.pallets,
+                    singles:p.singles,
+                    half_pallet:p.half_pallet||false,
+                    alive_hives:p.alive_hives||'',
+                    dead_hives:p.dead_hives||'',
+                    hives:s.hives,
+                    logged_by:STATE.userName||'Unknown',
+                    id:ts+(i++),
+                    truckload_id:ts
+                  };
+                  await addMovement(mov);
+                }
+              }
+              showToast(`${totalSplits} movement${totalSplits!==1?'s':''} saved`);
+              setState({tab:'orchards'});
+            }
+          },label));
+        }
+      }
+    }
+
+    // Builds an op→batch→site navigator, calls onSelect(site, opName) when done
+    function makeSiteNavigator(container, onSelect, excludeSite){
+      const nav={op:null,batch:null};
+      function renderNav(){
+        container.innerHTML='';
+        if(!nav.op){
+          // Op list
+          container.appendChild(h('div',{className:'lbl',style:{marginBottom:'6px'}},'Operation'));
+          Object.entries(OPERATIONS).forEach(([opName,op])=>{
+            const btn=h('button',{style:{display:'block',width:'100%',padding:'10px 12px',marginBottom:'6px',background:'#fff',border:`.5px solid ${op.accent}44`,borderLeft:`3px solid ${op.accent}`,borderRadius:'8px',cursor:'pointer',textAlign:'left',fontSize:'14px',fontWeight:'600',color:'#333'},
+              onClick:()=>{nav.op=opName;nav.batch=null;renderNav();}},opName);
+            container.appendChild(btn);
+          });
+        } else if(!nav.batch){
+          // Batch list with back
+          const bc=h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'8px',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'},onClick:()=>{nav.op=null;renderNav();}},
+            h('span',{style:{color:movColor}},'‹'),h('span',null,' '+nav.op));
+          container.appendChild(bc);
+          container.appendChild(h('div',{className:'lbl',style:{marginBottom:'6px'}},'Batch'));
+          Object.entries(OPERATIONS[nav.op].yards).forEach(([batchName,batchData])=>{
+            const btn=h('button',{style:{display:'block',width:'100%',padding:'9px 12px',marginBottom:'5px',background:'#fff',border:'.5px solid #ddd',borderRadius:'8px',cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'},
+              onClick:()=>{nav.batch=batchName;renderNav();}},
+              h('span',{style:{fontSize:'14px',fontWeight:'500',color:'#333'}},batchName),
+              h('span',{style:{fontSize:'12px',color:'#bbb'}},batchData.sites.length+' sites ›')
+            );
+            container.appendChild(btn);
+          });
+        } else {
+          // Site list with back
+          const bc=h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'8px',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'},onClick:()=>{nav.batch=null;renderNav();}},
+            h('span',{style:{color:movColor}},'‹'),h('span',null,' '+nav.op+' / '+nav.batch));
+          container.appendChild(bc);
+          container.appendChild(h('div',{className:'lbl',style:{marginBottom:'6px'}},'Site'));
+          OPERATIONS[nav.op].yards[nav.batch].sites.forEach(site=>{
+            if(site===excludeSite) return;
+            const btn=h('button',{style:{display:'block',width:'100%',padding:'9px 12px',marginBottom:'5px',background:'#fff',border:'.5px solid #ddd',borderRadius:'8px',cursor:'pointer',textAlign:'left',fontSize:'14px',color:'#333'},
+              onClick:()=>onSelect(site,nav.op)},site);
+            container.appendChild(btn);
+          });
+        }
+      }
+      renderNav();
+    }
+
+    function renderAddPickupForm(){
+      addPickupArea.innerHTML='';
+      const pickupData={site:'',op:'',pallets:'',singles:''};
+      const isYY=loadDirection.val==='yard_yard';
+      const isOut=loadDirection.val==='to_orchard';
+      const card=h('div',{className:'form-card',style:{marginBottom:'12px'}});
+      card.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'600',color:'#666',marginBottom:'10px'}},
+        isOut?'+ Pick up from yard':isYY?'+ Pick up from yard':'+ Pick up from orchard'));
+
+      if(isYY){
+        // Op → Batch → Site navigator
+        const navArea=h('div',{style:{marginBottom:'10px'}});
+        const selectedDisplay=h('div',{style:{display:'none'}});
+        card.appendChild(navArea);
+        card.appendChild(selectedDisplay);
+        makeSiteNavigator(navArea,(site,opName)=>{
+          pickupData.site=site;pickupData.op=opName;
+          navArea.style.display='none';
+          selectedDisplay.style.display='block';
+          selectedDisplay.innerHTML='';
+          selectedDisplay.appendChild(h('div',{style:{background:'#f3e8ff',border:'1.5px solid '+movColor,borderRadius:'8px',padding:'9px 12px',marginBottom:'10px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+            h('div',null,
+              h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site),
+              h('div',{style:{fontSize:'12px',color:'#888'}},opName)
+            ),
+            h('button',{style:{background:'none',border:'none',color:movColor,fontSize:'12px',fontWeight:'600',cursor:'pointer'},
+              onClick:()=>{pickupData.site='';pickupData.op='';navArea.style.display='block';selectedDisplay.style.display='none';}
+            },'Change')
+          ));
+        }, null);
+      } else {
+        // Simple dropdown for Yard→Orchard and Orchard→Yard
+        const sw=h('div',{style:{marginBottom:'10px'}});
+        sw.appendChild(h('label',{className:'lbl'},isOut?'From yard site':'From orchard'));
+        const sel=h('select',{style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box'}});
+        sel.appendChild(h('option',{value:''},isOut?'— Select yard site —':'— Select orchard —'));
+        (isOut?getPOLSites():ORCHARDS).forEach(s=>sel.appendChild(h('option',{value:s},s)));
+        sel.addEventListener('change',e=>{
+          pickupData.site=e.target.value;
+          if(isOut) pickupData.op=Object.values(OPERATIONS['A2Bee'].yards).flatMap(y=>y.sites).includes(e.target.value)?'A2Bee':'DH Alex';
+        });
+        sw.appendChild(sel);card.appendChild(sw);
+      }
+
+      // Truck space row — pallets + half pallet toggle + singles
+      const truckRow=h('div',{style:{marginBottom:'10px'}});
+      truckRow.appendChild(h('label',{className:'lbl'},'Truck space'));
+      const truckGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'6px',alignItems:'end'}});
+      // Pallets
+      const palWrap=h('div',null);
+      palWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},'Full pallets'));
+      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+      palInp.addEventListener('input',e=>pickupData.pallets=e.target.value);
+      palWrap.appendChild(palInp);
+      truckGrid.appendChild(palWrap);
+      // Half pallet toggle
+      const halfWrap=h('div',{style:{textAlign:'center',paddingBottom:'2px'}});
+      halfWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}}),'½');
+      const halfBtn=h('button',{type:'button',style:{width:'36px',height:'36px',borderRadius:'50%',border:'1.5px solid #ddd',background:'#fff',fontSize:'14px',cursor:'pointer',fontWeight:'700',color:'#aaa',transition:'all .15s'}},'+½');
+      halfBtn.addEventListener('click',()=>{
+        pickupData.half_pallet=!pickupData.half_pallet;
+        halfBtn.style.background=pickupData.half_pallet?'#9b59b6':'#fff';
+        halfBtn.style.color=pickupData.half_pallet?'#fff':'#aaa';
+        halfBtn.style.border=pickupData.half_pallet?'1.5px solid #9b59b6':'1.5px solid #ddd';
+      });
+      halfWrap.appendChild(halfBtn);
+      truckGrid.appendChild(halfWrap);
+      // Singles
+      const sinWrap=h('div',null);
+      sinWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},'Singles'));
+      const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+      sinInp.addEventListener('input',e=>pickupData.singles=e.target.value);
+      sinWrap.appendChild(sinInp);
+      truckGrid.appendChild(sinWrap);
+      truckRow.appendChild(truckGrid);
+      card.appendChild(truckRow);
+
+      // Hive count row — alive + dead
+      const hiveRow=h('div',{style:{marginBottom:'10px'}});
+      hiveRow.appendChild(h('label',{className:'lbl'},'Hives on this pickup'));
+      const hiveGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+      [{label:'Alive',key:'alive_hives',color:'#3d7a4f'},{label:'Dead',key:'dead_hives',color:'#e24b4a'}].forEach(({label,key,color})=>{
+        const nw=h('div',null);
+        nw.appendChild(h('label',{style:{fontSize:'10px',color:color,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
+        const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:`.5px solid ${color}55`,borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+        ni.addEventListener('input',e=>pickupData[key]=e.target.value);
+        nw.appendChild(ni);hiveGrid.appendChild(nw);
+      });
+      hiveRow.appendChild(hiveGrid);
+      card.appendChild(hiveRow);
+
+      card.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'rgba(155,89,182,0.1)',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'13px',fontWeight:'700',color:movColor,cursor:'pointer'},
+        onClick:()=>{
+          if(!pickupData.site){showToast(isOut?'Select a yard site':isYY?'Select a yard site':'Select an orchard');return;}
+          if(!pickupData.pallets&&!pickupData.singles&&!pickupData.half_pallet){showToast('Enter truck space (pallets or singles)');return;}
+          pickups.push({...pickupData,id:nextId++,splits:[]});
+          renderPickups();
+          renderAddPickupForm();
+        }
+      },'+ Add to truck'));
+      addPickupArea.appendChild(card);
+    }
+
+    function rebuildAll(){renderPickups();renderAddPickupForm();}
+    rebuildAll();
+    screen.appendChild(wrap);
+  }
+
+      // ── Orchards tab ──
+  else if(STATE.tab==='orchards'){
+    const totals=getOrchardTotals();
+    const active=ORCHARDS.filter(o=>totals[o]&&totals[o].hives>0);
+    const movements=loadMovements();
+
+    // Detail view for a single orchard
+    if(STATE.selectedOrchard){
+      const o=STATE.selectedOrchard;
+      const t=totals[o]||{hives:0,pallets:0,singles:0};
+      // Breadcrumb
+      const bc=h('div',{className:'breadcrumb'});
+      bc.appendChild(h('span',{style:{cursor:'pointer',color:'#9b59b6'},onClick:()=>setState({selectedOrchard:null})},'Orchards'));
+      bc.appendChild(document.createTextNode(' / '));
+      bc.appendChild(h('span',{style:{color:'#333'}},o));
+      screen.appendChild(bc);
+      // Summary bar
+      screen.appendChild(h('div',{style:{background:'#2a1f3d',borderRadius:'10px',padding:'12px 14px',marginBottom:'14px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}},
+        h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#fff'}},t.hives),h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.04em'}},'Total hives')),
+        h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#fff'}},t.pallets),h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.04em'}},'Pallets')),
+        h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#fff'}},t.singles),h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.04em'}},'Singles'))
+      ));
+      // Build breakdown: group active movements into orchard by source site
+      const siteBreakdown={};
+      movements.forEach(m=>{
+        if(m.direction==='to_orchard'&&m.to_orchard===o){
+          const site=m.from_site;
+          if(!siteBreakdown[site])siteBreakdown[site]={pallets:0,singles:0,moves:[]};
+          siteBreakdown[site].pallets+=parseInt(m.pallets)||0;
+          siteBreakdown[site].singles+=parseInt(m.singles)||0;
+          siteBreakdown[site].moves.push(m);
+        }
+        if(m.direction==='from_orchard'&&m.from_orchard===o){
+          const site=m.to_site;
+          if(!siteBreakdown[site])siteBreakdown[site]={pallets:0,singles:0,moves:[]};
+          siteBreakdown[site].pallets-=parseInt(m.pallets)||0;
+          siteBreakdown[site].singles-=parseInt(m.singles)||0;
+        }
+      });
+      const activeSites=Object.entries(siteBreakdown).filter(([,v])=>(v.pallets+v.singles)>0);
+      if(!activeSites.length){
+        screen.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#ccc',fontSize:'14px'}},'All hives have returned from this orchard'));
+      } else {
+        screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Hives currently from:'));
+        activeSites.sort((a,b)=>b[1].pallets-a[1].pallets).forEach(([site,data])=>{
+          const hives=(data.pallets*4)+data.singles;
+          const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'10px',padding:'12px 13px',marginBottom:'7px'}});
+          const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
+          topRow.appendChild(h('div',null,
+            h('div',{style:{fontWeight:'600',fontSize:'15px'}},site),
+            h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${data.pallets} pallet${data.pallets!==1?'s':''} · ${data.singles} single${data.singles!==1?'s':''}`)
+          ));
+          topRow.appendChild(h('div',{style:{textAlign:'center',flexShrink:'0',marginLeft:'10px'}},
+            h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#2a1f3d'}},hives),
+            h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase'}},'hives')
+          ));
+          card.appendChild(topRow);
+          // Show individual movements for this site
+          const siteMoves=data.moves.sort((a,b)=>b.date.localeCompare(a.date));
+          if(siteMoves.length){
+            const movList=h('div',{style:{marginTop:'8px',borderTop:'.5px solid #f0f0f0',paddingTop:'8px'}});
+            siteMoves.forEach(m=>{
+              movList.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',color:'#777',marginBottom:'3px'}},
+                h('span',null,`${m.pallets||0}p + ${m.singles||0}s moved in`+(m.notes?' — '+m.notes:'')),
+                h('span',{style:{color:'#aaa',flexShrink:'0',marginLeft:'8px'}},fmtDate(m.date))
+              ));
+            });
+            card.appendChild(movList);
+          }
+          screen.appendChild(card);
+        });
+      }
+
+    // List view — all orchards
+    } else {
+      if(!active.length){
+        screen.appendChild(h('div',{className:'empty-msg'},'No hives currently in orchards'));
+      } else {
+        screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},`${active.length} orchards with hives`));
+        const totalHives=active.reduce((a,o)=>a+totals[o].hives,0);
+        screen.appendChild(h('div',{style:{background:'#2a1f3d',borderRadius:'10px',padding:'12px 14px',marginBottom:'14px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}},
+          h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'22px',fontWeight:'700',color:'#fff'}},totalHives),h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.05em'}},'Total hives in orchards')),
+          h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'22px',fontWeight:'700',color:'#fff'}},active.length),h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.05em'}},'Active orchards'))
+        ));
+        active.forEach(o=>{
+          const t=totals[o];
+          const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'},
+            onClick:()=>setState({selectedOrchard:o})});
+          card.appendChild(h('div',null,
+            h('div',{style:{fontWeight:'600',fontSize:'15px'}},o),
+            h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} single${t.singles!==1?'s':''}`)
+          ));
+          const right=h('div',{style:{display:'flex',alignItems:'center',gap:'10px'}});
+          right.appendChild(h('div',{style:{textAlign:'center'}},
+            h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#2a1f3d'}},t.hives),
+            h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase'}},'hives')
+          ));
+          right.appendChild(h('span',{style:{color:'#ccc',fontSize:'18px'}},'›'));
+          card.appendChild(right);
+          screen.appendChild(card);
+        });
+      }
+    }
+  }
+
+  // ── History tab ──
+  else if(STATE.tab==='history'){
+    const movements=[...loadMovements()].reverse();
+    if(!movements.length){screen.appendChild(h('div',{className:'empty-msg'},'No movements logged yet'));}
+    else{
+      screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},`${movements.length} movements`));
+      movements.forEach(m=>{
+        const isOut=m.direction==='to_orchard';
+        const isYY=m.direction==='yard_yard';
+        const title=isOut?`${m.from_site} → ${m.to_orchard}`:isYY?`${m.from_site} → ${m.to_site}`:`${m.from_orchard} → ${m.to_site}`;
+        const sub=`${m.pallets||0}p · ${m.singles||0}s`;
+        const meta=[m.driver,m.vehicle].filter(Boolean).join(' · ');
+        const card=h('div',{style:{background:'#fff',border:`.5px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':'#3d7a4f'}33`,borderLeft:`3px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':'#3d7a4f'}`,borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',overflow:'hidden'}});
+        const mainRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
+        mainRow.appendChild(h('div',{style:{flex:'1'}},
+          h('div',{style:{fontWeight:'600',fontSize:'14px'}},title),
+          h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},sub+(meta?' · '+meta:'')),
+          m.notes?h('div',{style:{fontSize:'12px',color:'#555',marginTop:'4px',background:'#f8f8f6',borderRadius:'5px',padding:'4px 8px'}},m.notes):null
+        ));
+        mainRow.appendChild(h('div',{style:{textAlign:'right',flexShrink:'0',marginLeft:'8px'}},
+          h('div',{style:{fontSize:'12px',color:'#aaa'}},fmtDate(m.date)),
+          h('div',{style:{fontSize:'11px',color:'#bbb',marginTop:'2px'}},m.logged_by||'')
+        ));
+        card.appendChild(mainRow);
+        // Delete button
+        const delBtn=h('button',{style:{marginTop:'8px',padding:'4px 10px',background:'none',border:'.5px solid #f4a0a0',borderRadius:'20px',fontSize:'11px',color:'#c0392b',cursor:'pointer',fontWeight:'600',float:'right'},
+          onClick:()=>{
+            // Confirm
+            const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+            const box=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'22px',width:'100%',maxWidth:'300px'}});
+            box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'6px'}},'Delete movement?'));
+            box.appendChild(h('div',{style:{fontSize:'13px',color:'#666',marginBottom:'6px'}},title));
+            box.appendChild(h('div',{style:{fontSize:'12px',color:'#999',marginBottom:'18px'}},'This will also remove the auto-generated diary entry from the yard history.'));
+            const btnRow2=h('div',{style:{display:'flex',gap:'10px'}});
+            btnRow2.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+              onClick:async()=>{
+                // Delete movement from list
+                const updated=loadMovements().filter(x=>x.id!==m.id);
+                saveMovements(updated);
+                await pushToSupabase('hive_movements',updated);
+                // Delete matching diary entries from affected yard sites
+                async function removeDiaryEntry(opName, siteKey){
+                  if(!opName||!siteKey) return;
+                  const k=eKey(opName,siteKey,'spring');
+                  const existing=STATE.entries[k]||[];
+                  // Match by _movement flag and movement id stored in comments
+                  const filtered=existing.filter(e=>!(e._movement&&e.date===m.date&&e.comments&&(
+                    e.comments.includes(m.to_orchard||'')||
+                    e.comments.includes(m.from_orchard||'')||
+                    e.comments.includes(m.to_site||'')||
+                    e.comments.includes(m.from_site||'')
+                  )));
+                  if(filtered.length!==existing.length){
+                    const updEntries={...STATE.entries,[k]:filtered};
+                    saveLocal(updEntries);
+                    await pushToSupabase(k,filtered);
+                    STATE.entries=updEntries;
+                  }
+                }
+                const isOut=m.direction==='to_orchard';
+                const isYY=m.direction==='yard_yard';
+                if(isOut) await removeDiaryEntry(m.from_op,m.from_site);
+                else if(!isOut&&!isYY) await removeDiaryEntry(m.to_op,m.to_site);
+                else if(isYY){
+                  await removeDiaryEntry(m.from_op,m.from_site);
+                  await removeDiaryEntry(m.to_op,m.to_site);
+                }
+                overlay.remove();
+                showToast('Movement and diary entry deleted');
+                setState({tab:'history'});
+              }
+            },'Yes, delete'));
+            btnRow2.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+              onClick:()=>overlay.remove()
+            },'Cancel'));
+            box.appendChild(btnRow2);
+            overlay.appendChild(box);
+            overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+            document.body.appendChild(overlay);
+          }
+        },'Delete');
+        card.appendChild(delBtn);
+        screen.appendChild(card);
+      });
+    }
+  }
+
+  app.appendChild(screen);
+  return app;
+}
+
+function renderYardsTab(opName){
+  const screen=h('div',{className:'screen'});
+  const opData=OPERATIONS[opName];
+  const allYards=getYards(opName);
+  const custom=loadCustomYards()[opName]||{};
+
+  screen.appendChild(h('div',{style:{fontSize:'15px',fontWeight:'700',marginBottom:'4px',marginTop:'4px'}},'Manage Yards'));
+  screen.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'16px',lineHeight:'1.5'}},'Add new yards and batches to '+opName+'. Built-in yards cannot be removed.'));
+
+  // ── Add new site form ──
+  const addCard=h('div',{className:'form-card',style:{marginBottom:'20px'}});
+  addCard.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'700',color:'#555',marginBottom:'12px'}},'+ Add new yard'));
+
+  // Batch — existing or new
+  addCard.appendChild(h('label',{className:'lbl'},'Batch'));
+  const batchSel=h('select',{className:'inp',style:{marginBottom:'8px'}});
+  batchSel.appendChild(h('option',{value:''},'— Select batch —'));
+  Object.keys(allYards).forEach(b=>batchSel.appendChild(h('option',{value:b},b)));
+  batchSel.appendChild(h('option',{value:'__new__'},'+ Create new batch'));
+  addCard.appendChild(batchSel);
+
+  const newBatchWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
+  newBatchWrap.appendChild(h('label',{className:'lbl'},'New batch name'));
+  const newBatchInp=h('input',{type:'text',placeholder:'Batch name',className:'inp'});
+  newBatchWrap.appendChild(newBatchInp);
+  addCard.appendChild(newBatchWrap);
+  batchSel.addEventListener('change',e=>{
+    newBatchWrap.style.display=e.target.value==='__new__'?'block':'none';
+  });
+
+  addCard.appendChild(h('label',{className:'lbl',style:{marginTop:'8px',display:'block'}},'Yard name'));
+  const siteInp=h('input',{type:'text',placeholder:'New yard name',className:'inp',style:{marginBottom:'12px'}});
+  addCard.appendChild(siteInp);
+
+  addCard.appendChild(h('button',{style:{width:'100%',padding:'11px',background:opData.color,color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>{
+      let batchName=batchSel.value==='__new__'?newBatchInp.value.trim():batchSel.value;
+      const siteName=siteInp.value.trim();
+      if(!batchName){showToast('Select or enter a batch name');return;}
+      if(!siteName){showToast('Enter a yard name');return;}
+      // Check not duplicate
+      const yards=getYards(opName);
+      if(yards[batchName]?.sites.includes(siteName)){showToast('That yard already exists in this batch');return;}
+      addCustomSite(opName,batchName,siteName);
+      showToast(`${siteName} added to ${batchName}`);
+      setState({tab:'settings'});
+    }
+  },'Add yard'));
+  screen.appendChild(addCard);
+
+  // ── Existing yards ──
+  Object.entries(allYards).forEach(([batchName,batchData])=>{
+    const isCustomBatch=!!custom[batchName];
+    const section=h('div',{style:{marginBottom:'16px'}});
+    section.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.08em',color:'#888',marginBottom:'6px',paddingLeft:'2px'}},
+      batchName+(isCustomBatch?' (custom)':'')));
+    batchData.sites.forEach(site=>{
+      const isCustomSite=custom[batchName]?.sites?.includes(site);
+      const row=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'8px',padding:'9px 12px',marginBottom:'5px',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+      row.appendChild(h('span',{style:{fontSize:'14px',color:'#333'}},site+(isCustomSite?' ✎':'')));
+      if(isCustomSite){
+        row.appendChild(h('button',{style:{background:'none',border:'none',color:'#e24b4a',fontSize:'13px',fontWeight:'600',cursor:'pointer',padding:'0'},
+          onClick:()=>{
+            removeCustomSite(opName,batchName,site);
+            showToast(`${site} removed`);
+            setState({tab:'settings'});
+          }
+        },'Remove'));
+      } else {
+        row.appendChild(h('span',{style:{fontSize:'11px',color:'#ccc'}},'built-in'));
+      }
+      section.appendChild(row);
+    });
+    screen.appendChild(section);
+  });
+  return screen;
+}
+
 function renderApp(){
   const op=STATE.op;
   if(!op) return renderOpSelector();
+  if(op==='__movements__') return renderMovementsScreen();
   const opData=OPERATIONS[op];
   document.documentElement.style.setProperty('--op-color',opData.color);
   document.documentElement.style.setProperty('--op-accent',opData.accent);
-  const allSites=Object.values(opData.yards).flatMap(y=>y.sites);
+  const allSites=Object.values(getYards(op)).flatMap(y=>y.sites);
   const flaggedCount=allSites.filter(site=>{const dates=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map(e=>e.date));const latest=dates.sort().reverse()[0];return !latest||daysBetween(latest)>21;}).length;
   const app=h('div',{className:'app'});
   const header=h('div',{className:'header'});
@@ -1002,7 +2282,7 @@ function renderApp(){
   header.appendChild(topRow);
   header.appendChild(h('div',{className:'header-title'},op+' — '+(STATE.userName||'')));
   const tb=h('div',{className:'tab-bar'});
-  [{key:'overview',label:'Overview'+(flaggedCount>0?` ⚑${flaggedCount}`:'')},{key:'diary',label:'Diary'},{key:'export',label:'Export / Sync'}].forEach(t=>{
+  [{key:'overview',label:'Overview'+(flaggedCount>0?` ⚑${flaggedCount}`:'')},{key:'diary',label:'Diary'},{key:'export',label:'Export / Sync'},{key:'settings',label:'Yards'}].forEach(t=>{
     tb.appendChild(h('button',{className:'tab-btn'+(STATE.tab===t.key?' active':''),onClick:()=>setState({tab:t.key})},t.label));
   });
   header.appendChild(tb);
@@ -1010,6 +2290,7 @@ function renderApp(){
   if(STATE.tab==='overview')app.appendChild(renderOverviewTab());
   else if(STATE.tab==='diary')app.appendChild(renderDiaryTab());
   else if(STATE.tab==='export')app.appendChild(renderExportTab());
+  else if(STATE.tab==='settings')app.appendChild(renderYardsTab(op));
   return app;
 }
 
