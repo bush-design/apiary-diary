@@ -1221,19 +1221,79 @@ function renderOverviewTab(){
   return screen;
 }
 
+function calcBatchSummary(op, batch, sites){
+  let hives=0,dead=0,alive=0,singles=0,doubles=0,light=0;
+  let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
+  let fdHarv=0,harv34=0;
+  let breeders=0,finishers=0;
+  let flagCount=0,checkCount=0;
+  const lv=(site,k)=>{
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    for(const e of allE){const v=parseInt(e[k]);if(!isNaN(v)&&v>0)return v;}return 0;
+  };
+  sites.forEach(site=>{
+    hives+=lv(site,'hives');dead+=lv(site,'dead');alive+=lv(site,'alive_hives');
+    singles+=lv(site,'singles');doubles+=lv(site,'doubles');light+=lv(site,'light');
+    fdOn+=lv(site,'fd_on');on34+=lv(site,'on_34');
+    hcFdOn+=lv(site,'honeycomb_fd');hcHdOn+=lv(site,'honeycomb_hd');
+    fdHarv+=lv(site,'fd_harv');harv34+=lv(site,'harv_34');
+    const sp=STATE.entries[eKey(op,site,'spring')]?.find(e=>!e._movement);
+    breeders+=parseInt(sp?.breeders)||0;
+    finishers+=parseInt(sp?.finishers)||0;
+    if(getFlag(op,site)) flagCount++;
+    if(getCheck(op,site)) checkCount++;
+  });
+  return{hives,dead,alive,singles,doubles,light,fdOn,on34,hcFdOn,hcHdOn,fdHarv,harv34,breeders,finishers,flagCount,checkCount};
+}
+
 function renderBatchList(){
-  const op=STATE.op,round=STATE.round,rd=ROUNDS[round],yards=getYards(op);
-  const wrap=h('div',null,h('div',{className:'section-label'},'Select batch'));
+  const op=STATE.op,yards=getYards(op);
+  const opData=OPERATIONS[op];
+  const wrap=h('div',null);
   Object.entries(yards).forEach(([batch,data])=>{
-    const total=data.sites.reduce((a,s)=>a+Object.keys(ROUNDS).reduce((b,rk)=>b+(STATE.entries[eKey(op,s,rk)]?.length||0),0),0);
-    const hasOverdue=data.sites.some(s=>{const dates=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,s,rk)]||[]).map(e=>e.date));const last=dates.sort().reverse()[0];return !last||daysBetween(last)>21;});
-    const card=h('div',{className:'card'+(hasOverdue?' overdue':''),onClick:()=>setState({run:batch,diaryView:'sites',round:STATE.round})});
-    card.appendChild(h('div',null,h('div',{className:'card-title'},batch),h('div',{className:'card-sub'},data.type==='standalone'?'Single site':`${data.sites.length} sites`)));
-    const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center'}});
-    if(total>0)right.appendChild(h('span',{className:'badge',style:{background:rd.bg,color:rd.color}},total));
-    if(hasOverdue)right.appendChild(h('span',{style:{fontSize:'16px'}},'⚑'));
-    right.appendChild(h('span',{className:'chevron'},'›'));
-    card.appendChild(right);wrap.appendChild(card);
+    const s=calcBatchSummary(op,batch,data.sites);
+    const hasOverdue=data.sites.some(site=>{const dates=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map(e=>e.date));const last=dates.sort().reverse()[0];return !last||daysBetween(last)>21;});
+    const card=h('div',{style:{background:'#fff',border:`1.5px solid ${hasOverdue?'#f4a0a0':'#ddd'}`,borderRadius:'12px',padding:'12px 14px',marginBottom:'10px',cursor:'pointer'},
+      onClick:()=>setState({run:batch,diaryView:'sites',round:STATE.round})});
+
+    // Title row
+    const titleRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom: s.hives>0?'10px':'0'}});
+    titleRow.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',color:'#1a1a1a'}},batch));
+    const badges=h('div',{style:{display:'flex',gap:'6px',alignItems:'center'}});
+    if(s.flagCount>0) badges.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#b07800',background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'10px',padding:'2px 8px'}},'! '+s.flagCount));
+    if(s.checkCount>0) badges.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#1a6fb0',background:'#e8f4fd',border:'1px solid #6ab0e0',borderRadius:'10px',padding:'2px 8px'}},'✓ '+s.checkCount));
+    badges.appendChild(h('span',{style:{color:'#ccc',fontSize:'18px'}},'›'));
+    titleRow.appendChild(badges);
+    card.appendChild(titleRow);
+
+    if(s.hives>0){
+      // Hive counts row
+      const hRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'6px'}});
+      [{l:'Hives',v:s.hives,c:'#1a1a1a'},{l:'Dead',v:s.dead,c:s.dead>0?'#c0392b':'#aaa',show:s.dead>=0&&s.hives>0},
+       {l:'Alive',v:s.alive,c:'#3d7a4f',show:s.alive>0},{l:'Singles',v:s.singles,c:'#555',show:s.singles>0},
+       {l:'Doubles',v:s.doubles,c:'#555',show:s.doubles>0},{l:'Light',v:s.light,c:'#ef9f27',show:s.light>0}
+      ].filter(x=>x.show!==false&&(x.show||x.v>0)).forEach(f=>{
+        hRow.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'700',color:f.c,background:'#f5f5f3',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l));
+      });
+      card.appendChild(hRow);
+
+      // Boxes on / harvested
+      const boxItems=[{l:'FD on',v:s.fdOn},{l:'3/4 on',v:s.on34},{l:'HC FD',v:s.hcFdOn},{l:'HC ½',v:s.hcHdOn},{l:'FD Harv',v:s.fdHarv},{l:'3/4 Harv',v:s.harv34}].filter(x=>x.v>0);
+      if(boxItems.length){
+        const bRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
+        boxItems.forEach(f=>bRow.appendChild(h('span',{style:{fontSize:'12px',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'2px 7px'}},f.v+' '+f.l)));
+        card.appendChild(bRow);
+      }
+
+      // Breeders / Finishers
+      if(s.breeders>0||s.finishers>0){
+        const qRow=h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap'}});
+        if(s.breeders>0) qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#7a4fa8',background:'#f3e8ff',borderRadius:'6px',padding:'2px 8px'}},s.breeders+' Breeder'+(s.breeders!==1?'s':'')));
+        if(s.finishers>0) qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#3d7a4f',background:'#e6f2eb',borderRadius:'6px',padding:'2px 8px'}},s.finishers+' Finisher'+(s.finishers!==1?'s':'')));
+        card.appendChild(qRow);
+      }
+    }
+    wrap.appendChild(card);
   });
   return wrap;
 }
