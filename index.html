@@ -245,6 +245,7 @@ const ROUNDS = {
     {key:"score_breakdown",label:"Spring Score",type:"score_grid"},
     {key:"pol_pallet",label:"POL Pallet",type:"number"},{key:"part_pallet",label:"Part Pallet",type:"number"},
     {key:"pol_singles",label:"Pollination Singles",type:"number"},
+    {key:"sugar_feed",label:"Sugar Feed",type:"sugar_feed"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
   ]},
   queen:{label:"Queens / Thyme",short:"Queens / Thyme",color:"#7a4fa8",bg:"#f0e8fb",fields:[
@@ -1502,6 +1503,18 @@ function renderForm(){
         cell.appendChild(ni);grid.appendChild(cell);
       });
       fw.appendChild(grid);
+    } else if(f.type==='sugar_feed'){
+      fw.appendChild(h('label',{className:'lbl'},'Sugar Feed'));
+      const sfRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+      [{label:'Hives fed',key:'hives_fed'},{label:'Litres fed',key:'litres_fed'}].forEach(({label,key})=>{
+        const nw=h('div',null);
+        nw.appendChild(h('label',{style:{fontSize:'10px',color:'#3d7a4f',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
+        const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'9px 10px',border:'.5px solid #3d7a4f55',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+        ni.addEventListener('input',e=>STATE.formVals[key]=e.target.value);
+        if(vals[key]) ni.value=vals[key];
+        nw.appendChild(ni);sfRow.appendChild(nw);
+      });
+      fw.appendChild(sfRow);
     } else if(f.type==='carrot_grid'){
       fw.appendChild(h('label',{className:'lbl'},'Carrot Score — hives per score'));
       // 0-10, two rows of 6 then 5
@@ -1866,11 +1879,30 @@ function renderMovementsScreen(){
                 },'Change')
               ));
             }, p.site);
+          } else if(loadDirection.val==='from_orchard'){
+            // Navigator for yard destination when returning from orchard
+            destSel.style.display='none';
+            const retNavArea=h('div',{style:{marginBottom:'6px'}});
+            const retSelDisplay=h('div',{style:{display:'none',marginBottom:'6px'}});
+            splitForm.appendChild(retNavArea);
+            splitForm.appendChild(retSelDisplay);
+            makeSiteNavigator(retNavArea,(site,opName)=>{
+              destSel._selectedSite=site;destSel._selectedOp=opName;
+              retNavArea.style.display='none';
+              retSelDisplay.style.display='block';
+              retSelDisplay.innerHTML='';
+              retSelDisplay.appendChild(h('div',{style:{background:'#f0faf3',border:'1px solid #3d7a4f',borderRadius:'6px',padding:'7px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+                h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333'}},site+' ('+opName+')'),
+                h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'12px',cursor:'pointer'},
+                  onClick:()=>{destSel._selectedSite='';retNavArea.style.display='block';retSelDisplay.style.display='none';}
+                },'Change')
+              ));
+            }, null);
           } else {
-            const destLabel=loadDirection.val==='to_orchard'?'— Assign orchard —':'— Assign yard site —';
-            const destOptions=loadDirection.val==='to_orchard'?ORCHARDS:getPOLSites();
+            // Orchard dropdown for to_orchard destination
+            const destLabel='— Assign orchard —';
             destSel.appendChild(h('option',{value:''},destLabel));
-            destOptions.forEach(o=>{if(o!==p.site)destSel.appendChild(h('option',{value:o},o));});
+            ORCHARDS.forEach(o=>{destSel.appendChild(h('option',{value:o},o));});
             splitForm.appendChild(destSel);
           }
 
@@ -1887,7 +1919,7 @@ function renderMovementsScreen(){
           // + Assign (split this pickup)
           assignBtnRow.appendChild(h('button',{style:{padding:'7px',background:'rgba(155,89,182,0.1)',border:'1px solid '+movColor,borderRadius:'6px',fontSize:'12px',fontWeight:'700',color:movColor,cursor:'pointer'},
             onClick:()=>{
-              const dest=loadDirection.val==='yard_yard'?(destSel._selectedSite||''):destSel.value;
+              const dest=(loadDirection.val==='yard_yard'||loadDirection.val==='from_orchard')?(destSel._selectedSite||''):destSel.value;
               if(!dest){showToast(loadDirection.val==='to_orchard'?'Select an orchard':'Select a yard site');return;}
               const sh=parseInt(splitHiveInp.value)||0;
               if(!sh){showToast('Enter number of hives for this split');return;}
@@ -1901,7 +1933,7 @@ function renderMovementsScreen(){
           // Assign ALL remaining pickups to same destination
           assignBtnRow.appendChild(h('button',{style:{padding:'7px',background:'rgba(155,89,182,0.05)',border:'1px dashed '+movColor,borderRadius:'6px',fontSize:'11px',fontWeight:'700',color:movColor,cursor:'pointer'},
             onClick:()=>{
-              const dest=loadDirection.val==='yard_yard'?(destSel._selectedSite||''):destSel.value;
+              const dest=(loadDirection.val==='yard_yard'||loadDirection.val==='from_orchard')?(destSel._selectedSite||''):destSel.value;
               if(!dest){showToast(loadDirection.val==='to_orchard'?'Select an orchard':'Select a yard site');return;}
               const destOp=loadDirection.val==='yard_yard'?(destSel._selectedOp||''):(loadDirection.val==='from_orchard'?(Object.values(OPERATIONS['A2Bee'].yards).flatMap(y=>y.sites).includes(dest)?'A2Bee':'DH Alex'):'');
               // Assign ALL pickups with remaining hives to this destination
@@ -2057,8 +2089,8 @@ function renderMovementsScreen(){
       card.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'600',color:'#666',marginBottom:'10px'}},
         isOut?'+ Pick up from yard':isYY?'+ Pick up from yard':'+ Pick up from orchard'));
 
-      if(isYY){
-        // Op → Batch → Site navigator
+      if(isOut||isYY){
+        // Op → Batch → Site navigator for all yard selections
         const navArea=h('div',{style:{marginBottom:'10px'}});
         const selectedDisplay=h('div',{style:{display:'none'}});
         card.appendChild(navArea);
@@ -2079,16 +2111,13 @@ function renderMovementsScreen(){
           ));
         }, null);
       } else {
-        // Simple dropdown for Yard→Orchard and Orchard→Yard
+        // Orchard dropdown for Orchard→Yard pickup source
         const sw=h('div',{style:{marginBottom:'10px'}});
-        sw.appendChild(h('label',{className:'lbl'},isOut?'From yard site':'From orchard'));
+        sw.appendChild(h('label',{className:'lbl'},'From orchard'));
         const sel=h('select',{style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box'}});
-        sel.appendChild(h('option',{value:''},isOut?'— Select yard site —':'— Select orchard —'));
-        (isOut?getPOLSites():ORCHARDS).forEach(s=>sel.appendChild(h('option',{value:s},s)));
-        sel.addEventListener('change',e=>{
-          pickupData.site=e.target.value;
-          if(isOut) pickupData.op=Object.values(OPERATIONS['A2Bee'].yards).flatMap(y=>y.sites).includes(e.target.value)?'A2Bee':'DH Alex';
-        });
+        sel.appendChild(h('option',{value:''},'— Select orchard —'));
+        ORCHARDS.forEach(s=>sel.appendChild(h('option',{value:s},s)));
+        sel.addEventListener('change',e=>pickupData.site=e.target.value);
         sw.appendChild(sel);card.appendChild(sw);
       }
 
