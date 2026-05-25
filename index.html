@@ -241,7 +241,7 @@ const ROUNDS = {
   spring:{label:"Spring / Pollination",short:"Spring / Pollination",color:"#3d7a4f",bg:"#e6f2eb",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"light",label:"Light",type:"number"},
-    {key:"dead",label:"Dead",type:"number"},{key:"check",label:"Check",type:"number"},
+    {key:"dead",label:"Dead",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
     {key:"score_breakdown",label:"Spring Score",type:"score_grid"},
     {key:"pol_pallet",label:"POL Pallet",type:"number"},{key:"part_pallet",label:"Part Pallet",type:"number"},
     {key:"pol_singles",label:"Pollination Singles",type:"number"},
@@ -251,7 +251,7 @@ const ROUNDS = {
   queen:{label:"Queens / Thyme",short:"Queens / Thyme",color:"#7a4fa8",bg:"#f0e8fb",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"dead",label:"Dead",type:"number"},
-    {key:"check",label:"Check",type:"number"},{key:"qr",label:"QR",type:"number"},
+    {key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},{key:"qr",label:"QR",type:"number"},
     {key:"virgin",label:"Virgin",type:"number"},{key:"cell_needed",label:"Cell needed",type:"number"},
     {key:"tops",label:"Tops",type:"number"},{key:"splits",label:"Splits taken",type:"number"},
     {key:"carrot",label:"Carrot pallets",type:"number"},{key:"carrot_score",label:"Carrot Score",type:"carrot_grid"},
@@ -262,7 +262,7 @@ const ROUNDS = {
   clover:{label:"Clover / Carrots",short:"Clover / Carrots",color:"#b05a1a",bg:"#faeeda",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"light",label:"Light",type:"number"},
-    {key:"dead",label:"Dead",type:"number"},{key:"check",label:"Check",type:"number"},
+    {key:"dead",label:"Dead",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
     {key:"carrot",label:"Carrot pallets",type:"number"},{key:"carrot_score",label:"Carrot Score",type:"carrot_grid"},
     {key:"fd_harv",label:"FD Harv",type:"number"},
     {key:"harv_34",label:"3/4 Harv",type:"number"},{key:"on_34",label:"3/4 on",type:"number"},
@@ -336,6 +336,18 @@ function removeCustomSite(opName,batchName,siteName){
   pushToSupabase('custom_yards',cy);
 }
 function saveLocal(entries){try{localStorage.setItem('apiary_entries',JSON.stringify(entries));}catch(e){}}
+
+// ── Check storage (blue reminder, less urgent than flag) ─────────────────────
+function loadChecks(){try{return JSON.parse(localStorage.getItem('apiary_checks')||'{}');}catch(e){return{};}}
+function saveChecks(checks){try{localStorage.setItem('apiary_checks',JSON.stringify(checks));}catch(e){}}
+function checkKey(op,site){return `${op}__${site}__check`;}
+function getCheck(op,site){const f=loadChecks();return f[checkKey(op,site)]||null;}
+async function setCheck(op,site,note){
+  const f=loadChecks();
+  const k=checkKey(op,site);
+  if(note){const val={note,by:STATE.userName||'',date:todayStr()};f[k]=val;saveChecks(f);await pushToSupabase(k,val);}
+  else{delete f[k];saveChecks(f);await pushToSupabase(k,{deleted:true});}
+}
 
 // ── Flag storage ─────────────────────────────────────────────────────────────
 function loadFlags(){try{return JSON.parse(localStorage.getItem('apiary_flags')||'{}');}catch(e){return{};}}
@@ -445,6 +457,12 @@ async function pullFromSupabase(){
             saveCustomYards(merged);
           }
           return;
+        }
+        if(row.entry_key.endsWith('__check')&&!row.entry_key.endsWith('__flag')){
+          const checks=loadChecks();
+          if(row.data&&!row.data.deleted){checks[row.entry_key]=row.data;}
+          else{delete checks[row.entry_key];}
+          saveChecks(checks);return;
         }
         if(row.entry_key.endsWith('__flag')){
           // It's a flag — restore to local flags store
@@ -1013,6 +1031,13 @@ function renderOverviewTab(){
           fb.addEventListener('click',e=>{e.stopPropagation();showFlagModal(op,site);});
           card.appendChild(fb);
         }
+        const chk=getCheck(op,site);
+        if(chk){
+          const cb=h('div',{style:{marginTop:'5px',background:'#e8f4fd',border:'1px solid #6ab0e0',borderRadius:'6px',padding:'6px 10px',fontSize:'12px',color:'#1a6fb0',display:'flex',gap:'6px',alignItems:'flex-start',cursor:'pointer'}},
+            h('span',{style:{fontWeight:'700',flexShrink:'0'}},'✓ '),h('span',null,chk.note));
+          cb.addEventListener('click',e=>{e.stopPropagation();showCheckModal(op,site);});
+          card.appendChild(cb);
+        }
         section.appendChild(card);
       });
       resultsContainer.appendChild(section);
@@ -1217,6 +1242,9 @@ function renderSitesList(){
     card.appendChild(left);
     const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center'}});
     if(siteFlag){const si=h('span',{style:{fontSize:'16px',color:'#ef9f27',cursor:'pointer'}},'!');si.addEventListener('click',e=>{e.stopPropagation();showFlagModal(op,site);});right.appendChild(si);}
+    const siteChk=getCheck(op,site);
+    if(siteChk){const ci=h('span',{style:{fontSize:'15px',color:'#1a6fb0',cursor:'pointer',fontWeight:'700'}},'✓');ci.addEventListener('click',e=>{e.stopPropagation();showCheckModal(op,site);});right.appendChild(ci);
+      left.appendChild(h('div',{style:{fontSize:'11px',color:'#1a6fb0',fontWeight:'600',marginTop:'2px',cursor:'pointer'},onClick:(e)=>{e.stopPropagation();showCheckModal(op,site);}},'✓ '+siteChk.note));}
     if(score!==null)right.appendChild(scoreCircle(score,28,13));
     if(slist.length>0)right.appendChild(h('span',{className:'badge',style:{background:'#eee',color:'#555'}},slist.length));
     right.appendChild(h('span',{className:'chevron'},'›'));
@@ -1357,13 +1385,21 @@ function renderEntriesList(){
   }
   wrap.appendChild(summaryPanel);
 
-  // Flag if present
+  // Flag if present (urgent — amber)
   const flag=getFlag(op,site);
   if(flag){
-    const fb=h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'10px',cursor:'pointer',display:'flex',gap:'6px',alignItems:'flex-start'}},
+    const fb=h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',cursor:'pointer',display:'flex',gap:'6px',alignItems:'flex-start'}},
       h('span',{style:{fontWeight:'700',color:'#ef9f27',flexShrink:'0'}},'!'),h('span',{style:{fontSize:'13px',color:'#b07800'}},flag.comment));
     fb.addEventListener('click',()=>showFlagModal(op,site));
     wrap.appendChild(fb);
+  }
+  // Check reminder (less urgent — blue)
+  const chkYard=getCheck(op,site);
+  if(chkYard){
+    const cb=h('div',{style:{background:'#e8f4fd',border:'1px solid #6ab0e0',borderRadius:'8px',padding:'8px 12px',marginBottom:'10px',cursor:'pointer',display:'flex',gap:'6px',alignItems:'flex-start'}},
+      h('span',{style:{fontWeight:'700',color:'#1a6fb0',flexShrink:'0'}},'✓'),h('span',{style:{fontSize:'13px',color:'#1a6fb0'}},chkYard.note));
+    cb.addEventListener('click',()=>showCheckModal(op,site));
+    wrap.appendChild(cb);
   }
 
   const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}});
@@ -1503,6 +1539,14 @@ function renderForm(){
         cell.appendChild(ni);grid.appendChild(cell);
       });
       fw.appendChild(grid);
+    } else if(f.type==='check_note'){
+      // Compact text field for check description, inline below check number
+      const cnWrap=h('div',{style:{marginBottom:'0'}});
+      const cnInp=h('input',{type:'text',placeholder:'What needs checking? (optional)',className:'inp',style:{fontSize:'13px',padding:'7px 10px',borderColor:'#6ab0e033',background:'#f0f7ff'}});
+      cnInp.value=vals[f.key]||'';
+      cnInp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
+      cnWrap.appendChild(cnInp);
+      fw.appendChild(cnWrap);
     } else if(f.type==='sugar_feed'){
       fw.appendChild(h('label',{className:'lbl'},'Sugar Feed'));
       const sfRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
@@ -1545,6 +1589,7 @@ function renderForm(){
       saved_at:formData.saved_at||new Date().toISOString()
     };
     if(_flag&&entry.comments){setFlag(op,site,entry.comments);}
+    if(entry.check_note){setCheck(op,site,entry.check_note);}
     const existing=STATE.entries[k]||[];
     let updated;
     if(STATE.editing!==null){updated={...STATE.entries,[k]:existing.map((e,i)=>i===STATE.editing?entry:e)};}
@@ -1616,6 +1661,41 @@ function renderExportTab(){
   screen.appendChild(h('div',{style:{marginTop:'8px',fontSize:'12px',color:'#aaa',lineHeight:'1.6'}},'Data is stored in Supabase cloud and locally on this device. You can also pull a fresh sync below.'));
   screen.appendChild(h('button',{style:{marginTop:'12px',width:'100%',padding:'12px',background:'#f0f0ee',border:'.5px solid #ccc',borderRadius:'10px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:async()=>{showToast('Syncing…');await pullFromSupabase();showToast('Sync complete');}}, 'Force sync from cloud'));
   return screen;
+}
+
+function showCheckModal(op, site){
+  const existing=document.getElementById('check-modal');
+  if(existing) existing.remove();
+  const check=getCheck(op,site);
+  const overlay=h('div',{id:'check-modal',style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+  const card=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'24px',width:'100%',maxWidth:'320px'}});
+  if(check){
+    card.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'6px'}},site));
+    card.appendChild(h('div',{style:{fontSize:'13px',color:'#1a6fb0',background:'#e8f4fd',border:'1px solid #6ab0e0',borderRadius:'8px',padding:'10px 12px',marginBottom:'6px'}},'✓ Check: '+check.note));
+    card.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'20px'}},fmtDate(check.date)+(check.by?' · '+check.by:'')));
+    card.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'600',marginBottom:'14px'}},'Mark as checked?'));
+    const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+    btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#1a6fb0',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+      onClick:()=>{setCheck(op,site,null);showToast('Check cleared');overlay.remove();setState({});}
+    },'Yes, checked'));
+    btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+      onClick:()=>overlay.remove()},'Not yet'));
+    card.appendChild(btnRow);
+  } else {
+    card.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},site));
+    card.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},'Add a check reminder'));
+    const ta=h('input',{type:'text',placeholder:'e.g. Queen spotty, check brood',className:'inp',style:{marginBottom:'12px'}});
+    card.appendChild(ta);
+    const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+    btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#1a6fb0',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+      onClick:()=>{const txt=ta.value.trim();if(!txt){showToast('Enter a check note');return;}setCheck(op,site,txt);showToast('Check added');overlay.remove();setState({});}},'Add check'));
+    btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+      onClick:()=>overlay.remove()},'Cancel'));
+    card.appendChild(btnRow);
+  }
+  overlay.appendChild(card);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
 }
 
 function showFlagModal(op, site){
