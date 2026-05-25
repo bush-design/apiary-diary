@@ -300,18 +300,32 @@ function saveCustomYards(y){try{localStorage.setItem('apiary_custom_yards',JSON.
 function getYards(opName){
   const base=OPERATIONS[opName].yards;
   const custom=loadCustomYards()[opName]||{};
-  return {...base,...custom};
+  const merged={};
+  // Start with all base batches
+  Object.entries(base).forEach(([batch,data])=>{
+    const customSites=custom[batch]?.sites||[];
+    const allSites=[...data.sites,...customSites.filter(s=>!data.sites.includes(s))];
+    merged[batch]={...data,sites:allSites};
+  });
+  // Add any entirely new custom batches
+  Object.entries(custom).forEach(([batch,data])=>{
+    if(!merged[batch]) merged[batch]=data;
+  });
+  return merged;
 }
 function addCustomSite(opName,batchName,siteName){
   const cy=loadCustomYards();
   if(!cy[opName])cy[opName]={};
+  // Never touch built-in sites - only manage the custom sites array
   if(!cy[opName][batchName])cy[opName][batchName]={type:'run',sites:[]};
   if(!cy[opName][batchName].sites.includes(siteName))cy[opName][batchName].sites.push(siteName);
   saveCustomYards(cy);
-  // Sync to Supabase
   pushToSupabase('custom_yards',cy);
 }
 function removeCustomSite(opName,batchName,siteName){
+  // Safety check: never remove a built-in site
+  const builtIn=OPERATIONS[opName]?.yards[batchName]?.sites||[];
+  if(builtIn.includes(siteName)){console.warn('Refusing to remove built-in site:',siteName);return;}
   const cy=loadCustomYards();
   if(!cy[opName]?.[batchName]) return;
   cy[opName][batchName].sites=cy[opName][batchName].sites.filter(s=>s!==siteName);
@@ -396,11 +410,39 @@ async function pullFromSupabase(){
       const mergedFlags=loadFlags();
       data.forEach(row=>{
         if(row.entry_key==='hive_movements'){
-          if(row.data&&Array.isArray(row.data)) saveMovements(row.data);
+          // Merge: keep local movements not in Supabase (in case of offline additions)
+          if(row.data&&Array.isArray(row.data)){
+            const local=loadMovements();
+            const remoteIds=new Set(row.data.map(m=>m.id));
+            const localOnly=local.filter(m=>!remoteIds.has(m.id));
+            saveMovements([...row.data,...localOnly]);
+          }
           return;
         }
         if(row.entry_key==='custom_yards'){
-          if(row.data&&typeof row.data==='object') saveCustomYards(row.data);
+          // Merge: combine remote and local custom yards, local takes priority
+          if(row.data&&typeof row.data==='object'){
+            const local=loadCustomYards();
+            const merged={};
+            // Start with remote
+            Object.entries(row.data).forEach(([op,batches])=>{
+              merged[op]={};
+              Object.entries(batches).forEach(([batch,data])=>{merged[op][batch]=data;});
+            });
+            // Layer local on top (adds any locally-added sites not yet in Supabase)
+            Object.entries(local).forEach(([op,batches])=>{
+              if(!merged[op])merged[op]={};
+              Object.entries(batches).forEach(([batch,data])=>{
+                if(!merged[op][batch]){merged[op][batch]=data;}
+                else{
+                  // Merge sites arrays
+                  const combined=[...new Set([...merged[op][batch].sites,...data.sites])];
+                  merged[op][batch]={...merged[op][batch],sites:combined};
+                }
+              });
+            });
+            saveCustomYards(merged);
+          }
           return;
         }
         if(row.entry_key.endsWith('__flag')){
