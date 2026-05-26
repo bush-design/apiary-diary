@@ -2123,9 +2123,9 @@ function renderMovementsScreen(){
     const wrap=h('div',null);
 
     // Direction toggle
-    const dirRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'14px'}});
+    const dirRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'14px'}});
     function updateDirBtns(){
-      const vals=['to_orchard','from_orchard','yard_yard'];
+      const vals=['to_orchard','from_orchard','yard_yard','orchard_orchard'];
       [...dirRow.children].forEach((b,i)=>{
         const active=vals[i]===loadDirection.val;
         b.style.border='2px solid '+(active?movColor:'#ddd');
@@ -2133,7 +2133,7 @@ function renderMovementsScreen(){
         b.style.color=active?movColor:'#555';
       });
     }
-    [['to_orchard','Yard → Orchard'],['from_orchard','Orchard → Yard'],['yard_yard','Yard → Yard']].forEach(([val,label])=>{
+    [['to_orchard','Yard → Orchard'],['from_orchard','Orchard → Yard'],['yard_yard','Yard → Yard'],['orchard_orchard','Orchard → Orchard']].forEach(([val,label])=>{
       dirRow.appendChild(h('button',{style:{padding:'8px 6px',borderRadius:'8px',border:'2px solid '+(loadDirection.val===val?movColor:'#ddd'),background:loadDirection.val===val?'#f3e8ff':'#fff',color:loadDirection.val===val?movColor:'#555',fontWeight:'600',fontSize:'12px',cursor:'pointer'},
         onClick:()=>{loadDirection.val=val;pickups.length=0;updateDirBtns();rebuildAll();}}
       ,label));
@@ -2322,10 +2322,10 @@ function renderMovementsScreen(){
               ));
             }, null);
           } else {
-            // Orchard dropdown for to_orchard destination
-            const destLabel='— Assign orchard —';
+            // Orchard dropdown for to_orchard and orchard_orchard destination
+            const destLabel=loadDirection.val==='orchard_orchard'?'— Assign destination orchard —':'— Assign orchard —';
             destSel.appendChild(h('option',{value:''},destLabel));
-            getAllOrchards().forEach(o=>{destSel.appendChild(h('option',{value:o},o));});
+            getAllOrchards().forEach(o=>{if(o!==p.site)destSel.appendChild(h('option',{value:o},o));});
             splitForm.appendChild(destSel);
           }
 
@@ -2511,6 +2511,7 @@ function renderMovementsScreen(){
                   const isOut=loadDirection.val==='to_orchard';
                   const isOutMov=loadDirection.val==='to_orchard';
                   const isYYMov=loadDirection.val==='yard_yard';
+                  const isOOMov=loadDirection.val==='orchard_orchard';
                   const mov={
                     direction:loadDirection.val,
                     date:loadDate.val,
@@ -2519,10 +2520,10 @@ function renderMovementsScreen(){
                     vehicle:loadVehicle.val,
                     from_site:(isOutMov||isYYMov)?p.site:'',
                     from_op:(isOutMov||isYYMov)?p.op:'',
-                    to_orchard:isOutMov?s.dest:'',
+                    to_orchard:(isOutMov||isOOMov)?s.dest:'',
                     from_orchard:(!isOutMov&&!isYYMov)?p.site:'',
-                    to_site:(!isOutMov)?s.dest:'',
-                    to_op:(!isOutMov)?s.dest_op:'',
+                    to_site:(!isOutMov&&!isOOMov)?s.dest:'',
+                    to_op:(!isOutMov&&!isOOMov)?s.dest_op:'',
                     pallets:p.pallets,
                     singles:p.singles,
                     half_pallet:p.half_pallet||false,
@@ -2677,12 +2678,13 @@ function renderMovementsScreen(){
         // Pre-fill if editing
         if(pickupData.site) showSelected(pickupData.site,pickupData.op);
       } else {
-        // Orchard dropdown for Orchard→Yard pickup source
+        // Orchard dropdown for Orchard→Yard and Orchard→Orchard pickup source
         const sw=h('div',{style:{marginBottom:'10px'}});
         sw.appendChild(h('label',{className:'lbl'},'From orchard'));
         const sel=h('select',{style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box'}});
         sel.appendChild(h('option',{value:''},'— Select orchard —'));
         getAllOrchards().forEach(s=>sel.appendChild(h('option',{value:s},s)));
+        if(pickupData.site) sel.value=pickupData.site;
         sel.addEventListener('change',e=>pickupData.site=e.target.value);
         sw.appendChild(sel);card.appendChild(sw);
       }
@@ -2935,10 +2937,11 @@ function renderMovementsScreen(){
       movements.forEach(m=>{
         const isOut=m.direction==='to_orchard';
         const isYY=m.direction==='yard_yard';
-        const title=isOut?`${m.from_site} → ${m.to_orchard}`:isYY?`${m.from_site} → ${m.to_site}`:`${m.from_orchard} → ${m.to_site}`;
+        const isOO=m.direction==='orchard_orchard';
+        const title=isOut?`${m.from_site} → ${m.to_orchard}`:isYY?`${m.from_site} → ${m.to_site}`:isOO?`${m.from_orchard} → ${m.to_orchard}`:`${m.from_orchard} → ${m.to_site}`;
         const sub=`${m.pallets||0}p · ${m.singles||0}s`;
         const meta=[m.driver,m.vehicle].filter(Boolean).join(' · ');
-        const card=h('div',{style:{background:'#fff',border:`.5px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':'#3d7a4f'}33`,borderLeft:`3px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':'#3d7a4f'}`,borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',overflow:'hidden'}});
+        const card=h('div',{style:{background:'#fff',border:`.5px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}33`,borderLeft:`3px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}`,borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',overflow:'hidden'}});
         const mainRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
         mainRow.appendChild(h('div',{style:{flex:'1'}},
           h('div',{style:{fontWeight:'600',fontSize:'14px'}},title),
