@@ -857,6 +857,15 @@ function renderOpSelector(){
     if(s.logged>0){
       const statsDiv=h('div',{style:{borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:'10px'}});
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:s.avgScore?'8px':'0'}});
+      // Calculate op-specific hives in pollination
+      const opSitesCard=Object.values(op.yards).flatMap(y=>y.sites);
+      let opPolHives=0;
+      loadMovements().forEach(m=>{
+        const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+        if(m.direction==='to_orchard'&&opSitesCard.includes(m.from_site)) opPolHives+=mh;
+        else if(m.direction==='from_orchard'&&opSitesCard.includes(m.to_site)) opPolHives-=mh;
+      });
+      opPolHives=Math.max(0,opPolHives);
       [{label:'Hives',value:s.hives},{label:'Dead',value:s.dead,red:s.dead>0},{label:'Sites',value:`${s.logged}/${s.total}`}].forEach(st=>{
         grid.appendChild(h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 6px',textAlign:'center'}},
           h('div',{style:{fontSize:'17px',fontWeight:'700',color:st.red?'#f4a0a0':'#fff',lineHeight:'1.1'}},st.value),
@@ -864,7 +873,14 @@ function renderOpSelector(){
         ));
       });
       statsDiv.appendChild(grid);
-      if(s.avgScore)statsDiv.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}},h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.05em'}},'Spring avg'),scoreCircle(Math.round(parseFloat(s.avgScore)),26,13)));
+      if(s.avgScore)statsDiv.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginTop:'4px'}},h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.05em'}},'Spring avg'),scoreCircle(Math.round(parseFloat(s.avgScore)),26,13)));
+      // Pollination summary
+      if(opPolHives>0){
+        const polRow=h('div',{style:{marginTop:'8px',borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+        polRow.appendChild(h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.05em'}},'In pollination'));
+        polRow.appendChild(h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#c39bd3'}},opPolHives+' hives'));
+        statsDiv.appendChild(polRow);
+      }
       card.appendChild(statsDiv);
     }
     // ── Flagged sites on op card ──
@@ -968,12 +984,20 @@ function renderSummaryPanel(opName){
     panel.appendChild(qyDiv);
   }
   // Hives in orchards from movements
-  const orchTotals=getOrchardTotals();
-  const hivesInOrchards=Object.values(orchTotals).reduce((a,o)=>a+o.hives,0);
-  if(hivesInOrchards>0){
+  // Only count movements from THIS operation's sites
+  const opSitesPan=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  let opHivesOut=0;
+  loadMovements().forEach(m=>{
+    const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+    if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) opHivesOut+=mh;
+    else if(m.direction==='from_orchard'&&opSitesPan.includes(m.to_site)) opHivesOut-=mh;
+  });
+  opHivesOut=Math.max(0,opHivesOut);
+  if(opHivesOut>0){
+    const hivesInYards=Math.max(0,s.hives-opHivesOut);
     const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},s.hives),h('div',{className:'stat-lbl'},'Hives in yards')));
-    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},hivesInOrchards),h('div',{className:'stat-lbl'},'In orchards')));
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},hivesInYards),h('div',{className:'stat-lbl'},'Hives in yards')));
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut),h('div',{className:'stat-lbl'},'In pollination')));
     panel.appendChild(orchDiv);
   }
   if(s.avgScore){
@@ -1135,12 +1159,20 @@ function renderSummaryPanel(opName){
     panel.appendChild(boxDiv);
   }
   // Hives in orchards from movements
-  const orchTotals=getOrchardTotals();
-  const hivesInOrchards=Object.values(orchTotals).reduce((a,o)=>a+o.hives,0);
-  if(hivesInOrchards>0){
+  // Only count movements from THIS operation's sites
+  const opSitesPan=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  let opHivesOut=0;
+  loadMovements().forEach(m=>{
+    const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+    if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) opHivesOut+=mh;
+    else if(m.direction==='from_orchard'&&opSitesPan.includes(m.to_site)) opHivesOut-=mh;
+  });
+  opHivesOut=Math.max(0,opHivesOut);
+  if(opHivesOut>0){
+    const hivesInYards=Math.max(0,s.hives-opHivesOut);
     const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},s.hives),h('div',{className:'stat-lbl'},'Hives in yards')));
-    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},hivesInOrchards),h('div',{className:'stat-lbl'},'In orchards')));
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},hivesInYards),h('div',{className:'stat-lbl'},'Hives in yards')));
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut),h('div',{className:'stat-lbl'},'In pollination')));
     panel.appendChild(orchDiv);
   }
   if(s.avgScore){
