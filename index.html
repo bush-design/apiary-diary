@@ -1299,38 +1299,149 @@ function renderBatchList(){
 }
 
 function renderSitesList(){
-  const op=STATE.op,round=STATE.round,rd=ROUNDS[round],batch=STATE.run;
+  const op=STATE.op,batch=STATE.run;
   const data=getYards(op)[batch];
-  const wrap=h('div',null,h('div',{className:'section-label'},'Select site'));
+  const opData=OPERATIONS[op];
+  const wrap=h('div',null);
+
   data.sites.forEach(site=>{
-    const slist=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map(e=>({...e,_rk:rk}))).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    const last=slist[0];
-    const days=last?daysBetween(last.date):null;
-    const overdue=!last||(days!==null&&days>21);
-    const springLast=STATE.entries[eKey(op,site,'spring')]?.[0];
-    const bd=springLast?.score_breakdown||{};
+    // Gather all real entries across rounds, newest first
+    const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>({...e,_rk:rk}))).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const latest=allReal[0]||null;
+    const days=latest?daysBetween(latest.date):null;
+    const overdue=!latest||days>21;
+
+    // Field lookup — most recent non-zero value across all entries
+    const lv=k=>{for(const e of allReal){const v=parseInt(e[k]);if(!isNaN(v)&&v>0)return v;}return 0;};
+
+    // Spring score
+    const springEntries=STATE.entries[eKey(op,site,'spring')]?.filter(e=>!e._movement)||[];
+    const bd=springEntries[0]?.score_breakdown||{};
     let at=0,ac=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
-    const score=round==='spring'&&ac>0?Math.round(at/ac):null;
-    const card=h('div',{className:'card'+(overdue?' overdue':''),onClick:()=>setState({site,diaryView:'entries'})});
-    const left=h('div',null,h('div',{style:{fontWeight:'500',fontSize:'15px'}},site));
-    if(last){left.appendChild(h('div',{className:'card-sub'},`Last: ${fmtDate(last.date)}`+(days!==null?` · ${days}d ago`:'')));if(last.treatment)left.appendChild(h('div',{className:'tx-pill'},'Tx: '+last.treatment));}
-    else left.appendChild(h('div',{style:{fontSize:'12px',color:'#ddd',marginTop:'2px'}},'Not visited'));
-    const siteFlag=getFlag(op,site);
-    if(siteFlag){
-      const sf=h('div',{style:{fontSize:'11px',color:'#b07800',fontWeight:'600',marginTop:'2px',cursor:'pointer'}},'! '+siteFlag.comment);
-      sf.addEventListener('click',e=>{e.stopPropagation();showFlagModal(op,site);});
-      left.appendChild(sf);
+    const avg=ac>0?Math.round(at/ac):null;
+
+    // Movement-adjusted hive count
+    const allMovs=loadMovements();
+    let movNet=0;
+    allMovs.forEach(m=>{
+      const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+      if(m.direction==='to_orchard'&&m.from_site===site) movNet-=mh;
+      else if(m.direction==='from_orchard'&&m.to_site===site) movNet+=mh;
+      else if(m.direction==='yard_yard'&&m.from_site===site) movNet-=mh;
+      else if(m.direction==='yard_yard'&&m.to_site===site) movNet+=mh;
+    });
+    const baseH=lv('hives');
+    const movEntryH=parseInt(Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement))[0]?.hives)||0;
+    const currentHives=baseH>0?Math.max(0,baseH+movNet):movNet>0?movNet:movEntryH>0?movEntryH:0;
+
+    const flag=getFlag(op,site);
+    const chk=getCheck(op,site);
+
+    // Card
+    const card=h('div',{style:{background:'#fff',border:`1.5px solid ${overdue?'#f4a0a0':flag?'#ef9f27':chk?'#6ab0e0':'#e0e0de'}`,borderRadius:'12px',marginBottom:'8px',overflow:'hidden'}});
+
+    // Header row — always visible, tap to navigate
+    const header=h('div',{style:{padding:'11px 13px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'},
+      onClick:()=>setState({site,diaryView:'entries'})});
+    const hLeft=h('div',{style:{flex:'1'}});
+    hLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',color:'#1a1a1a',marginBottom:'2px'}},site));
+    if(latest){
+      hLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},ROUNDS[latest._rk].short+' · '+fmtDate(latest.date)));
+    } else {
+      hLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#bbb'}},'Not visited'));
     }
-    card.appendChild(left);
-    const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center'}});
-    if(siteFlag){const si=h('span',{style:{fontSize:'16px',color:'#ef9f27',cursor:'pointer'}},'!');si.addEventListener('click',e=>{e.stopPropagation();showFlagModal(op,site);});right.appendChild(si);}
-    const siteChk=getCheck(op,site);
-    if(siteChk){const ci=h('span',{style:{fontSize:'15px',color:'#1a6fb0',cursor:'pointer',fontWeight:'700'}},'✓');ci.addEventListener('click',e=>{e.stopPropagation();showCheckModal(op,site);});right.appendChild(ci);
-      left.appendChild(h('div',{style:{fontSize:'11px',color:'#1a6fb0',fontWeight:'600',marginTop:'2px',cursor:'pointer'},onClick:(e)=>{e.stopPropagation();showCheckModal(op,site);}},'✓ '+siteChk.note));}
-    if(score!==null)right.appendChild(scoreCircle(score,28,13));
-    if(slist.length>0)right.appendChild(h('span',{className:'badge',style:{background:'#eee',color:'#555'}},slist.length));
-    right.appendChild(h('span',{className:'chevron'},'›'));
-    card.appendChild(right);wrap.appendChild(card);
+    const hRight=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',flexShrink:'0',marginLeft:'8px'}});
+    if(overdue&&!latest) hRight.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#e24b4a',background:'#fde8e8',borderRadius:'10px',padding:'2px 7px'}},'NOT VISITED'));
+    else if(overdue) hRight.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#e24b4a',background:'#fde8e8',borderRadius:'10px',padding:'2px 7px'}},days+'d'));
+    if(avg!==null) hRight.appendChild(scoreCircle(avg,24,11));
+    const chevron=h('span',{style:{color:'#bbb',fontSize:'16px',transition:'transform .2s'}},'▼');
+    hRight.appendChild(chevron);
+    header.appendChild(hLeft);header.appendChild(hRight);
+    card.appendChild(header);
+
+    // Detail body — toggle open/closed
+    const body=h('div',{style:{padding:'0 13px 12px',borderTop:'.5px solid #f0f0ee',display:'none'}});
+
+    if(latest||currentHives>0){
+      // Hive tiles
+      const deadVal=lv('dead_hives')||lv('dead');
+      const hiveItems=[
+        {l:'Hives',v:currentHives,show:currentHives>0,bold:true},
+        {l:'Dead',v:deadVal,show:currentHives>0,red:deadVal>0},
+        {l:'Alive',v:lv('alive_hives'),show:lv('alive_hives')>0,green:true},
+        {l:'Singles',v:lv('singles'),show:lv('singles')>0},
+        {l:'Doubles',v:lv('doubles'),show:lv('doubles')>0},
+        {l:'Light',v:lv('light'),show:lv('light')>0},
+      ].filter(x=>x.show);
+      if(hiveItems.length){
+        const hRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginTop:'10px',marginBottom:'6px'}});
+        hiveItems.forEach(f=>hRow.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'700',color:f.red?'#c0392b':f.green?'#3d7a4f':'#333',background:f.red?'#fde8e8':f.green?'#e6f2eb':'#f5f5f3',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l)));
+        body.appendChild(hRow);
+      }
+      // Boxes on
+      const boxOn=[{l:'FD on',v:lv('fd_on')},{l:'3/4 on',v:lv('on_34')},{l:'HC FD',v:lv('honeycomb_fd')},{l:'HC ½',v:lv('honeycomb_hd')}].filter(x=>x.v>0);
+      if(boxOn.length){
+        const bRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
+        boxOn.forEach(f=>bRow.appendChild(h('span',{style:{fontSize:'12px',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'2px 7px'}},f.v+' '+f.l)));
+        body.appendChild(bRow);
+      }
+      // Boxes harvested
+      const boxHarv=[{l:'FD Harv',v:lv('fd_harv')},{l:'3/4 Harv',v:lv('harv_34')}].filter(x=>x.v>0);
+      if(boxHarv.length){
+        const hRow2=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
+        boxHarv.forEach(f=>hRow2.appendChild(h('span',{style:{fontSize:'12px',color:'#b05a1a',background:'#faeeda',borderRadius:'6px',padding:'2px 7px'}},f.v+' '+f.l)));
+        body.appendChild(hRow2);
+      }
+      // Breeders / Finishers
+      const sp=springEntries[0];
+      const br=parseInt(sp?.breeders)||0,fi=parseInt(sp?.finishers)||0;
+      if(br>0||fi>0){
+        const qRow=h('div',{style:{display:'flex',gap:'6px',marginBottom:'6px'}});
+        if(br>0)qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#7a4fa8',background:'#f3e8ff',borderRadius:'6px',padding:'2px 8px'}},br+' Breeder'+(br!==1?'s':'')));
+        if(fi>0)qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#3d7a4f',background:'#e6f2eb',borderRadius:'6px',padding:'2px 8px'}},fi+' Finisher'+(fi!==1?'s':'')));
+        body.appendChild(qRow);
+      }
+      // Treatment
+      const tx=allReal.find(e=>e.treatment)?.treatment;
+      if(tx) body.appendChild(h('div',{style:{fontSize:'12px',color:'#9b59b6',fontWeight:'600',marginBottom:'4px'}},'Tx: '+tx));
+      // Latest comment
+      if(latest?.comments) body.appendChild(h('div',{style:{fontSize:'12px',color:'#555',background:'#f8f8f6',borderRadius:'5px',padding:'5px 8px',marginBottom:'6px'}},latest.comments));
+    } else {
+      body.appendChild(h('div',{style:{fontSize:'13px',color:'#bbb',padding:'8px 0'}},'No entries yet'));
+    }
+
+    // Flag / check
+    if(flag){
+      const fb=h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'6px',padding:'5px 8px',fontSize:'12px',color:'#b07800',cursor:'pointer',marginBottom:'4px',display:'flex',gap:'5px'}},
+        h('span',{style:{fontWeight:'700'}},'!'),h('span',null,flag.comment));
+      fb.addEventListener('click',e=>{e.stopPropagation();showFlagModal(op,site);});
+      body.appendChild(fb);
+    }
+    if(chk){
+      const cb=h('div',{style:{background:'#e8f4fd',border:'1px solid #6ab0e0',borderRadius:'6px',padding:'5px 8px',fontSize:'12px',color:'#1a6fb0',cursor:'pointer',display:'flex',gap:'5px'}},
+        h('span',{style:{fontWeight:'700'}},'✓'),h('span',null,chk.note));
+      cb.addEventListener('click',e=>{e.stopPropagation();showCheckModal(op,site);});
+      body.appendChild(cb);
+    }
+
+    // Tap header to toggle detail
+    let open=false;
+    header.addEventListener('click',e=>{
+      // If clicking the card title area (not chevron area), navigate
+      // Actually navigate on click - detail shows on expand
+    });
+    // Override: chevron toggles, rest of header navigates
+    chevron.addEventListener('click',e=>{
+      e.stopPropagation();
+      open=!open;
+      body.style.display=open?'block':'none';
+      chevron.textContent=open?'▲':'▼';
+    });
+    // Clicking the site name / left side navigates
+    hLeft.addEventListener('click',()=>setState({site,diaryView:'entries'}));
+
+    card.appendChild(body);
+    wrap.appendChild(card);
   });
   return wrap;
 }
