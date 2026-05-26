@@ -1354,13 +1354,11 @@ function renderSitesList(){
     if(overdue&&!latest) hRight.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#e24b4a',background:'#fde8e8',borderRadius:'10px',padding:'2px 7px'}},'NOT VISITED'));
     else if(overdue) hRight.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#e24b4a',background:'#fde8e8',borderRadius:'10px',padding:'2px 7px'}},days+'d'));
     if(avg!==null) hRight.appendChild(scoreCircle(avg,24,11));
-    const chevron=h('span',{style:{color:'#bbb',fontSize:'16px',transition:'transform .2s'}},'▼');
-    hRight.appendChild(chevron);
     header.appendChild(hLeft);header.appendChild(hRight);
     card.appendChild(header);
 
-    // Detail body — toggle open/closed
-    const body=h('div',{style:{padding:'0 13px 12px',borderTop:'.5px solid #f0f0ee',display:'none'}});
+    // Detail body — always visible
+    const body=h('div',{style:{padding:'0 13px 12px',borderTop:'.5px solid #f0f0ee'}});
 
     if(latest||currentHives>0){
       // Hive tiles
@@ -1424,19 +1422,6 @@ function renderSitesList(){
       body.appendChild(cb);
     }
 
-    // Tap header to toggle detail
-    let open=false;
-    header.addEventListener('click',e=>{
-      // If clicking the card title area (not chevron area), navigate
-      // Actually navigate on click - detail shows on expand
-    });
-    // Override: chevron toggles, rest of header navigates
-    chevron.addEventListener('click',e=>{
-      e.stopPropagation();
-      open=!open;
-      body.style.display=open?'block':'none';
-      chevron.textContent=open?'▲':'▼';
-    });
     // Clicking the site name / left side navigates
     hLeft.addEventListener('click',()=>setState({site,diaryView:'entries'}));
 
