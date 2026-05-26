@@ -2199,7 +2199,7 @@ function renderMovementsScreen(){
         if((p.splits||[]).length>0){
           p.splits.forEach((s,si)=>{
             const splitRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0faf3',borderRadius:'6px',padding:'5px 8px',marginBottom:'4px'}});
-            splitRow.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},`→ ${s.dest} — ${s.hives||0} hive${(s.hives||0)!==1?'s':''}`));
+            splitRow.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},`→ ${s.dest} — ${s.desc||((s.hives||0)+' hive'+((s.hives||0)!==1?'s':''))}`));
             splitRow.appendChild(h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'14px',cursor:'pointer',padding:'0'},
               onClick:()=>{p.splits.splice(si,1);renderPickups();}
             },'×'));
@@ -2258,14 +2258,64 @@ function renderMovementsScreen(){
             splitForm.appendChild(destSel);
           }
 
-          // Hive count for this split
+          // Assignment input — toggle between hives or pallets+singles
           const rem2=remaining(p);
-          const splitHiveWrap=h('div',{style:{marginBottom:'6px'}});
-          splitHiveWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},`Hives (${rem2} remaining)`));
+          let usePS=false; // false=hives, true=pallets+singles
+          const splitInputArea=h('div',{style:{marginBottom:'6px'}});
+
+          // Toggle button
+          const toggleBtn=h('button',{type:'button',style:{fontSize:'10px',color:movColor,background:'none',border:'none',cursor:'pointer',fontWeight:'600',padding:'0',marginBottom:'4px',display:'block'}},
+            'Switch to pallets/singles');
+          splitInputArea.appendChild(toggleBtn);
+
+          // Hive input (default)
+          const hiveWrap=h('div',null);
+          hiveWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},`Hives (${rem2} remaining)`));
           const splitHiveInp=h('input',{type:'number',inputmode:'numeric',min:'1',max:String(rem2),placeholder:String(rem2),style:{width:'100%',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
-          splitHiveInp.value=rem2; // default to all remaining
-          splitHiveWrap.appendChild(splitHiveInp);
-          splitForm.appendChild(splitHiveWrap);
+          splitHiveInp.value=rem2;
+          hiveWrap.appendChild(splitHiveInp);
+          splitInputArea.appendChild(hiveWrap);
+
+          // Pallets+singles input (hidden by default)
+          const psWrap=h('div',{style:{display:'none'}});
+          const psGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'6px',alignItems:'end'}});
+          // Pallets
+          const spInpWrap=h('div',null);
+          spInpWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},'Pallets'));
+          const splitPalInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+          spInpWrap.appendChild(splitPalInp);psGrid.appendChild(spInpWrap);
+          // Half pallet toggle
+          const spHalfWrap=h('div',{style:{textAlign:'center',paddingBottom:'2px'}});
+          spHalfWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}}),'½');
+          const spHalfBtn=h('button',{type:'button',style:{width:'32px',height:'32px',borderRadius:'50%',border:'1.5px solid #ddd',background:'#fff',fontSize:'12px',cursor:'pointer',color:'#aaa',fontWeight:'700'}},'+½');
+          let spHalf=false;
+          spHalfBtn.addEventListener('click',()=>{spHalf=!spHalf;spHalfBtn.style.background=spHalf?movColor:'#fff';spHalfBtn.style.color=spHalf?'#fff':'#aaa';spHalfBtn.style.border=spHalf?`1.5px solid ${movColor}`:'1.5px solid #ddd';});
+          spHalfWrap.appendChild(spHalfBtn);psGrid.appendChild(spHalfWrap);
+          // Singles
+          const ssSingWrap=h('div',null);
+          ssSingWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},'Singles'));
+          const splitSingInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+          ssSingWrap.appendChild(splitSingInp);psGrid.appendChild(ssSingWrap);
+          psWrap.appendChild(psGrid);
+          splitInputArea.appendChild(psWrap);
+
+          toggleBtn.addEventListener('click',()=>{
+            usePS=!usePS;
+            hiveWrap.style.display=usePS?'none':'block';
+            psWrap.style.display=usePS?'block':'none';
+            toggleBtn.textContent=usePS?'Switch to hive count':'Switch to pallets/singles';
+          });
+          splitForm.appendChild(splitInputArea);
+
+          // Helper to get hive count from current input mode
+          function getSplitHives(){
+            if(usePS){return(parseInt(splitPalInp.value)||0)*4+(spHalf?2:0)+(parseInt(splitSingInp.value)||0);}
+            return parseInt(splitHiveInp.value)||0;
+          }
+          function getSplitDesc(){
+            if(usePS){const p2=(parseInt(splitPalInp.value)||0)+(spHalf?'½':'');const s2=parseInt(splitSingInp.value)||0;return p2+'p'+(s2?' '+s2+'s':'');}
+            return getSplitHives()+' hives';
+          }
 
           const assignBtnRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}});
           // + Assign (split this pickup)
@@ -2273,12 +2323,12 @@ function renderMovementsScreen(){
             onClick:()=>{
               const dest=(loadDirection.val==='yard_yard'||loadDirection.val==='from_orchard')?(destSel._selectedSite||''):destSel.value;
               if(!dest){showToast(loadDirection.val==='to_orchard'?'Select an orchard':'Select a yard site');return;}
-              const sh=parseInt(splitHiveInp.value)||0;
-              if(!sh){showToast('Enter number of hives for this split');return;}
+              const sh=getSplitHives();
+              if(!sh){showToast('Enter hives, pallets or singles for this split');return;}
               if(sh>remaining(p)){showToast(`Only ${remaining(p)} hives remaining to assign`);return;}
               const destOp=loadDirection.val==='yard_yard'?(destSel._selectedOp||''):(loadDirection.val==='from_orchard'?(Object.values(OPERATIONS['A2Bee'].yards).flatMap(y=>y.sites).includes(dest)?'A2Bee':'DH Alex'):'');
               if(!p.splits)p.splits=[];
-              p.splits.push({dest,dest_op:destOp,hives:sh});
+              p.splits.push({dest,dest_op:destOp,hives:sh,desc:getSplitDesc()});
               renderPickups();
             }
           },'+ Assign'));
