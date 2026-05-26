@@ -2245,6 +2245,41 @@ function renderMovementsScreen(){
         pickupContainer.appendChild(card);
       });
 
+      // ── Truck total tile — sits below all pickups ──
+      if(pickups.length>0){
+        const totalPallets=pickups.reduce((a,p)=>a+(parseInt(p.pallets)||0),0);
+        const totalHalfPallets=pickups.filter(p=>p.half_pallet).length;
+        const totalSingles=pickups.reduce((a,p)=>a+(parseInt(p.singles)||0),0);
+        const totalAlive=pickups.reduce((a,p)=>a+(parseInt(p.alive_hives)||0),0);
+        const totalDead=pickups.reduce((a,p)=>a+(parseInt(p.dead_hives)||0),0);
+        const totalHives=pickups.reduce((a,p)=>a+totalHivesForPickup(p),0);
+        const assignedHives=pickups.reduce((a,p)=>a+(totalHivesForPickup(p)-remaining(p)),0);
+        const unassignedHives=totalHives-assignedHives;
+        const pct=totalHives>0?Math.round((assignedHives/totalHives)*100):0;
+
+        const truckBar=h('div',{style:{background:'#2a1f3d',borderRadius:'10px',padding:'10px 14px',marginBottom:'10px'}});
+        truckBar.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'6px'}},'On truck · '+pickups.length+' pickup'+(pickups.length!==1?'s':'')));
+        const spaceRow=h('div',{style:{display:'flex',gap:'8px',alignItems:'baseline',flexWrap:'wrap',marginBottom:(totalAlive>0||totalDead>0)?'6px':'4px'}});
+        spaceRow.appendChild(h('span',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',lineHeight:'1'}},totalPallets+(totalHalfPallets?'½':'')+'p'));
+        if(totalSingles>0) spaceRow.appendChild(h('span',{style:{fontSize:'20px',fontWeight:'700',color:'rgba(255,255,255,0.7)',lineHeight:'1'}},totalSingles+'s'));
+        spaceRow.appendChild(h('span',{style:{fontSize:'13px',color:'rgba(255,255,255,0.4)'}},'= '+totalHives+' hive'+(totalHives!==1?'s':'')));
+        truckBar.appendChild(spaceRow);
+        if(totalAlive>0||totalDead>0){
+          const adRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'6px'}});
+          if(totalAlive>0) adRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#7ecb8f',background:'rgba(255,255,255,0.08)',borderRadius:'6px',padding:'2px 8px'}},totalAlive+' alive'));
+          if(totalDead>0) adRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#f4a0a0',background:'rgba(255,255,255,0.08)',borderRadius:'6px',padding:'2px 8px'}},totalDead+' dead'));
+          truckBar.appendChild(adRow);
+        }
+        if(totalHives>0){
+          const progBar=h('div',{style:{width:'100%',height:'5px',background:'rgba(255,255,255,0.15)',borderRadius:'3px',overflow:'hidden',marginBottom:'4px'}});
+          progBar.appendChild(h('div',{style:{width:pct+'%',height:'100%',background:allDone?'#7ecb8f':'#ef9f27',borderRadius:'3px'}}));
+          truckBar.appendChild(progBar);
+          truckBar.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)'}},
+            allDone?'All assigned ✓':`${assignedHives}/${totalHives} assigned · ${unassignedHives} remaining`));
+        }
+        pickupContainer.appendChild(truckBar);
+      }
+
       // Save button — shown once all pickups have all hives assigned
       if(pickups.length>0){
         const allDone2=pickups.every(p=>remaining(p)===0&&(p.splits||[]).length>0);
