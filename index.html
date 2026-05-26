@@ -1690,12 +1690,14 @@ function renderEntriesList(){
     const btnRow=h('div',{style:{display:'flex',gap:'8px',marginTop:'10px'}});
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #bbb',borderRadius:'6px',fontSize:'13px',cursor:'pointer'},
       onClick:()=>setState({round:rk,diaryView:'form',editing:idx,formVals:{...entry}})},'Edit'));
-    btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',fontSize:'13px',color:'#c0392b',cursor:'pointer'},onClick:async()=>{
-      const k=eKey(op,site,rk);
-      const updated={...STATE.entries,[k]:STATE.entries[k].filter((_,i)=>i!==idx)};
-      saveLocal(updated);
-      await pushToSupabase(k,updated[k]||[]);
-      setState({entries:updated});
+    btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',fontSize:'13px',color:'#c0392b',cursor:'pointer'},onClick:()=>{
+      confirmAction('This will permanently delete this diary entry.',async()=>{
+        const k=eKey(op,site,rk);
+        const updated={...STATE.entries,[k]:STATE.entries[k].filter((_,i)=>i!==idx)};
+        saveLocal(updated);
+        await pushToSupabase(k,updated[k]||[]);
+        setState({entries:updated});
+      });
     }},'Delete'));
     body.appendChild(btnRow);
 
@@ -1991,6 +1993,22 @@ function showFlagModal(op, site){
 
   overlay.appendChild(card);
   // Tap outside to dismiss
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+function confirmAction(msg, onConfirm){
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'300',padding:'20px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'22px',width:'100%',maxWidth:'300px'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'8px'}},'Are you sure?'));
+  box.appendChild(h('div',{style:{fontSize:'14px',color:'#555',marginBottom:'20px'}},msg));
+  const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>{overlay.remove();onConfirm();}},'Yes, remove'));
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+    onClick:()=>overlay.remove()},'Cancel'));
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
   overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
 }
@@ -2293,7 +2311,7 @@ function renderMovementsScreen(){
           }
         },'Edit'));
         rightDiv.appendChild(h('button',{style:{background:'none',border:'none',color:'#e24b4a',fontSize:'20px',cursor:'pointer',padding:'0',lineHeight:'1'},
-          onClick:()=>{const idx=pickups.findIndex(x=>x.id===p.id);if(idx>-1)pickups.splice(idx,1);rebuildAll();}
+          onClick:()=>confirmAction('Remove '+p.site+' from the truck?',()=>{const idx=pickups.findIndex(x=>x.id===p.id);if(idx>-1)pickups.splice(idx,1);rebuildAll();})
         },'×'));
         topRow.appendChild(rightDiv);
         card.appendChild(topRow);
@@ -2304,7 +2322,7 @@ function renderMovementsScreen(){
             const splitRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0faf3',borderRadius:'6px',padding:'5px 8px',marginBottom:'4px'}});
             splitRow.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},`→ ${s.dest} — ${s.desc||((s.hives||0)+' hive'+((s.hives||0)!==1?'s':''))}`));
             splitRow.appendChild(h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'14px',cursor:'pointer',padding:'0'},
-              onClick:()=>{p.splits.splice(si,1);renderPickups();}
+              onClick:()=>confirmAction('Remove this split?',()=>{p.splits.splice(si,1);renderPickups();})
             },'×'));
             card.appendChild(splitRow);
           });
@@ -3267,11 +3285,11 @@ function renderYardsTab(opName){
       row.appendChild(h('span',{style:{fontSize:'14px',color:'#333'}},site+(isCustomSite?' ✎':'')));
       if(isCustomSite){
         row.appendChild(h('button',{style:{background:'none',border:'none',color:'#e24b4a',fontSize:'13px',fontWeight:'600',cursor:'pointer',padding:'0'},
-          onClick:()=>{
+          onClick:()=>confirmAction('Remove '+site+' from '+batchName+'?',()=>{
             removeCustomSite(opName,batchName,site);
-            showToast(`${site} removed`);
+            showToast(site+' removed');
             setState({tab:'settings'});
-          }
+          })
         },'Remove'));
       } else {
         row.appendChild(h('span',{style:{fontSize:'11px',color:'#ccc'}},'built-in'));
