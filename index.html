@@ -2522,6 +2522,7 @@ function renderMovementsScreen(){
                     from_op:(isOutMov||isYYMov)?p.op:'',
                     to_orchard:(isOutMov||isOOMov)?s.dest:'',
                     from_orchard:(!isOutMov&&!isYYMov)?p.site:'',
+                    from_yards:isOOMov?(p.from_yards||[]):[],
                     to_site:(!isOutMov&&!isOOMov)?s.dest:'',
                     to_op:(!isOutMov&&!isOOMov)?s.dest_op:'',
                     pallets:p.pallets,
@@ -2687,6 +2688,44 @@ function renderMovementsScreen(){
         if(pickupData.site) sel.value=pickupData.site;
         sel.addEventListener('change',e=>pickupData.site=e.target.value);
         sw.appendChild(sel);card.appendChild(sw);
+
+
+        // Orchard→Orchard only: optional "from yards" dropdown multi-select
+        if(loadDirection.val==='orchard_orchard'){
+          const ywrap=h('div',{style:{marginTop:'8px'}});
+          ywrap.appendChild(h('label',{className:'lbl'},'From yards (optional)'));
+          const selectedYards=new Set(pickupData.from_yards||[]);
+          // Build full site list
+          const allS=[];
+          Object.entries(OPERATIONS).forEach(([opName,op])=>{
+            Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+              batch.sites.forEach(site=>allS.push({site,batchName,opName}));
+            });
+          });
+          allS.sort((a,b)=>a.site.localeCompare(b.site));
+          // Tags showing selected yards
+          const tagsRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
+          function refreshTags(){
+            tagsRow.innerHTML='';
+            [...selectedYards].forEach(site=>{
+              const tag=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#7a4fa8',background:'#f3e8ff',borderRadius:'10px',padding:'3px 8px',cursor:'pointer'}},site+' ×');
+              tag.addEventListener('click',()=>{selectedYards.delete(site);pickupData.from_yards=[...selectedYards];refreshTags();yardSel.value='';});
+              tagsRow.appendChild(tag);
+            });
+          }
+          ywrap.appendChild(tagsRow);
+          // Dropdown — pick one at a time
+          const yardSel=h('select',{style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fafafa',boxSizing:'border-box'}});
+          yardSel.appendChild(h('option',{value:''},'— Add a yard —'));
+          allS.forEach(({site,batchName})=>yardSel.appendChild(h('option',{value:site},site+' · '+batchName)));
+          yardSel.addEventListener('change',e=>{
+            const v=e.target.value;if(!v)return;
+            selectedYards.add(v);pickupData.from_yards=[...selectedYards];
+            refreshTags();yardSel.value='';
+          });
+          ywrap.appendChild(yardSel);
+          card.appendChild(ywrap);
+        }
       }
 
       // Truck space row — pallets + half pallet toggle + singles
@@ -2940,12 +2979,14 @@ function renderMovementsScreen(){
         const isOO=m.direction==='orchard_orchard';
         const title=isOut?`${m.from_site} → ${m.to_orchard}`:isYY?`${m.from_site} → ${m.to_site}`:isOO?`${m.from_orchard} → ${m.to_orchard}`:`${m.from_orchard} → ${m.to_site}`;
         const sub=`${m.pallets||0}p · ${m.singles||0}s`;
+        const fromYardsStr=(m.from_yards&&m.from_yards.length)?'From: '+m.from_yards.join(', '):'';
         const meta=[m.driver,m.vehicle].filter(Boolean).join(' · ');
         const card=h('div',{style:{background:'#fff',border:`.5px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}33`,borderLeft:`3px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}`,borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',overflow:'hidden'}});
         const mainRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
         mainRow.appendChild(h('div',{style:{flex:'1'}},
           h('div',{style:{fontWeight:'600',fontSize:'14px'}},title),
           h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},sub+(meta?' · '+meta:'')),
+          fromYardsStr?h('div',{style:{fontSize:'12px',color:'#7a4fa8',marginTop:'2px'}},fromYardsStr):null,
           m.notes?h('div',{style:{fontSize:'12px',color:'#555',marginTop:'4px',background:'#f8f8f6',borderRadius:'5px',padding:'4px 8px'}},m.notes):null
         ));
         mainRow.appendChild(h('div',{style:{textAlign:'right',flexShrink:'0',marginLeft:'8px'}},
