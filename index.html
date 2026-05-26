@@ -2686,8 +2686,113 @@ function renderMovementsScreen(){
         sel.appendChild(h('option',{value:''},'— Select orchard —'));
         getAllOrchards().forEach(s=>sel.appendChild(h('option',{value:s},s)));
         if(pickupData.site) sel.value=pickupData.site;
-        sel.addEventListener('change',e=>pickupData.site=e.target.value);
-        sw.appendChild(sel);card.appendChild(sw);
+
+        // For Orchard→Yard: show yard breakdown when orchard selected
+        const yardBreakdownArea=h('div',null);
+        function renderYardBreakdown(orchardName){
+          yardBreakdownArea.innerHTML='';
+          if(!orchardName||loadDirection.val!=='from_orchard') return;
+          // Build per-yard net hives in this orchard from movements
+          const movements=loadMovements();
+          const yardTotals={};  // {site: {pallets, singles, hives, op}}
+          movements.forEach(m=>{
+            if(m.direction==='to_orchard'&&m.to_orchard===orchardName){
+              const k=m.from_site;if(!k)return;
+              if(!yardTotals[k])yardTotals[k]={pallets:0,singles:0,half:0,hives:0,op:m.from_op};
+              yardTotals[k].pallets+=parseInt(m.pallets)||0;
+              yardTotals[k].singles+=parseInt(m.singles)||0;
+              yardTotals[k].half+=(m.half_pallet?1:0);
+              yardTotals[k].hives+=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+            }
+            if(m.direction==='from_orchard'&&m.from_orchard===orchardName){
+              const k=m.to_site;if(!k)return;
+              if(!yardTotals[k])yardTotals[k]={pallets:0,singles:0,half:0,hives:0,op:m.to_op};
+              yardTotals[k].pallets-=parseInt(m.pallets)||0;
+              yardTotals[k].singles-=parseInt(m.singles)||0;
+              yardTotals[k].hives-=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+            }
+          });
+          const activeYards=Object.entries(yardTotals).filter(([,v])=>v.pallets>0||v.singles>0||v.hives>0);
+          if(!activeYards.length) return;
+
+          yardBreakdownArea.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginTop:'10px',marginBottom:'6px'}},'Hives currently from:'));
+          activeYards.forEach(([site,data])=>{
+            const inOrchard=data.pallets>0||data.singles>0;
+            const row=h('div',{style:{background:'#f8f8f6',borderRadius:'8px',padding:'9px 12px',marginBottom:'6px'}});
+            const topR=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'6px'}});
+            const lft=h('div',null);
+            lft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site));
+            const palStr=data.pallets+(data.half>0?'½':'')+'p'+(data.singles>0?' · '+data.singles+'s':'');
+            lft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},palStr+' in orchard'));
+            topR.appendChild(lft);
+            topR.appendChild(h('span',{style:{fontSize:'11px',color:'#7a4fa8',fontWeight:'600',background:'#f3e8ff',borderRadius:'10px',padding:'2px 7px'}},data.op||''));
+            row.appendChild(topR);
+
+            // Input: how many pallets/singles taking back now
+            const takeGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'6px',alignItems:'end',marginBottom:'4px'}});
+            const pw=h('div',null);
+            pw.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},'Pallets back'));
+            const palInp2=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.pallets),placeholder:'0',style:{width:'100%',padding:'6px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'14px',fontWeight:'700',background:'#fff',boxSizing:'border-box'}});
+            pw.appendChild(palInp2);takeGrid.appendChild(pw);
+            // half toggle
+            const hw2=h('div',{style:{textAlign:'center',paddingBottom:'2px'}});
+            hw2.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',marginBottom:'3px'}}),'½');
+            let halfBack=false;
+            const halfBtn2=h('button',{type:'button',style:{width:'30px',height:'30px',borderRadius:'50%',border:'1.5px solid #ddd',background:'#fff',fontSize:'11px',cursor:'pointer',color:'#aaa',fontWeight:'700'}},'+½');
+            halfBtn2.addEventListener('click',()=>{halfBack=!halfBack;halfBtn2.style.background=halfBack?'#9b59b6':'#fff';halfBtn2.style.color=halfBack?'#fff':'#aaa';halfBtn2.style.border=halfBack?'1.5px solid #9b59b6':'1.5px solid #ddd';});
+            hw2.appendChild(halfBtn2);takeGrid.appendChild(hw2);
+            const sw2=h('div',null);
+            sw2.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},'Singles back'));
+            const singInp2=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.singles),placeholder:'0',style:{width:'100%',padding:'6px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'14px',fontWeight:'700',background:'#fff',boxSizing:'border-box'}});
+            sw2.appendChild(singInp2);takeGrid.appendChild(sw2);
+            row.appendChild(takeGrid);
+
+            // Remaining indicator — updates live
+            const remainDiv=h('div',{style:{fontSize:'12px',color:'#aaa',marginTop:'2px'}});
+            function updateRemain(){
+              const takePal=(parseInt(palInp2.value)||0)+(halfBack?0.5:0);
+              const takeSing=parseInt(singInp2.value)||0;
+              const remPal=Math.max(0,data.pallets+(data.half*0.5)-takePal);
+              const remSing=Math.max(0,data.singles-takeSing);
+              remainDiv.textContent=remPal>0||remSing>0?`${remPal}p${remSing?' · '+remSing+'s':''} still in orchard`:'All returning';
+              remainDiv.style.color=remPal===0&&remSing===0?'#3d7a4f':'#ef9f27';
+            }
+            palInp2.addEventListener('input',updateRemain);
+            singInp2.addEventListener('input',updateRemain);
+            halfBtn2.addEventListener('click',updateRemain);
+            row.appendChild(remainDiv);
+
+            // "+ Add to truck" for this yard
+            row.appendChild(h('button',{style:{marginTop:'8px',width:'100%',padding:'7px',background:'rgba(155,89,182,0.1)',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'12px',fontWeight:'700',color:'#9b59b6',cursor:'pointer'},
+              onClick:()=>{
+                const tp=parseInt(palInp2.value)||0;
+                const ts=parseInt(singInp2.value)||0;
+                if(!tp&&!ts&&!halfBack){showToast('Enter pallets or singles to take back');return;}
+                pickups.push({
+                  site,op:data.op||'',
+                  pallets:String(tp),singles:String(ts),half_pallet:halfBack,
+                  alive_hives:'',dead_hives:'',
+                  id:nextId++,splits:[]
+                });
+                // Reset inputs
+                palInp2.value='';singInp2.value='';halfBack=false;
+                halfBtn2.style.background='#fff';halfBtn2.style.color='#aaa';halfBtn2.style.border='1.5px solid #ddd';
+                updateRemain();
+                renderPickups();
+              }
+            },'+ Add to truck'));
+            yardBreakdownArea.appendChild(row);
+          });
+        }
+
+        sel.addEventListener('change',e=>{
+          pickupData.site=e.target.value;
+          renderYardBreakdown(e.target.value);
+        });
+        if(pickupData.site) renderYardBreakdown(pickupData.site);
+        sw.appendChild(sel);
+        sw.appendChild(yardBreakdownArea);
+        card.appendChild(sw);
 
 
         // Orchard→Orchard only: optional "from yards" dropdown multi-select
