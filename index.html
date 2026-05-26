@@ -163,6 +163,15 @@ function getPOLSites(){
   Object.values(OPERATIONS[opName].yards).forEach(y=>y.sites.forEach(s=>{if(!POL_SITES_BASE.includes(s))POL_SITES_BASE.push(s);}));
 });
 
+// Custom orchards storage
+function loadCustomOrchards(){try{return JSON.parse(localStorage.getItem('apiary_custom_orchards')||'[]');}catch(e){return[];}}
+function saveCustomOrchards(list){try{localStorage.setItem('apiary_custom_orchards',JSON.stringify(list));}catch(e){}}
+function getAllOrchards(){
+  const custom=loadCustomOrchards();
+  const all=[...ORCHARDS,...custom.filter(o=>!ORCHARDS.includes(o))];
+  return all;
+}
+
 // Movement storage — separate from diary entries
 function loadMovements(){try{return JSON.parse(localStorage.getItem('apiary_movements')||'[]');}catch(e){return[];}}
 function saveMovements(m){try{localStorage.setItem('apiary_movements',JSON.stringify(m));}catch(e){}}
@@ -217,7 +226,7 @@ function getOrchardTotals(){
   // Returns {orchard: {pallets, singles, hives}} from all movements
   const movements=loadMovements();
   const totals={};
-  ORCHARDS.forEach(o=>totals[o]={pallets:0,singles:0,hives:0});
+  getAllOrchards().forEach(o=>totals[o]={pallets:0,singles:0,hives:0});
   movements.forEach(m=>{
     const pallets=parseInt(m.pallets)||0;
     const singles=parseInt(m.singles)||0;
@@ -430,6 +439,14 @@ async function pullFromSupabase(){
             const remoteIds=new Set(row.data.map(m=>m.id));
             const localOnly=local.filter(m=>!remoteIds.has(m.id));
             saveMovements([...row.data,...localOnly]);
+          }
+          return;
+        }
+        if(row.entry_key==='custom_orchards'){
+          if(row.data&&Array.isArray(row.data)){
+            const local=loadCustomOrchards();
+            const merged=[...new Set([...row.data,...local])];
+            saveCustomOrchards(merged);
           }
           return;
         }
@@ -1958,7 +1975,7 @@ function renderMovementsScreen(){
   header.appendChild(topRow);
   header.appendChild(h('div',{className:'header-title'},'Hive Movements'));
   const tb=h('div',{className:'tab-bar'});
-  [{key:'movements',label:'Log Movement'},{key:'orchards',label:'Orchards'},{key:'history',label:'History'}].forEach(t=>{
+  [{key:'movements',label:'Log Movement'},{key:'orchards',label:'Orchards'},{key:'history',label:'History'},{key:'manage_orchards',label:'Manage'}].forEach(t=>{
     tb.appendChild(h('button',{className:'tab-btn'+(STATE.tab===t.key?' active':''),
       style:STATE.tab===t.key?{'--op-accent':movColor}:{},
       onClick:()=>setState({tab:t.key})},t.label));
@@ -2136,43 +2153,41 @@ function renderMovementsScreen(){
           const splitForm=h('div',{style:{marginTop:'8px',paddingTop:'8px',borderTop:'.5px solid #f0f0f0'}});
           const destSel=h('select',{style:{display:'block',width:'100%',padding:'7px 8px',border:'1px solid #ef9f27',borderRadius:'6px',fontSize:'13px',background:'#fffbf0',marginBottom:'6px',boxSizing:'border-box'}});
           if(loadDirection.val==='yard_yard'){
-            // Use op→batch→site navigator for destination
-            destSel.style.display='none'; // hide the select, use navigator instead
-            const destNavArea=h('div',{style:{marginBottom:'6px'}});
+            // Yard search for destination
+            destSel.style.display='none';
+            const destSearchArea=h('div',{style:{marginBottom:'6px'}});
             const destSelectedDisplay=h('div',{style:{display:'none',marginBottom:'6px'}});
-            splitForm.appendChild(destNavArea);
+            splitForm.appendChild(destSearchArea);
             splitForm.appendChild(destSelectedDisplay);
-            makeSiteNavigator(destNavArea,(site,opName)=>{
-              destSel.value=site;
-              // store for split save
+            makeYardSearch(destSearchArea,(site,opName)=>{
               destSel._selectedSite=site;
               destSel._selectedOp=opName;
-              destNavArea.style.display='none';
+              destSearchArea.style.display='none';
               destSelectedDisplay.style.display='block';
               destSelectedDisplay.innerHTML='';
               destSelectedDisplay.appendChild(h('div',{style:{background:'#f0faf3',border:'1px solid #3d7a4f',borderRadius:'6px',padding:'7px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
                 h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333'}},site+' ('+opName+')'),
                 h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'12px',cursor:'pointer'},
-                  onClick:()=>{destSel._selectedSite='';destNavArea.style.display='block';destSelectedDisplay.style.display='none';}
+                  onClick:()=>{destSel._selectedSite='';destSearchArea.style.display='block';destSelectedDisplay.style.display='none';}
                 },'Change')
               ));
             }, p.site);
           } else if(loadDirection.val==='from_orchard'){
-            // Navigator for yard destination when returning from orchard
+            // Yard search for return destination
             destSel.style.display='none';
-            const retNavArea=h('div',{style:{marginBottom:'6px'}});
+            const retSearchArea=h('div',{style:{marginBottom:'6px'}});
             const retSelDisplay=h('div',{style:{display:'none',marginBottom:'6px'}});
-            splitForm.appendChild(retNavArea);
+            splitForm.appendChild(retSearchArea);
             splitForm.appendChild(retSelDisplay);
-            makeSiteNavigator(retNavArea,(site,opName)=>{
+            makeYardSearch(retSearchArea,(site,opName)=>{
               destSel._selectedSite=site;destSel._selectedOp=opName;
-              retNavArea.style.display='none';
+              retSearchArea.style.display='none';
               retSelDisplay.style.display='block';
               retSelDisplay.innerHTML='';
               retSelDisplay.appendChild(h('div',{style:{background:'#f0faf3',border:'1px solid #3d7a4f',borderRadius:'6px',padding:'7px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
                 h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333'}},site+' ('+opName+')'),
                 h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'12px',cursor:'pointer'},
-                  onClick:()=>{destSel._selectedSite='';retNavArea.style.display='block';retSelDisplay.style.display='none';}
+                  onClick:()=>{destSel._selectedSite='';retSearchArea.style.display='block';retSelDisplay.style.display='none';}
                 },'Change')
               ));
             }, null);
@@ -2180,7 +2195,7 @@ function renderMovementsScreen(){
             // Orchard dropdown for to_orchard destination
             const destLabel='— Assign orchard —';
             destSel.appendChild(h('option',{value:''},destLabel));
-            ORCHARDS.forEach(o=>{destSel.appendChild(h('option',{value:o},o));});
+            getAllOrchards().forEach(o=>{destSel.appendChild(h('option',{value:o},o));});
             splitForm.appendChild(destSel);
           }
 
@@ -2315,6 +2330,49 @@ function renderMovementsScreen(){
     }
 
     // Builds an op→batch→site navigator, calls onSelect(site, opName) when done
+    function makeYardSearch(container, onSelect, excludeSite){
+      // Build flat list of all sites from all ops with their op name
+      const allSites=[];
+      Object.entries(OPERATIONS).forEach(([opName,op])=>{
+        Object.values(getYards(opName)).forEach(batch=>{
+          batch.sites.forEach(site=>{
+            if(site!==excludeSite) allSites.push({site,opName});
+          });
+        });
+      });
+      allSites.sort((a,b)=>a.site.localeCompare(b.site));
+
+      const wrap=h('div',{style:{marginBottom:'10px'}});
+      const searchInp=h('input',{type:'text',placeholder:'Search yards…',style:{display:'block',width:'100%',padding:'9px 10px',border:'1.5px solid '+movColor,borderRadius:'7px',fontSize:'15px',background:'#fff',boxSizing:'border-box',marginBottom:'6px'}});
+      const results=h('div',{style:{maxHeight:'180px',overflowY:'auto',borderRadius:'7px',border:'.5px solid #ddd',background:'#fff',display:'none'}});
+
+      searchInp.addEventListener('input',()=>{
+        const q=searchInp.value.trim().toLowerCase();
+        results.innerHTML='';
+        if(!q){results.style.display='none';return;}
+        const matches=allSites.filter(x=>x.site.toLowerCase().includes(q));
+        if(!matches.length){
+          results.appendChild(h('div',{style:{padding:'10px',color:'#aaa',fontSize:'13px'}},'No yards found'));
+        } else {
+          matches.forEach(({site,opName})=>{
+            const row=h('div',{style:{padding:'9px 12px',cursor:'pointer',borderBottom:'.5px solid #f0f0ee',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+            row.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'500',color:'#333'}},site));
+            row.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa'}},opName));
+            row.addEventListener('mousedown',e=>{e.preventDefault();onSelect(site,opName);searchInp.value='';results.style.display='none';});
+            results.appendChild(row);
+          });
+        }
+        results.style.display='block';
+      });
+      searchInp.addEventListener('blur',()=>setTimeout(()=>{results.style.display='none';},150));
+
+      wrap.appendChild(searchInp);
+      wrap.appendChild(results);
+      container.appendChild(wrap);
+      // Focus the search immediately
+      setTimeout(()=>searchInp.focus(),50);
+    }
+
     function makeSiteNavigator(container, onSelect, excludeSite){
       const nav={op:null,batch:null};
       function renderNav(){
@@ -2368,23 +2426,23 @@ function renderMovementsScreen(){
         isOut?'+ Pick up from yard':isYY?'+ Pick up from yard':'+ Pick up from orchard'));
 
       if(isOut||isYY){
-        // Op → Batch → Site navigator for all yard selections
-        const navArea=h('div',{style:{marginBottom:'10px'}});
-        const selectedDisplay=h('div',{style:{display:'none'}});
-        card.appendChild(navArea);
+        // Yard search for all yard selections
+        const searchArea=h('div',{style:{marginBottom:'10px'}});
+        const selectedDisplay=h('div',{style:{display:'none',marginBottom:'10px'}});
+        card.appendChild(searchArea);
         card.appendChild(selectedDisplay);
-        makeSiteNavigator(navArea,(site,opName)=>{
+        makeYardSearch(searchArea,(site,opName)=>{
           pickupData.site=site;pickupData.op=opName;
-          navArea.style.display='none';
+          searchArea.style.display='none';
           selectedDisplay.style.display='block';
           selectedDisplay.innerHTML='';
-          selectedDisplay.appendChild(h('div',{style:{background:'#f3e8ff',border:'1.5px solid '+movColor,borderRadius:'8px',padding:'9px 12px',marginBottom:'10px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          selectedDisplay.appendChild(h('div',{style:{background:'#f3e8ff',border:'1.5px solid '+movColor,borderRadius:'8px',padding:'9px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
             h('div',null,
               h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site),
               h('div',{style:{fontSize:'12px',color:'#888'}},opName)
             ),
             h('button',{style:{background:'none',border:'none',color:movColor,fontSize:'12px',fontWeight:'600',cursor:'pointer'},
-              onClick:()=>{pickupData.site='';pickupData.op='';navArea.style.display='block';selectedDisplay.style.display='none';}
+              onClick:()=>{pickupData.site='';pickupData.op='';searchArea.style.display='block';selectedDisplay.style.display='none';}
             },'Change')
           ));
         }, null);
@@ -2394,7 +2452,7 @@ function renderMovementsScreen(){
         sw.appendChild(h('label',{className:'lbl'},'From orchard'));
         const sel=h('select',{style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box'}});
         sel.appendChild(h('option',{value:''},'— Select orchard —'));
-        ORCHARDS.forEach(s=>sel.appendChild(h('option',{value:s},s)));
+        getAllOrchards().forEach(s=>sel.appendChild(h('option',{value:s},s)));
         sel.addEventListener('change',e=>pickupData.site=e.target.value);
         sw.appendChild(sel);card.appendChild(sw);
       }
@@ -2466,7 +2524,7 @@ function renderMovementsScreen(){
       // ── Orchards tab ──
   else if(STATE.tab==='orchards'){
     const totals=getOrchardTotals();
-    const active=ORCHARDS.filter(o=>totals[o]&&totals[o].hives>0);
+    const active=getAllOrchards().filter(o=>totals[o]&&totals[o].hives>0);
     const movements=loadMovements();
 
     // Detail view for a single orchard
@@ -2566,6 +2624,70 @@ function renderMovementsScreen(){
         });
       }
     }
+  }
+
+  // ── Manage Orchards tab ──
+  else if(STATE.tab==='manage_orchards'){
+    const custom=loadCustomOrchards();
+    screen.appendChild(h('div',{style:{fontSize:'15px',fontWeight:'700',marginBottom:'4px',marginTop:'4px'}},'Manage Orchards'));
+    screen.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'16px',lineHeight:'1.5'}},'Add new orchards or remove custom ones. Built-in orchards cannot be deleted.'));
+
+    // Add new orchard
+    const addCard=h('div',{className:'form-card',style:{marginBottom:'20px'}});
+    addCard.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'700',color:'#555',marginBottom:'10px'}},'+ Add new orchard'));
+    const inp=h('input',{type:'text',placeholder:'Orchard name',className:'inp',style:{marginBottom:'10px'}});
+    addCard.appendChild(inp);
+    addCard.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'#2a1f3d',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+      onClick:()=>{
+        const name=inp.value.trim();
+        if(!name){showToast('Enter an orchard name');return;}
+        if(getAllOrchards().includes(name)){showToast('Already exists');return;}
+        const updated=[...loadCustomOrchards(),name];
+        saveCustomOrchards(updated);
+        pushToSupabase('custom_orchards',updated);
+        showToast(name+' added');
+        setState({tab:'manage_orchards'});
+      }
+    },'Add orchard'));
+    screen.appendChild(addCard);
+
+    // Built-in list
+    screen.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.07em',color:'#888',marginBottom:'8px'}},'All orchards'));
+    getAllOrchards().forEach(orchard=>{
+      const isCustom=custom.includes(orchard);
+      const row=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'8px',padding:'10px 13px',marginBottom:'5px',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+      row.appendChild(h('span',{style:{fontSize:'14px',color:'#333'}},orchard+(isCustom?' ✎':'')));
+      if(isCustom){
+        row.appendChild(h('button',{style:{background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',padding:'4px 10px',fontSize:'12px',color:'#c0392b',cursor:'pointer',fontWeight:'600'},
+          onClick:()=>{
+            const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+            const box=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'22px',width:'100%',maxWidth:'300px'}});
+            box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'6px'}},'Remove orchard?'));
+            box.appendChild(h('div',{style:{fontSize:'13px',color:'#666',marginBottom:'18px'}},orchard));
+            const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+            btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+              onClick:()=>{
+                const updated=loadCustomOrchards().filter(o=>o!==orchard);
+                saveCustomOrchards(updated);
+                pushToSupabase('custom_orchards',updated);
+                overlay.remove();
+                showToast(orchard+' removed');
+                setState({tab:'manage_orchards'});
+              }
+            },'Yes, remove'));
+            btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+              onClick:()=>overlay.remove()},'Cancel'));
+            box.appendChild(btnRow);
+            overlay.appendChild(box);
+            overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+            document.body.appendChild(overlay);
+          }
+        },'Remove'));
+      } else {
+        row.appendChild(h('span',{style:{fontSize:'11px',color:'#ccc'}},'built-in'));
+      }
+      screen.appendChild(row);
+    });
   }
 
   // ── History tab ──
