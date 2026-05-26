@@ -1963,6 +1963,65 @@ function showFlagModal(op, site){
   document.body.appendChild(overlay);
 }
 
+function showEditPickupModal(p, onSave){
+  const existing=document.getElementById('edit-pickup-modal');
+  if(existing) existing.remove();
+  const overlay=h('div',{id:'edit-pickup-modal',style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'16px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Edit pickup'));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'16px'}},p.site));
+
+  // Editable fields
+  const vals={...p};
+
+  // Truck space
+  box.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'6px'}},'Truck space'));
+  const truckGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'8px',alignItems:'end',marginBottom:'12px'}});
+  // Pallets
+  const pw=h('div',null);
+  pw.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}},'Pallets'));
+  const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',value:p.pallets||'',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
+  palInp.addEventListener('input',e=>vals.pallets=e.target.value);
+  pw.appendChild(palInp);truckGrid.appendChild(pw);
+  // Half pallet
+  const hw=h('div',{style:{textAlign:'center',paddingBottom:'2px'}});
+  hw.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',marginBottom:'3px'}}),'½');
+  let halfOn=p.half_pallet||false;
+  const halfBtn=h('button',{type:'button',style:{width:'34px',height:'34px',borderRadius:'50%',border:halfOn?'1.5px solid #9b59b6':'1.5px solid #ddd',background:halfOn?'#9b59b6':'#fff',color:halfOn?'#fff':'#aaa',fontWeight:'700',fontSize:'12px',cursor:'pointer'}},'+½');
+  halfBtn.addEventListener('click',()=>{halfOn=!halfOn;vals.half_pallet=halfOn;halfBtn.style.background=halfOn?'#9b59b6':'#fff';halfBtn.style.color=halfOn?'#fff':'#aaa';halfBtn.style.border=halfOn?'1.5px solid #9b59b6':'1.5px solid #ddd';});
+  hw.appendChild(halfBtn);truckGrid.appendChild(hw);
+  // Singles
+  const sw=h('div',null);
+  sw.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}},'Singles'));
+  const singInp=h('input',{type:'number',inputmode:'numeric',min:'0',value:p.singles||'',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
+  singInp.addEventListener('input',e=>vals.singles=e.target.value);
+  sw.appendChild(singInp);truckGrid.appendChild(sw);
+  box.appendChild(truckGrid);
+
+  // Alive / dead
+  box.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'6px'}},'Hive counts'));
+  const hivGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}});
+  [{l:'Alive',k:'alive_hives',c:'#3d7a4f'},{l:'Dead',k:'dead_hives',c:'#e24b4a'}].forEach(({l,k,c2=''})=>{
+    const nw=h('div',null);
+    nw.appendChild(h('label',{style:{fontSize:'10px',color:l==='Alive'?'#3d7a4f':'#e24b4a',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},l));
+    const ni=h('input',{type:'number',inputmode:'numeric',min:'0',value:p[k]||'',style:{width:'100%',padding:'8px',border:`.5px solid ${l==='Alive'?'#3d7a4f55':'#e24b4a55'}`,borderRadius:'6px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
+    ni.addEventListener('input',e=>vals[k]=e.target.value);
+    nw.appendChild(ni);hivGrid.appendChild(nw);
+  });
+  box.appendChild(hivGrid);
+
+  const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>{Object.assign(p,vals);overlay.remove();onSave();}
+  },'Save'));
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+    onClick:()=>overlay.remove()},'Cancel'));
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function showEditMovementModal(m){
   const existing=document.getElementById('edit-mov-modal');
   if(existing) existing.remove();
@@ -2056,6 +2115,7 @@ function renderMovementsScreen(){
     // pickups: [{id, site, op, pallets, singles, splits:[{dest, dest_op, pallets, singles}]}]
     const pickups=[];
     let nextId=1;
+    let editingPickup=null; // holds a pickup being edited (removed from list, back in form)
 
     const DRIVERS=['Adam','Neil','Em','Zeke','Shaun','Other'];
     const VEHICLES=['Landcruiser','DH Hilux',"Neil's ute","Shaun's ute",'Big Truck'];
@@ -2189,6 +2249,17 @@ function renderMovementsScreen(){
         ));
         topRow.appendChild(leftDiv);
         const rightDiv=h('div',{style:{display:'flex',alignItems:'flex-start',gap:'6px',marginLeft:'8px',flexShrink:'0'}});
+        // Edit pickup — remove from list and re-open as pre-filled add form
+        rightDiv.appendChild(h('button',{style:{background:'none',border:'.5px solid #bbb',borderRadius:'6px',fontSize:'11px',color:'#555',cursor:'pointer',padding:'3px 8px',fontWeight:'600'},
+          onClick:()=>{
+            const idx=pickups.findIndex(x=>x.id===p.id);
+            if(idx>-1) pickups.splice(idx,1);
+            editingPickup=p; // store for pre-fill
+            rebuildAll();
+            // Scroll to add form
+            setTimeout(()=>addPickupArea.scrollIntoView({behavior:'smooth',block:'start'}),50);
+          }
+        },'Edit'));
         rightDiv.appendChild(h('button',{style:{background:'none',border:'none',color:'#e24b4a',fontSize:'20px',cursor:'pointer',padding:'0',lineHeight:'1'},
           onClick:()=>{const idx=pickups.findIndex(x=>x.id===p.id);if(idx>-1)pickups.splice(idx,1);rebuildAll();}
         },'×'));
@@ -2475,12 +2546,12 @@ function renderMovementsScreen(){
 
     // Builds an op→batch→site navigator, calls onSelect(site, opName) when done
     function makeYardSearch(container, onSelect, excludeSite){
-      // Build flat list of all sites from all ops with their op name
+      // Build flat list of all sites with batch AND op name
       const allSites=[];
       Object.entries(OPERATIONS).forEach(([opName,op])=>{
-        Object.values(getYards(opName)).forEach(batch=>{
+        Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
           batch.sites.forEach(site=>{
-            if(site!==excludeSite) allSites.push({site,opName});
+            if(site!==excludeSite) allSites.push({site,batchName,opName});
           });
         });
       });
@@ -2488,20 +2559,26 @@ function renderMovementsScreen(){
 
       const wrap=h('div',{style:{marginBottom:'10px'}});
       const searchInp=h('input',{type:'text',placeholder:'Search yards…',style:{display:'block',width:'100%',padding:'9px 10px',border:'1.5px solid '+movColor,borderRadius:'7px',fontSize:'15px',background:'#fff',boxSizing:'border-box',marginBottom:'6px'}});
-      const results=h('div',{style:{maxHeight:'180px',overflowY:'auto',borderRadius:'7px',border:'.5px solid #ddd',background:'#fff',display:'none'}});
+      const results=h('div',{style:{maxHeight:'220px',overflowY:'auto',borderRadius:'7px',border:'.5px solid #ddd',background:'#fff',display:'none'}});
 
       searchInp.addEventListener('input',()=>{
         const q=searchInp.value.trim().toLowerCase();
         results.innerHTML='';
         if(!q){results.style.display='none';return;}
-        const matches=allSites.filter(x=>x.site.toLowerCase().includes(q));
+        const matches=allSites.filter(x=>
+          x.site.toLowerCase().includes(q)||
+          x.batchName.toLowerCase().includes(q)||
+          x.opName.toLowerCase().includes(q)
+        );
         if(!matches.length){
           results.appendChild(h('div',{style:{padding:'10px',color:'#aaa',fontSize:'13px'}},'No yards found'));
         } else {
-          matches.forEach(({site,opName})=>{
-            const row=h('div',{style:{padding:'9px 12px',cursor:'pointer',borderBottom:'.5px solid #f0f0ee',display:'flex',justifyContent:'space-between',alignItems:'center'}});
-            row.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'500',color:'#333'}},site));
-            row.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa'}},opName));
+          matches.forEach(({site,batchName,opName})=>{
+            const row=h('div',{style:{padding:'9px 12px',cursor:'pointer',borderBottom:'.5px solid #f0f0ee',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px'}});
+            // Left: site name
+            row.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'600',color:'#333',flexShrink:'0'}},site));
+            // Right: batch · op in muted text
+            row.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa',textAlign:'right',lineHeight:'1.4'}},batchName+' · '+opName));
             row.addEventListener('mousedown',e=>{e.preventDefault();onSelect(site,opName);searchInp.value='';results.style.display='none';});
             results.appendChild(row);
           });
@@ -2513,7 +2590,6 @@ function renderMovementsScreen(){
       wrap.appendChild(searchInp);
       wrap.appendChild(results);
       container.appendChild(wrap);
-      // Focus the search immediately
       setTimeout(()=>searchInp.focus(),50);
     }
 
@@ -2562,12 +2638,17 @@ function renderMovementsScreen(){
 
     function renderAddPickupForm(){
       addPickupArea.innerHTML='';
-      const pickupData={site:'',op:'',pallets:'',singles:''};
+      // Pre-fill if editing an existing pickup
+      const pre=editingPickup||{};
+      editingPickup=null;
+      const pickupData={site:pre.site||'',op:pre.op||'',pallets:pre.pallets||'',singles:pre.singles||'',
+        half_pallet:pre.half_pallet||false,alive_hives:pre.alive_hives||'',dead_hives:pre.dead_hives||''};
       const isYY=loadDirection.val==='yard_yard';
       const isOut=loadDirection.val==='to_orchard';
-      const card=h('div',{className:'form-card',style:{marginBottom:'12px'}});
-      card.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'600',color:'#666',marginBottom:'10px'}},
-        isOut?'+ Pick up from yard':isYY?'+ Pick up from yard':'+ Pick up from orchard'));
+      const isEditing=!!(pre.site);
+      const card=h('div',{className:'form-card',style:{marginBottom:'12px',border:isEditing?'1.5px solid #9b59b6':''}});
+      card.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'600',color:isEditing?'#9b59b6':'#666',marginBottom:'10px'}},
+        isEditing?`Editing: ${pre.site}`:(isOut?'+ Pick up from yard':isYY?'+ Pick up from yard':'+ Pick up from orchard')));
 
       if(isOut||isYY){
         // Yard search for all yard selections
@@ -2575,8 +2656,7 @@ function renderMovementsScreen(){
         const selectedDisplay=h('div',{style:{display:'none',marginBottom:'10px'}});
         card.appendChild(searchArea);
         card.appendChild(selectedDisplay);
-        makeYardSearch(searchArea,(site,opName)=>{
-          pickupData.site=site;pickupData.op=opName;
+        function showSelected(site, opName){
           searchArea.style.display='none';
           selectedDisplay.style.display='block';
           selectedDisplay.innerHTML='';
@@ -2589,7 +2669,13 @@ function renderMovementsScreen(){
               onClick:()=>{pickupData.site='';pickupData.op='';searchArea.style.display='block';selectedDisplay.style.display='none';}
             },'Change')
           ));
+        }
+        makeYardSearch(searchArea,(site,opName)=>{
+          pickupData.site=site;pickupData.op=opName;
+          showSelected(site,opName);
         }, null);
+        // Pre-fill if editing
+        if(pickupData.site) showSelected(pickupData.site,pickupData.op);
       } else {
         // Orchard dropdown for Orchard→Yard pickup source
         const sw=h('div',{style:{marginBottom:'10px'}});
@@ -2609,6 +2695,7 @@ function renderMovementsScreen(){
       const palWrap=h('div',null);
       palWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},'Full pallets'));
       const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+      if(pickupData.pallets) palInp.value=pickupData.pallets;
       palInp.addEventListener('input',e=>pickupData.pallets=e.target.value);
       palWrap.appendChild(palInp);
       truckGrid.appendChild(palWrap);
@@ -2616,6 +2703,9 @@ function renderMovementsScreen(){
       const halfWrap=h('div',{style:{textAlign:'center',paddingBottom:'2px'}});
       halfWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}}),'½');
       const halfBtn=h('button',{type:'button',style:{width:'36px',height:'36px',borderRadius:'50%',border:'1.5px solid #ddd',background:'#fff',fontSize:'14px',cursor:'pointer',fontWeight:'700',color:'#aaa',transition:'all .15s'}},'+½');
+      if(pickupData.half_pallet){
+        halfBtn.style.background='#9b59b6';halfBtn.style.color='#fff';halfBtn.style.border='1.5px solid #9b59b6';
+      }
       halfBtn.addEventListener('click',()=>{
         pickupData.half_pallet=!pickupData.half_pallet;
         halfBtn.style.background=pickupData.half_pallet?'#9b59b6':'#fff';
@@ -2628,6 +2718,7 @@ function renderMovementsScreen(){
       const sinWrap=h('div',null);
       sinWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},'Singles'));
       const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+      if(pickupData.singles) sinInp.value=pickupData.singles;
       sinInp.addEventListener('input',e=>pickupData.singles=e.target.value);
       sinWrap.appendChild(sinInp);
       truckGrid.appendChild(sinWrap);
@@ -2642,6 +2733,7 @@ function renderMovementsScreen(){
         const nw=h('div',null);
         nw.appendChild(h('label',{style:{fontSize:'10px',color:color,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
         const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:`.5px solid ${color}55`,borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+        if(pickupData[key]) ni.value=pickupData[key];
         ni.addEventListener('input',e=>pickupData[key]=e.target.value);
         nw.appendChild(ni);hiveGrid.appendChild(nw);
       });
