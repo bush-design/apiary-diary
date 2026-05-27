@@ -2188,9 +2188,51 @@ function showEditMovementModal(m){
   btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
     onClick:async()=>{
       // Update movement in list
-      const updated=loadMovements().map(x=>x.id===m.id?{...x,...vals}:x);
+      const newMov={...m,...vals};
+      const updated=loadMovements().map(x=>x.id===m.id?newMov:x);
       saveMovements(updated);
       await pushToSupabase('hive_movements',updated);
+
+      // Update the matching auto-generated diary entry in the yard
+      // Find and update the _movement diary entry that matches this movement
+      async function updateMovDiaryEntry(opName, siteKey, oldDate, newMov2){
+        if(!opName||!siteKey) return;
+        const k=eKey(opName,siteKey,'spring');
+        const existing=STATE.entries[k]||[];
+        const entryIdx=existing.findIndex(e=>e._movement&&e.date===oldDate&&e.comments&&(
+          e.comments.includes(m.to_orchard||'')||
+          e.comments.includes(m.from_orchard||'')||
+          e.comments.includes(m.to_site||'')||
+          e.comments.includes(m.from_site||'')
+        ));
+        if(entryIdx===-1) return;
+        // Rebuild the description with new values
+        const hiveChange=((parseInt(newMov2.pallets)||0)*4+(newMov2.half_pallet?2:0)+(parseInt(newMov2.singles)||0));
+        const truckStr=(parseInt(newMov2.pallets)||0)+(newMov2.half_pallet?'½':'')+'p'+(parseInt(newMov2.singles)>0?' + '+newMov2.singles+'s':'');
+        const isOut=newMov2.direction==='to_orchard';
+        const isYY=newMov2.direction==='yard_yard';
+        let desc;
+        if(isOut) desc=`MOVEMENT OUT: ${truckStr} → ${newMov2.to_orchard}`;
+        else if(!isOut&&!isYY) desc=`MOVEMENT IN: ${truckStr} ← ${newMov2.from_orchard}`;
+        else if(isYY&&siteKey===newMov2.from_site) desc=`MOVED OUT: ${truckStr} → ${newMov2.to_site}`;
+        else desc=`MOVED IN: ${truckStr} ← ${newMov2.from_site}`;
+        const updatedEntry={...existing[entryIdx],date:newMov2.date,comments:desc,saved_at:new Date().toISOString()};
+        const updatedList=[...existing];
+        updatedList[entryIdx]=updatedEntry;
+        const updEntries={...STATE.entries,[k]:updatedList};
+        saveLocal(updEntries);
+        await pushToSupabase(k,updatedList);
+        STATE.entries=updEntries;
+      }
+      const isOut=newMov.direction==='to_orchard';
+      const isYY=newMov.direction==='yard_yard';
+      if(isOut) await updateMovDiaryEntry(newMov.from_op,newMov.from_site,m.date,newMov);
+      else if(!isOut&&!isYY) await updateMovDiaryEntry(newMov.to_op,newMov.to_site,m.date,newMov);
+      else if(isYY){
+        await updateMovDiaryEntry(newMov.from_op,newMov.from_site,m.date,newMov);
+        await updateMovDiaryEntry(newMov.to_op,newMov.to_site,m.date,newMov);
+      }
+
       overlay.remove();
       showToast('Movement updated');
       setState({tab:'history'});
