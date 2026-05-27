@@ -1411,7 +1411,7 @@ function renderSitesList(){
     let movNet=0;
     allMovs.forEach(m=>{
       // Skip movements on or before the latest diary entry — already baked into that count
-      if(latestDiaryDate&&m.date<=latestDiaryDate) return;
+      if(latestDiaryDate&&m.date<latestDiaryDate) return; // movements on same date as diary still count
       const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
       if(m.direction==='to_orchard'&&m.from_site===site) movNet-=mh;
       else if(m.direction==='from_orchard'&&m.to_site===site) movNet+=mh;
@@ -1589,7 +1589,7 @@ function renderEntriesList(){
   const latestDiaryDate2=allSiteEntries[0]?.date||'';
   let movementNet=0;
   allMovements.forEach(m=>{
-    if(latestDiaryDate2&&m.date<=latestDiaryDate2) return;
+    if(latestDiaryDate2&&m.date<latestDiaryDate2) return; // movements on same date as diary still count
     const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
     if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
