@@ -1538,17 +1538,33 @@ function renderEntriesList(){
   const wrap=h('div',null);
 
   // ── Yard summary panel ──
-  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+  // Sort: saved_at is most reliable indicator of most recent — use as primary sort
+  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{
+    // Primary: date DESC
+    const dc=(b.date||'').localeCompare(a.date||'');
+    if(dc!==0) return dc;
+    // Tiebreaker: saved_at DESC
+    return (b.saved_at||'').localeCompare(a.saved_at||'');
+  });
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
+  // For hive count fields: use value from the most recent entry that actually has ANY hive data
+  // This prevents an old Spring entry with 13 hives overriding a newer Clover entry with 21 hives
+  const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||allSiteEntries[0]||null;
   const lv=k=>{
+    if(HIVE_FIELDS3.includes(k)){
+      // Use the most recent entry that has hive data
+      if(mostRecentWithHives){
+        const raw=mostRecentWithHives[k];
+        if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;
+      }
+      return 0;
+    }
+    // For non-hive fields: fall back to last non-zero value across all entries
     for(const e of allSiteEntries){
       const raw=e[k];
       if(raw===undefined||raw===null||raw==='') continue;
       const v=parseInt(raw);
-      if(!isNaN(v)){
-        if(HIVE_FIELDS3.includes(k)) return v;
-        if(v>0) return v;
-      }
+      if(!isNaN(v)&&v>0) return v;
     }
     return 0;
   };
