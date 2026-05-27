@@ -1538,28 +1538,33 @@ function renderEntriesList(){
   const wrap=h('div',null);
 
   // ── Yard summary panel ──
-  // Sort: saved_at is most reliable indicator of most recent — use as primary sort
-  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{
-    // Primary: date DESC
+  // Build entries list: attach original array index so we can use it as tiebreaker
+  // (entries are stored newest-first, so lower index = more recently saved)
+  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>
+    (STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map((e,i)=>({...e,_arrIdx:i}))
+  ).sort((a,b)=>{
+    // Primary: date DESC (YYYY-MM-DD sorts correctly as string)
     const dc=(b.date||'').localeCompare(a.date||'');
     if(dc!==0) return dc;
-    // Tiebreaker: saved_at DESC
-    return (b.saved_at||'').localeCompare(a.saved_at||'');
+    // Tiebreaker 1: saved_at DESC
+    const sc=(b.saved_at||'').localeCompare(a.saved_at||'');
+    if(sc!==0) return sc;
+    // Tiebreaker 2: array index ASC (lower index = newer in storage)
+    return a._arrIdx-b._arrIdx;
   });
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
-  // For hive count fields: use value from the most recent entry that actually has ANY hive data
-  // This prevents an old Spring entry with 13 hives overriding a newer Clover entry with 21 hives
-  const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||allSiteEntries[0]||null;
+  // For hive count fields: use the single most recent entry by date (then saved_at)
+  // All hive fields come from that one entry as a snapshot — no mixing across entries
   const lv=k=>{
     if(HIVE_FIELDS3.includes(k)){
-      // Use the most recent entry that has hive data
-      if(mostRecentWithHives){
-        const raw=mostRecentWithHives[k];
+      // Use value from most recent entry only — don't fall back to older entries
+      if(allSiteEntries[0]){
+        const raw=allSiteEntries[0][k];
         if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;
       }
       return 0;
     }
-    // For non-hive fields: fall back to last non-zero value across all entries
+    // For non-hive fields (boxes etc): fall back to last non-zero across all entries
     for(const e of allSiteEntries){
       const raw=e[k];
       if(raw===undefined||raw===null||raw==='') continue;
