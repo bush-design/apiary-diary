@@ -1405,9 +1405,13 @@ function renderSitesList(){
     const avg=ac>0?Math.round(at/ac):null;
 
     // Movement-adjusted hive count
+    // Only count movements AFTER the most recent diary entry date
     const allMovs=loadMovements();
+    const latestDiaryDate=allReal[0]?.date||'';
     let movNet=0;
     allMovs.forEach(m=>{
+      // Skip movements on or before the latest diary entry — already baked into that count
+      if(latestDiaryDate&&m.date<=latestDiaryDate) return;
       const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
       if(m.direction==='to_orchard'&&m.from_site===site) movNet-=mh;
       else if(m.direction==='from_orchard'&&m.to_site===site) movNet+=mh;
@@ -1581,8 +1585,11 @@ function renderEntriesList(){
   // 2. Also check movement diary entries (_movement:true) for hive count
   // 3. Adjust by net movements logged in hive movements log
   const allMovements=loadMovements();
+  // Only count movements AFTER the most recent diary entry — earlier ones are baked in
+  const latestDiaryDate2=allSiteEntries[0]?.date||'';
   let movementNet=0;
   allMovements.forEach(m=>{
+    if(latestDiaryDate2&&m.date<=latestDiaryDate2) return;
     const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
     if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
@@ -1903,7 +1910,7 @@ function renderForm(){
       ...formData,
       logged_by:originalLoggedBy,
       ...(STATE.editing!==null && originalLoggedBy!==STATE.userName ? {edited_by:STATE.userName||'Unknown',edited_at:new Date().toISOString()} : {}),
-      saved_at:formData.saved_at||new Date().toISOString()
+      saved_at:new Date().toISOString() // always update saved_at so sorting works
     };
     if(_flag&&entry.comments){setFlag(op,site,entry.comments);}
     if(entry.check_note){setCheck(op,site,entry.check_note);}
