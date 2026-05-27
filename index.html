@@ -764,8 +764,17 @@ function calcSummary(opName){
     // For each field, use the most recent entry that actually has a value for it
     // This prevents empty fields in a new entry zeroing out previous counts
     const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const HIVE_FIELDS_LV=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
     const lastVal=k=>{
-      for(const e of allSiteEntries){const v=parseInt(e[k]);if(!isNaN(v)&&v!==0)return v;}
+      for(const e of allSiteEntries){
+        const raw=e[k];
+        if(raw===undefined||raw===null||raw==='') continue;
+        const v=parseInt(raw);
+        if(!isNaN(v)){
+          if(HIVE_FIELDS_LV.includes(k)) return v;
+          if(v>0) return v;
+        }
+      }
       return 0;
     };
     hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');
@@ -1061,7 +1070,21 @@ function renderOverviewTab(){
           // Show all filled fields from last entry
           const e=latestReal.entry;
           const allSiteE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(x=>!x._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-          const lv=k=>{for(const en of allSiteE){const v=parseInt(en[k]);if(!isNaN(v)&&v>0)return v;}return 0;};
+          const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
+          const lv=k=>{
+            for(const en of allSiteE){
+              const raw=en[k];
+              if(raw===undefined||raw===null||raw==='') continue;
+              const v=parseInt(raw);
+              if(!isNaN(v)){
+                // For hive count fields: return even if 0 (explicitly entered)
+                if(HIVE_FIELDS.includes(k)) return v;
+                // For box/other fields: skip zeros (means not recorded this visit)
+                if(v>0) return v;
+              }
+            }
+            return 0;
+          };
           const fields=[];
           if(lv('hives'))fields.push({l:'Hives',v:lv('hives'),c:'#333'});
           if(lv('alive_hives'))fields.push({l:'Alive',v:lv('alive_hives'),c:'#3d7a4f'});
@@ -1361,7 +1384,19 @@ function renderSitesList(){
     const overdue=!latest||days>21;
 
     // Field lookup — most recent non-zero value across all entries
-    const lv=k=>{for(const e of allReal){const v=parseInt(e[k]);if(!isNaN(v)&&v>0)return v;}return 0;};
+    const HIVE_FIELDS2=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
+    const lv=k=>{
+      for(const e of allReal){
+        const raw=e[k];
+        if(raw===undefined||raw===null||raw==='') continue;
+        const v=parseInt(raw);
+        if(!isNaN(v)){
+          if(HIVE_FIELDS2.includes(k)) return v;
+          if(v>0) return v;
+        }
+      }
+      return 0;
+    };
 
     // Spring score
     const springEntries=STATE.entries[eKey(op,site,'spring')]?.filter(e=>!e._movement)||[];
@@ -1504,7 +1539,19 @@ function renderEntriesList(){
 
   // ── Yard summary panel ──
   const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  const lv=k=>{for(const e of allSiteEntries){const v=parseInt(e[k]);if(!isNaN(v)&&v>0)return v;}return 0;};
+  const HIVE_FIELDS3=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
+  const lv=k=>{
+    for(const e of allSiteEntries){
+      const raw=e[k];
+      if(raw===undefined||raw===null||raw==='') continue;
+      const v=parseInt(raw);
+      if(!isNaN(v)){
+        if(HIVE_FIELDS3.includes(k)) return v;
+        if(v>0) return v;
+      }
+    }
+    return 0;
+  };
   const latestReal=allSiteEntries[0]||null;
   const days=latestReal?daysBetween(latestReal.date):null;
 
