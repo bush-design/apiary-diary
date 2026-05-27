@@ -1920,6 +1920,28 @@ function renderForm(){
     else{updated={...STATE.entries,[k]:[entry,...existing]};}
     saveLocal(updated);
     await pushToSupabase(k,updated[k]);
+
+    // If editing a movement diary entry, also update the movement record's date
+    if(STATE.editing!==null&&entry._movement){
+      const oldEntry=existing[STATE.editing];
+      const oldDate=oldEntry?.date;
+      const newDate=entry.date;
+      if(oldDate&&newDate&&oldDate!==newDate){
+        const movs=loadMovements();
+        // Find matching movement by old date and site
+        const updatedMovs=movs.map(m=>{
+          const matchesSite=(m.from_site===site||m.to_site===site);
+          if(matchesSite&&m.date===oldDate){
+            return {...m,date:newDate};
+          }
+          return m;
+        });
+        saveMovements(updatedMovs);
+        await pushToSupabase('hive_movements',updatedMovs);
+        showToast('Movement date updated too');
+      }
+    }
+
     maybeSendReport(op);
     showToast('Entry saved');
     setState({entries:updated,diaryView:'entries',editing:null});
