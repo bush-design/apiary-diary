@@ -1378,7 +1378,7 @@ function renderSitesList(){
 
   data.sites.forEach(site=>{
     // Gather all real entries across rounds, newest first
-    const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>({...e,_rk:rk}))).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>({...e,_rk:rk}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
     const latest=allReal[0]||null;
     const days=latest?daysBetween(latest.date):null;
     const overdue=!latest||days>21;
@@ -1416,7 +1416,7 @@ function renderSitesList(){
     });
     const baseH=lv('hives');
     const movEntryH=parseInt(Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement))[0]?.hives)||0;
-    const currentHives=baseH>0?Math.max(0,baseH+movNet):movNet>0?movNet:movEntryH>0?movEntryH:0;
+    const currentHives=allReal.length>0?Math.max(0,baseH+movNet):movNet>0?movNet:movEntryH>0?movEntryH:0;
 
     const flag=getFlag(op,site);
     const chk=getCheck(op,site);
@@ -1538,7 +1538,7 @@ function renderEntriesList(){
   const wrap=h('div',null);
 
   // ── Yard summary panel ──
-  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
   const lv=k=>{
     for(const e of allSiteEntries){
@@ -1574,7 +1574,7 @@ function renderEntriesList(){
   const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
   // Use whichever source gives us data
   let currentHives=0;
-  if(baseHives>0) currentHives=Math.max(0,baseHives+movementNet);
+  if(latestReal) currentHives=Math.max(0,baseHives+movementNet); // use diary entry (even if 0) + net movements
   else if(latestMovementHives>0) currentHives=latestMovementHives;
   else if(movementNet>0) currentHives=movementNet;
   const hasMovement=movementNet!==0||latestMovementHives>0;
