@@ -943,6 +943,57 @@ function renderOpSelector(){
   return wrap;
 }
 
+function showDeadHivesModal(opName){
+  const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  const deadSites=[];
+  sites.forEach(site=>{
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||'');
+      return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');
+    });
+    const latest=allE[0];
+    if(!latest) return;
+    const dead=parseInt(latest.dead_hives)||parseInt(latest.dead)||0;
+    if(dead>0) deadSites.push({site,dead,date:latest.date,round:latest._rk||''});
+  });
+  deadSites.sort((a,b)=>b.dead-a.dead);
+
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px',maxHeight:'80vh',display:'flex',flexDirection:'column'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},'Dead hives — '+opName));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},deadSites.length+' site'+(deadSites.length!==1?'s':'')+' with dead hives'));
+
+  const list=h('div',{style:{overflowY:'auto',flex:'1'}});
+  if(!deadSites.length){
+    list.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No dead hives recorded'));
+  } else {
+    deadSites.forEach(({site,dead,date})=>{
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'},
+        onClick:()=>{overlay.remove();setState({op:opName,tab:'diary',site,diaryView:'entries'});
+          // Find batch for this site
+          Object.entries(getYards(opName)).forEach(([batch,data])=>{
+            if(data.sites.includes(site)) setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});
+          });
+        }});
+      const left=h('div',null);
+      left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},site));
+      left.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginTop:'2px'}},fmtDate(date)));
+      const right=h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}});
+      right.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#c0392b',lineHeight:'1'}},dead));
+      right.appendChild(h('div',{style:{fontSize:'11px',color:'#c0392b',textTransform:'uppercase'}},'dead'));
+      right.appendChild(h('span',{style:{color:'#ddd',fontSize:'16px'}},'›'));
+      row.appendChild(left);row.appendChild(right);
+      list.appendChild(row);
+    });
+  }
+  box.appendChild(list);
+  box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+    onClick:()=>overlay.remove()},'Close'));
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function renderSummaryPanel(opName){
   const s=calcSummary(opName);
   const panel=h('div',{style:{background:'#1a2e1a',borderRadius:'12px',padding:'13px 14px 14px',marginBottom:'18px'}},
@@ -950,7 +1001,13 @@ function renderSummaryPanel(opName){
   );
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
   const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-  [{l:'Total hives',v:s.hives},{l:'Dead',v:s.dead,red:s.dead>0}].forEach(st=>g2.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v),h('div',{className:'stat-lbl'},st.l))));
+  [{l:'Total hives',v:s.hives},{l:'Dead',v:s.dead,red:s.dead>0}].forEach(st=>{
+    const box2=h('div',{className:'stat-box'+(st.l==='Dead'&&st.v>0?' clickable':''),style:st.l==='Dead'&&st.v>0?{cursor:'pointer',outline:'1.5px solid #c0392b44'}:{}});
+    box2.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v));
+    box2.appendChild(h('div',{className:'stat-lbl'},st.l+(st.l==='Dead'&&st.v>0?' ↗':'')));
+    if(st.l==='Dead'&&st.v>0) box2.addEventListener('click',()=>showDeadHivesModal(opName));
+    g2.appendChild(box2);
+  });
   panel.appendChild(g2);
   if(s.alive>0||s.deadHives>0){
     const galiveDead=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
@@ -1155,7 +1212,13 @@ function renderSummaryPanel(opName){
   );
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
   const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-  [{l:'Total hives',v:s.hives},{l:'Dead',v:s.dead,red:s.dead>0}].forEach(st=>g2.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v),h('div',{className:'stat-lbl'},st.l))));
+  [{l:'Total hives',v:s.hives},{l:'Dead',v:s.dead,red:s.dead>0}].forEach(st=>{
+    const box2=h('div',{className:'stat-box'+(st.l==='Dead'&&st.v>0?' clickable':''),style:st.l==='Dead'&&st.v>0?{cursor:'pointer',outline:'1.5px solid #c0392b44'}:{}});
+    box2.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v));
+    box2.appendChild(h('div',{className:'stat-lbl'},st.l+(st.l==='Dead'&&st.v>0?' ↗':'')));
+    if(st.l==='Dead'&&st.v>0) box2.addEventListener('click',()=>showDeadHivesModal(opName));
+    g2.appendChild(box2);
+  });
   panel.appendChild(g2);
   if(s.alive>0||s.deadHives>0){
     const galiveDead=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
