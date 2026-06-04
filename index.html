@@ -1086,7 +1086,7 @@ function renderOverviewTab(){
     const allSitesFlat=[];
     Object.entries(yards).forEach(([batchName,batchData])=>{
       batchData.sites.forEach(site=>{
-        const latestDate=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>e.date)).sort().reverse()[0]||'';
+        const latestDate=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');})[0]?.date||'';
         allSitesFlat.push({batchName,site,latestDate});
       });
     });
@@ -1104,8 +1104,14 @@ function renderOverviewTab(){
     }
 
     function buildCard(site, batchName, container){
-      const allE=Object.entries(ROUNDS).map(([rk,r])=>{const list=STATE.entries[eKey(op,site,rk)]||[];return list.length?{roundDef:r,entry:list[0],rk}:null;}).filter(Boolean);
-      const allEFiltered=allE.filter(x=>!x.entry._movement);
+      // Use most recent real entry per round (sort by date+saved_at, not just [0])
+      const allE=Object.entries(ROUNDS).map(([rk,r])=>{
+        const list=(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement);
+        if(!list.length) return null;
+        const best=list.slice().sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');})[0];
+        return{roundDef:r,entry:best,rk};
+      }).filter(Boolean);
+      const allEFiltered=allE;
       const latestReal=allEFiltered.sort((a,b)=>b.entry.date.localeCompare(a.entry.date))[0]||null;
       const days=latestReal?daysBetween(latestReal.entry.date):null;
       const overdue=!latestReal||days>21;
@@ -1263,7 +1269,7 @@ function renderOverviewTab(){
     const allSitesFlat=[];
     Object.entries(yards).forEach(([batchName,batchData])=>{
       batchData.sites.forEach(site=>{
-        const latestDate=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>e.date)).sort().reverse()[0]||'';
+        const latestDate=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');})[0]?.date||'';
         allSitesFlat.push({batchName,batchData,site,latestDate});
       });
     });
