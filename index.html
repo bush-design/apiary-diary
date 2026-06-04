@@ -3426,7 +3426,125 @@ self.addEventListener('fetch',e=>{
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+// ── PIN gate ─────────────────────────────────────────────────────────────────
+const PIN_HASH_KEY='apiary_pin_hash';
+async function hashPin(pin){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pin+'apiary_salt_2024'));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+async function checkPin(pin){
+  const stored=localStorage.getItem(PIN_HASH_KEY);
+  if(!stored) return false;
+  const hash=await hashPin(pin);
+  return hash===stored;
+}
+async function setPin(pin){
+  const hash=await hashPin(pin);
+  localStorage.setItem(PIN_HASH_KEY,hash);
+}
+
+function showPinGate(onSuccess){
+  const existing=document.getElementById('pin-gate');
+  if(existing) existing.remove();
+  const isSetup=!localStorage.getItem(PIN_HASH_KEY);
+  const overlay=document.createElement('div');
+  overlay.id='pin-gate';
+  overlay.style.cssText='position:fixed;inset:0;background:#1a2e1a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;padding:30px;';
+
+  const logo=document.createElement('div');
+  logo.style.cssText='font-size:40px;margin-bottom:8px;';
+  logo.textContent='🐝';
+  overlay.appendChild(logo);
+
+  const title=document.createElement('div');
+  title.style.cssText='font-size:22px;font-weight:800;color:#fff;margin-bottom:4px;letter-spacing:-.02em;';
+  title.textContent='Apiary Diary';
+  overlay.appendChild(title);
+
+  const sub=document.createElement('div');
+  sub.style.cssText='font-size:13px;color:rgba(255,255,255,0.4);margin-bottom:32px;';
+  sub.textContent=isSetup?"Set a PIN to secure your data":"Enter PIN to continue";
+  overlay.appendChild(sub);
+
+  // PIN dots display
+  const dotsRow=document.createElement('div');
+  dotsRow.style.cssText='display:flex;gap:14px;margin-bottom:28px;';
+  const dots=[];
+  for(let i=0;i<4;i++){
+    const d=document.createElement('div');
+    d.style.cssText='width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);background:transparent;transition:background .1s;';
+    dots.push(d);dotsRow.appendChild(d);
+  }
+  overlay.appendChild(dotsRow);
+
+  let entered='';
+  const errMsg=document.createElement('div');
+  errMsg.style.cssText='font-size:13px;color:#f4a0a0;margin-bottom:16px;min-height:18px;';
+  overlay.appendChild(errMsg);
+
+  // Confirm field for setup
+  let confirming=false;
+  let firstPin='';
+
+  function updateDots(){
+    dots.forEach((d,i)=>{d.style.background=i<entered.length?'#7ecb8f':'transparent';});
+  }
+
+  async function handleComplete(){
+    if(isSetup||confirming){
+      if(isSetup&&!confirming){
+        firstPin=entered;entered='';confirming=true;
+        sub.textContent="Confirm your PIN";
+        errMsg.textContent='';updateDots();return;
+      }
+      if(entered!==firstPin){
+        errMsg.textContent='PINs do not match. Try again.';
+        entered='';confirming=false;firstPin='';
+        sub.textContent="Set a PIN to secure your data";
+        updateDots();return;
+      }
+      await setPin(entered);
+      overlay.remove();onSuccess();
+    } else {
+      const ok=await checkPin(entered);
+      if(ok){overlay.remove();onSuccess();}
+      else{errMsg.textContent='Incorrect PIN';entered='';updateDots();}
+    }
+  }
+
+  // Numpad
+  const pad=document.createElement('div');
+  pad.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:240px;';
+  [1,2,3,4,5,6,7,8,9,'',0,'⌫'].forEach(n=>{
+    const btn=document.createElement('button');
+    btn.style.cssText='padding:18px;font-size:20px;font-weight:700;border:none;border-radius:12px;cursor:pointer;'+(n===''?'background:transparent;color:transparent;pointer-events:none;':'background:rgba(255,255,255,0.1);color:#fff;');
+    btn.textContent=String(n);
+    if(n!==''){
+      btn.addEventListener('click',async()=>{
+        if(n==='⌫'){entered=entered.slice(0,-1);}
+        else if(entered.length<4){entered+=String(n);}
+        updateDots();
+        if(entered.length===4) setTimeout(handleComplete,120);
+      });
+    }
+    pad.appendChild(btn);
+  });
+  overlay.appendChild(pad);
+  document.body.appendChild(overlay);
+}
+
 async function boot(){
+  // Check PIN before showing app
+  const hasPinSet=!!localStorage.getItem(PIN_HASH_KEY);
+  if(!hasPinSet){
+    // First time — set up PIN
+    showPinGate(()=>bootApp());
+    return;
+  }
+  showPinGate(()=>bootApp());
+}
+
+async function bootApp(){
   // Show app immediately with local data
   render();
   if(!navigator.onLine){
