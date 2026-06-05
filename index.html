@@ -1154,19 +1154,52 @@ function renderSummaryPanel(opName){
   }
   // Breeders / Finishers section
   if(s.breederSites.length>0||s.finisherSites.length>0){
-    const qyDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
-    qyDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Queen Yard'));
+    const qyRow=h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'4px',marginBottom:'4px'}});
     if(s.breederSites.length>0){
-      qyDiv.appendChild(h('div',{style:{fontSize:'11px',color:'#c39bd3',fontWeight:'700',marginBottom:'4px'}},'Breeders'));
-      s.breederSites.forEach(b=>qyDiv.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'13px',color:'#fff',marginBottom:'3px'}},
-        h('span',null,b.site),h('span',{style:{fontWeight:'700',color:'#c39bd3'}},b.count+' hive'+(b.count!==1?'s':'')))));
+      const totalB=s.breederSites.reduce((a,b)=>a+b.count,0);
+      const pill=h('button',{style:{padding:'8px 14px',borderRadius:'20px',background:'rgba(195,155,211,0.2)',border:'1.5px solid #c39bd3',color:'#c39bd3',fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',gap:'6px',alignItems:'center'}});
+      pill.appendChild(h('span',null,'🐝 Breeders'));
+      pill.appendChild(h('span',{style:{background:'#c39bd3',color:'#2a1f3d',borderRadius:'10px',padding:'1px 7px',fontSize:'12px',fontWeight:'800'}},totalB));
+      pill.addEventListener('click',()=>{
+        const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+        const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
+        box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},'Breeders'));
+        box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},totalB+' hives across '+s.breederSites.length+' site'+(s.breederSites.length!==1?'s':'')));
+        s.breederSites.forEach(b=>{
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'},
+            onClick:()=>{overlay.remove();Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(b.site))setState({op:opName,tab:'diary',run:batch,site:b.site,diaryView:'entries'});});}});
+          row.appendChild(h('span',{style:{fontWeight:'600',fontSize:'15px'}},b.site));
+          row.appendChild(h('span',{style:{fontWeight:'800',fontSize:'18px',color:'#7a4fa8'}},b.count+' ›'));
+          box.appendChild(row);
+        });
+        box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+        overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});document.body.appendChild(overlay);
+      });
+      qyRow.appendChild(pill);
     }
     if(s.finisherSites.length>0){
-      qyDiv.appendChild(h('div',{style:{fontSize:'11px',color:'#7ecb8f',fontWeight:'700',marginBottom:'4px',marginTop:s.breederSites.length?'8px':'0'}},'Finishers'));
-      s.finisherSites.forEach(f=>qyDiv.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'13px',color:'#fff',marginBottom:'3px'}},
-        h('span',null,f.site),h('span',{style:{fontWeight:'700',color:'#7ecb8f'}},f.count+' hive'+(f.count!==1?'s':'')))));
+      const totalF=s.finisherSites.reduce((a,f)=>a+f.count,0);
+      const pill=h('button',{style:{padding:'8px 14px',borderRadius:'20px',background:'rgba(126,203,143,0.15)',border:'1.5px solid #7ecb8f',color:'#7ecb8f',fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',gap:'6px',alignItems:'center'}});
+      pill.appendChild(h('span',null,'🐝 Finishers'));
+      pill.appendChild(h('span',{style:{background:'#7ecb8f',color:'#1a2e1a',borderRadius:'10px',padding:'1px 7px',fontSize:'12px',fontWeight:'800'}},totalF));
+      pill.addEventListener('click',()=>{
+        const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+        const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
+        box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},'Finishers'));
+        box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},totalF+' hives across '+s.finisherSites.length+' site'+(s.finisherSites.length!==1?'s':'')));
+        s.finisherSites.forEach(f=>{
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'},
+            onClick:()=>{overlay.remove();Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(f.site))setState({op:opName,tab:'diary',run:batch,site:f.site,diaryView:'entries'});});}});
+          row.appendChild(h('span',{style:{fontWeight:'600',fontSize:'15px'}},f.site));
+          row.appendChild(h('span',{style:{fontWeight:'800',fontSize:'18px',color:'#3d7a4f'}},f.count+' ›'));
+          box.appendChild(row);
+        });
+        box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+        overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});document.body.appendChild(overlay);
+      });
+      qyRow.appendChild(pill);
     }
-    panel.appendChild(qyDiv);
+    panel.appendChild(qyRow);
   }
   // Hives in orchards from movements
   // Only count movements from THIS operation's sites
