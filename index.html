@@ -1130,11 +1130,11 @@ function renderOverviewTab(){
       let at=0,ac=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
       const avg=ac>0?Math.round(at/ac):null;
       const card=h('div',{className:'card'+(overdue?' overdue':''),style:{position:'relative',overflow:'hidden',flexDirection:'column',alignItems:'stretch'},onClick:()=>setState({tab:'diary',run:batchName,site,diaryView:'entries',round:STATE.round})});
-      if(overdue)card.appendChild(h('div',{className:'flag-tag'},!latest?'NOT VISITED':`${days}d AGO`));
       const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
       const left=h('div',{style:{flex:'1',paddingRight:'8px'}});
       left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',marginBottom:'1px'}},site));
       left.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'2px'}},batchName));
+      if(overdue)left.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#fff',background:'#e24b4a',borderRadius:'10px',padding:'2px 7px',display:'inline-block',marginBottom:'2px'}},!latest?'NOT VISITED':`${days}d ago`));
       if(latest){left.appendChild(h('div',{style:{fontSize:'12px',color:'#777'}},latest.roundDef.short+' · '+fmtDate(latest.entry.date)+(!overdue&&days!==null?' · '+days+'d ago':'')));if(latest.entry.treatment)left.appendChild(h('div',{className:'tx-pill'},'Tx: '+latest.entry.treatment));}
       else left.appendChild(h('div',{style:{fontSize:'12px',color:'#bbb'}},'No entries yet'));
       row.appendChild(left);
@@ -1705,6 +1705,30 @@ function renderForm(){
       const existingTx=(vals[f.key]||'').split(',').map(s=>s.trim()).filter(Boolean);
       const selectedTx=new Set(existingTx);
       const txGrid=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'4px'}});
+      function styleBtn(btn, active){
+        btn.style.border=`1.5px solid ${active?'#9b59b6':'#ddd'}`;
+        btn.style.background=active?'#f3e8ff':'#fff';
+        btn.style.color=active?'#7a4fa8':'#555';
+      }
+      // None button — shown as active only when nothing selected
+      const noneBtn=h('button',{type:'button',style:{
+        padding:'7px 12px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',
+        border:`1.5px solid ${selectedTx.size===0?'#9b59b6':'#ddd'}`,
+        background:selectedTx.size===0?'#f3e8ff':'#fff',
+        color:selectedTx.size===0?'#7a4fa8':'#555'
+      }},'None');
+      function updateNoneBtn(){
+        styleBtn(noneBtn,selectedTx.size===0);
+      }
+      noneBtn.addEventListener('click',()=>{
+        selectedTx.clear();
+        STATE.formVals[f.key]='';
+        // Reset all treatment buttons
+        [...txGrid.children].forEach(b=>{if(b!==noneBtn)styleBtn(b,false);});
+        updateNoneBtn();
+      });
+      txGrid.appendChild(noneBtn);
+
       TREATMENTS.filter(t=>t).forEach(t=>{
         const btn=h('button',{type:'button',style:{
           padding:'7px 12px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',
@@ -1713,25 +1737,14 @@ function renderForm(){
           color:selectedTx.has(t)?'#7a4fa8':'#555'
         }},t);
         btn.addEventListener('click',()=>{
-          if(selectedTx.has(t)){selectedTx.delete(t);btn.style.border='1.5px solid #ddd';btn.style.background='#fff';btn.style.color='#555';}
-          else{selectedTx.add(t);btn.style.border='1.5px solid #9b59b6';btn.style.background='#f3e8ff';btn.style.color='#7a4fa8';}
-          STATE.formVals[f.key]=[...selectedTx].join(', ');
+          if(selectedTx.has(t)){selectedTx.delete(t);}
+          else{selectedTx.add(t);}
+          styleBtn(btn,selectedTx.has(t));
+          STATE.formVals[f.key]=[...selectedTx].join(', ')||'';
+          updateNoneBtn(); // update None to reflect whether anything is selected
         });
         txGrid.appendChild(btn);
       });
-      // None button
-      const noneBtn=h('button',{type:'button',style:{
-        padding:'7px 12px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',
-        border:`1.5px solid ${selectedTx.size===0?'#9b59b6':'#ddd'}`,
-        background:selectedTx.size===0?'#f3e8ff':'#fff',
-        color:selectedTx.size===0?'#7a4fa8':'#aaa'
-      }},'None');
-      noneBtn.addEventListener('click',()=>{
-        selectedTx.clear();STATE.formVals[f.key]='';
-        [...txGrid.children].forEach(b=>{b.style.border='1.5px solid #ddd';b.style.background='#fff';b.style.color=b===noneBtn?'#7a4fa8':'#aaa';});
-        noneBtn.style.border='1.5px solid #9b59b6';noneBtn.style.background='#f3e8ff';noneBtn.style.color='#7a4fa8';
-      });
-      txGrid.appendChild(noneBtn);
       fw.appendChild(txGrid);
     } else if(f.type==='select'){
       fw.appendChild(h('label',{className:'lbl'},f.label));
