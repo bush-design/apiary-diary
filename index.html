@@ -250,7 +250,7 @@ const ROUNDS = {
   spring:{label:"Spring / Pollination",short:"Spring / Pollination",color:"#3d7a4f",bg:"#e6f2eb",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"light",label:"Light",type:"number"},
-    {key:"dead",label:"Dead",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
+    {key:"dead",label:"Dead",type:"number"},{key:"lids_floors",label:"Lids & Floors",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
     {key:"score_breakdown",label:"Spring Score",type:"score_grid"},
     {key:"pol_pallet",label:"POL Pallet",type:"number"},{key:"part_pallet",label:"Part Pallet",type:"number"},
     {key:"pol_singles",label:"Pollination Singles",type:"number"},
@@ -272,7 +272,7 @@ const ROUNDS = {
   clover:{label:"Clover / Carrots",short:"Clover / Carrots",color:"#b05a1a",bg:"#faeeda",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"light",label:"Light",type:"number"},
-    {key:"dead",label:"Dead",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
+    {key:"dead",label:"Dead",type:"number"},{key:"lids_floors",label:"Lids & Floors",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
     {key:"carrot",label:"Carrot pallets",type:"number"},{key:"carrot_score",label:"Carrot Score",type:"carrot_grid"},
     {key:"fd_harv",label:"FD Harv",type:"number"},
     {key:"harv_34",label:"3/4 Harv",type:"number"},{key:"on_34",label:"3/4 on",type:"number"},
@@ -733,7 +733,7 @@ function exportCSV(opName){
 function calcSummary(opName){
   const sites=allSitesFor(opName);
   // include custom yards
-  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,pol=0,part=0,carrot=0;
+  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,lidsFloors=0,pol=0,part=0,carrot=0;
   const breederSites=[],finisherSites=[];
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
   let st=0,sc=0,logged=0,flagged=0;
@@ -766,7 +766,7 @@ function calcSummary(opName){
       }
       return 0;
     };
-    hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');
+    hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');lidsFloors+=lastVal('lids_floors');
     alive+=lastVal('alive_hives');deadHives+=lastVal('dead_hives');
     light+=lastVal('light');pol+=lastVal('pol_pallet');part+=lastVal('part_pallet');carrot+=lastVal('carrot');
     fdOn+=lastVal('fd_on');
@@ -784,7 +784,7 @@ function calcSummary(opName){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(latestEntry(opName,site,'spring')?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,lidsFloors,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
 }
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -932,6 +932,51 @@ function renderOpSelector(){
   return wrap;
 }
 
+function showLidsFloorsModal(opName){
+  const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  const lfSites=[];
+  sites.forEach(site=>{
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+    const withLF=allE.find(e=>parseInt(e.lids_floors)>0);
+    if(!withLF) return;
+    lfSites.push({site,lf:parseInt(withLF.lids_floors),date:withLF.date});
+  });
+  lfSites.sort((a,b)=>b.lf-a.lf);
+  const total=lfSites.reduce((a,x)=>a+x.lf,0);
+
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px',maxHeight:'80vh',display:'flex',flexDirection:'column'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},'Lids & Floors — '+opName));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},total+' total across '+lfSites.length+' site'+(lfSites.length!==1?'s':'')));
+  const list=h('div',{style:{overflowY:'auto',flex:'1'}});
+  if(!lfSites.length){
+    list.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No lids & floors recorded'));
+  } else {
+    lfSites.forEach(({site,lf,date})=>{
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'},
+        onClick:()=>{overlay.remove();
+          Object.entries(getYards(opName)).forEach(([batch,data])=>{
+            if(data.sites.includes(site)) setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});
+          });
+        }});
+      const left=h('div',null);
+      left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},site));
+      left.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginTop:'2px'}},fmtDate(date)));
+      const right=h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}});
+      right.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#1a6fb0',lineHeight:'1'}},lf));
+      right.appendChild(h('div',{style:{fontSize:'11px',color:'#1a6fb0',textTransform:'uppercase'}},'L&F'));
+      right.appendChild(h('span',{style:{color:'#ddd',fontSize:'16px'}},'›'));
+      row.appendChild(left);row.appendChild(right);
+      list.appendChild(row);
+    });
+  }
+  box.appendChild(list);
+  box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function showDeadHivesModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const deadSites=[];
@@ -1007,6 +1052,13 @@ function renderSummaryPanel(opName){
   const g3=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
   [{l:'Singles',v:s.singles},{l:'Doubles',v:s.doubles},{l:'Light',v:s.light}].forEach(st=>g3.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},st.v),h('div',{className:'stat-lbl'},st.l))));
   panel.appendChild(g3);
+  if(s.lidsFloors>0){
+    const lfBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #1a6fb044',marginBottom:'7px'}});
+    lfBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#1a6fb0',lineHeight:'1.1'}},s.lidsFloors));
+    lfBox.appendChild(h('div',{className:'stat-lbl'},'Lids & Floors ↗'));
+    lfBox.addEventListener('click',()=>showLidsFloorsModal(opName));
+    panel.appendChild(lfBox);
+  }
   if(s.pol+s.part+s.carrot>0){const g3b=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});[{l:'POL Pallet',v:s.pol},{l:'Part Pallet',v:s.part},{l:'Carrot',v:s.carrot}].forEach(st=>g3b.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},st.v),h('div',{className:'stat-lbl'},st.l))));panel.appendChild(g3b);}
   // Boxes on hives
   if(s.fdOn+s.on34+s.hcFdOn+s.hcHdOn>0){
@@ -1431,18 +1483,19 @@ function renderEntriesList(){
     return a._arrIdx-b._arrIdx;
   });
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
-  // For hive count fields: use the single most recent entry by date (then saved_at)
-  // All hive fields come from that one entry as a snapshot — no mixing across entries
+  // Use most recent entry WITH hive data — falls back past treatment-only visits
+  const mostRecentWithHives=allSiteEntries.find(e=>
+    e.hives!==undefined&&e.hives!==null&&e.hives!==''
+  )||null;
   const lv=k=>{
     if(HIVE_FIELDS3.includes(k)){
-      // Use value from most recent entry only — don't fall back to older entries
-      if(allSiteEntries[0]){
-        const raw=allSiteEntries[0][k];
+      if(mostRecentWithHives){
+        const raw=mostRecentWithHives[k];
         if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;
+        return 0;
       }
       return 0;
     }
-    // For non-hive fields (boxes etc): fall back to last non-zero across all entries
     for(const e of allSiteEntries){
       const raw=e[k];
       if(raw===undefined||raw===null||raw==='') continue;
@@ -1533,6 +1586,7 @@ function renderEntriesList(){
     }
     // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
     const extras=[
+      {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
       {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'Pol singles',v:lv('pol_singles'),show:lv('pol_singles')>0},
