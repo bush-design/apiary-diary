@@ -932,7 +932,60 @@ function renderOpSelector(){
   return wrap;
 }
 
-function showLidsFloorsModal(opName){
+function showStatModal(opName, fieldKey, label, color){
+  const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  const results=[];
+  sites.forEach(site=>{
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+    // For hive fields use mostRecentWithHives logic, for others use last non-zero
+    const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives','lids_floors'];
+    let val=0;
+    if(HIVE_FIELDS.includes(fieldKey)){
+      const withData=allE.find(e=>parseInt(e[fieldKey])>0);
+      if(withData) val=parseInt(withData[fieldKey])||0;
+    } else {
+      for(const e of allE){const v=parseInt(e[fieldKey]);if(!isNaN(v)&&v>0){val=v;break;}}
+    }
+    if(val>0) results.push({site,val,date:allE[0]?.date||''});
+  });
+  results.sort((a,b)=>b.val-a.val);
+  const total=results.reduce((a,x)=>a+x.val,0);
+
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px',maxHeight:'80vh',display:'flex',flexDirection:'column'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},label+' — '+opName));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},total+' total across '+results.length+' site'+(results.length!==1?'s':'')));
+  const list=h('div',{style:{overflowY:'auto',flex:'1'}});
+  if(!results.length){
+    list.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No data recorded'));
+  } else {
+    results.forEach(({site,val,date})=>{
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'},
+        onClick:()=>{overlay.remove();
+          Object.entries(getYards(opName)).forEach(([batch,data])=>{
+            if(data.sites.includes(site)) setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});
+          });
+        }});
+      const left=h('div',null);
+      left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},site));
+      left.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginTop:'2px'}},fmtDate(date)));
+      const right=h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}});
+      right.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:color||'#333',lineHeight:'1'}},val));
+      right.appendChild(h('span',{style:{color:'#ddd',fontSize:'16px'}},'›'));
+      row.appendChild(left);row.appendChild(right);
+      list.appendChild(row);
+    });
+  }
+  box.appendChild(list);
+  box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+function showLidsFloorsModal(opName){ showStatModal(opName,'lids_floors','Lids & Floors','#1a6fb0'); }
+
+function showDeadHivesModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const lfSites=[];
   sites.forEach(site=>{
@@ -1035,22 +1088,36 @@ function renderSummaryPanel(opName){
   );
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
   const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-  [{l:'Total hives',v:s.hives},{l:'Dead',v:s.dead,red:s.dead>0}].forEach(st=>{
-    const box2=h('div',{className:'stat-box'+(st.l==='Dead'&&st.v>0?' clickable':''),style:st.l==='Dead'&&st.v>0?{cursor:'pointer',outline:'1.5px solid #c0392b44'}:{}});
+  [{l:'Total hives',v:s.hives,key:'hives',color:'#1a2e1a'},{l:'Dead',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
+    const clickable=st.v>0;
+    const box2=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}33`}:{}});
     box2.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v));
-    box2.appendChild(h('div',{className:'stat-lbl'},st.l+(st.l==='Dead'&&st.v>0?' ↗':'')));
-    if(st.l==='Dead'&&st.v>0) box2.addEventListener('click',()=>showDeadHivesModal(opName));
+    box2.appendChild(h('div',{className:'stat-lbl'},st.l+(clickable?' ↗':'')));
+    if(clickable) box2.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color));
     g2.appendChild(box2);
   });
   panel.appendChild(g2);
   if(s.alive>0||s.deadHives>0){
     const galiveDead=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-    galiveDead.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#3d7a4f',lineHeight:'1.1'}},s.alive),h('div',{className:'stat-lbl'},'Alive hives')));
-    galiveDead.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:s.deadHives>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},s.deadHives),h('div',{className:'stat-lbl'},'Dead hives')));
+    [{l:'Alive hives',v:s.alive,key:'alive_hives',color:'#3d7a4f'},{l:'Dead hives',v:s.deadHives,key:'dead_hives',color:'#c0392b'}].forEach(st=>{
+      const clickable=st.v>0;
+      const boxAD=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}44`}:{}});
+      boxAD.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.color,lineHeight:'1.1'}},st.v));
+      boxAD.appendChild(h('div',{className:'stat-lbl'},st.l+(clickable?' ↗':'')));
+      if(clickable) boxAD.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color));
+      galiveDead.appendChild(boxAD);
+    });
     panel.appendChild(galiveDead);
   }
   const g3=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
-  [{l:'Singles',v:s.singles},{l:'Doubles',v:s.doubles},{l:'Light',v:s.light}].forEach(st=>g3.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},st.v),h('div',{className:'stat-lbl'},st.l))));
+  [{l:'Singles',v:s.singles,key:'singles',color:'#555'},{l:'Doubles',v:s.doubles,key:'doubles',color:'#555'},{l:'Light',v:s.light,key:'light',color:'#ef9f27'}].forEach(st=>{
+    const clickable=st.v>0;
+    const box3=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}44`}:{}});
+    box3.appendChild(h('div',{className:'stat-val'},st.v));
+    box3.appendChild(h('div',{className:'stat-lbl'},st.l+(clickable?' ↗':'')));
+    if(clickable) box3.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color));
+    g3.appendChild(box3);
+  });
   panel.appendChild(g3);
   if(s.lidsFloors>0){
     const lfBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #1a6fb044',marginBottom:'7px'}});
@@ -1059,7 +1126,18 @@ function renderSummaryPanel(opName){
     lfBox.addEventListener('click',()=>showLidsFloorsModal(opName));
     panel.appendChild(lfBox);
   }
-  if(s.pol+s.part+s.carrot>0){const g3b=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});[{l:'POL Pallet',v:s.pol},{l:'Part Pallet',v:s.part},{l:'Carrot',v:s.carrot}].forEach(st=>g3b.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},st.v),h('div',{className:'stat-lbl'},st.l))));panel.appendChild(g3b);}
+  if(s.pol+s.part+s.carrot>0){
+    const g3b=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
+    [{l:'POL Pallet',v:s.pol,key:'pol_pallet',color:'#555'},{l:'Part Pallet',v:s.part,key:'part_pallet',color:'#555'},{l:'Carrot',v:s.carrot,key:'carrot',color:'#b05a1a'}].forEach(st=>{
+      const clickable=st.v>0;
+      const bpol=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}44`}:{}});
+      bpol.appendChild(h('div',{className:'stat-val'},st.v));
+      bpol.appendChild(h('div',{className:'stat-lbl'},st.l+(clickable?' ↗':'')));
+      if(clickable) bpol.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color));
+      g3b.appendChild(bpol);
+    });
+    panel.appendChild(g3b);
+  }
   // Boxes on hives
   if(s.fdOn+s.on34+s.hcFdOn+s.hcHdOn>0){
     const boxDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
