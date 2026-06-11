@@ -1992,14 +1992,31 @@ function renderForm(){
       ...(STATE.editing!==null && originalLoggedBy!==STATE.userName ? {edited_by:STATE.userName||'Unknown',edited_at:new Date().toISOString()} : {}),
       saved_at:new Date().toISOString() // always update saved_at so sorting works
     };
-    if(_flag&&entry.comments){setFlag(op,site,entry.comments);}
+    // Set flag from comments if flagged, OR update existing flag if editing a flagged entry
+    if(_flag&&entry.comments){
+      setFlag(op,site,entry.comments);
+    } else if(STATE.editing!==null&&getFlag(op,site)&&entry.comments){
+      // Entry was already flagged — update flag with new comment
+      setFlag(op,site,entry.comments);
+    }
     if(entry.check_note){setCheck(op,site,entry.check_note);}
+    else if(STATE.editing!==null&&getCheck(op,site)&&entry.check_note!==undefined){
+      // Update check note if it changed
+      if(entry.check_note) setCheck(op,site,entry.check_note);
+    }
     const existing=STATE.entries[k]||[];
     let updated;
     if(STATE.editing!==null){updated={...STATE.entries,[k]:existing.map((e,i)=>i===STATE.editing?entry:e)};}
     else{updated={...STATE.entries,[k]:[entry,...existing]};}
+    // Save locally and navigate immediately — don't wait for Supabase
     saveLocal(updated);
-    await pushToSupabase(k,updated[k]);
+    STATE.entries=updated;
+    maybeSendReport(op);
+    showToast('Entry saved');
+    setState({entries:updated,diaryView:'entries',editing:null});
+
+    // Push to Supabase in the background (won't block UI)
+    pushToSupabase(k,updated[k]).catch(e=>console.warn('Supabase push failed, will retry:',e));
 
     // If editing a movement diary entry, also update the movement record's date
     if(STATE.editing!==null&&entry._movement){
@@ -2008,23 +2025,15 @@ function renderForm(){
       const newDate=entry.date;
       if(oldDate&&newDate&&oldDate!==newDate){
         const movs=loadMovements();
-        // Find matching movement by old date and site
         const updatedMovs=movs.map(m=>{
           const matchesSite=(m.from_site===site||m.to_site===site);
-          if(matchesSite&&m.date===oldDate){
-            return {...m,date:newDate};
-          }
+          if(matchesSite&&m.date===oldDate) return {...m,date:newDate};
           return m;
         });
         saveMovements(updatedMovs);
-        await pushToSupabase('hive_movements',updatedMovs);
-        showToast('Movement date updated too');
+        pushToSupabase('hive_movements',updatedMovs).catch(e=>console.warn('Movement sync failed:',e));
       }
     }
-
-    maybeSendReport(op);
-    showToast('Entry saved');
-    setState({entries:updated,diaryView:'entries',editing:null});
   }},'Save entry'));
   wrap.appendChild(fc);
   return wrap;
