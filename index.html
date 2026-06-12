@@ -733,7 +733,7 @@ function exportCSV(opName){
 function calcSummary(opName){
   const sites=allSitesFor(opName);
   // include custom yards
-  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,lidsFloors=0,pol=0,part=0,carrot=0;
+  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0;
   const breederSites=[],finisherSites=[];
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
   let st=0,sc=0,logged=0,flagged=0;
@@ -767,6 +767,14 @@ function calcSummary(opName){
       return 0;
     };
     hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');lidsFloors+=lastVal('lids_floors');
+    // Count formic pro hives from treatment string
+    const txStr=lastVal('treatment')||''; // won't work for string — use allSiteEntries directly
+    const formicEntry=allSiteEntries.find(e=>(e.treatment||'').includes('Formic Pro'));
+    if(formicEntry){
+      const fm=formicEntry.treatment.match(/Formic Pro\s*·\s*(\d+)/);
+      if(fm) formicTotal+=parseInt(fm[1])||0;
+      else if(formicEntry._formic_count) formicTotal+=parseInt(formicEntry._formic_count)||0;
+    }
     alive+=lastVal('alive_hives');deadHives+=lastVal('dead_hives');
     light+=lastVal('light');pol+=lastVal('pol_pallet');part+=lastVal('part_pallet');carrot+=lastVal('carrot');
     fdOn+=lastVal('fd_on');
@@ -784,7 +792,7 @@ function calcSummary(opName){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(latestEntry(opName,site,'spring')?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,lidsFloors,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
 }
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -985,6 +993,42 @@ function showStatModal(opName, fieldKey, label, color){
 
 function showLidsFloorsModal(opName){ showStatModal(opName,'lids_floors','Lids & Floors','#1a6fb0'); }
 
+function showFormicModal(opName){
+  const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  const results=[];
+  sites.forEach(site=>{
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+    const fe=allE.find(e=>(e.treatment||'').includes('Formic Pro'));
+    if(!fe) return;
+    const fm=fe.treatment.match(/Formic Pro\s*·\s*(\d+)/);
+    const count=fm?parseInt(fm[1]):(parseInt(fe._formic_count)||0);
+    if(count>0) results.push({site,count,date:fe.date});
+  });
+  results.sort((a,b)=>b.count-a.count);
+  const total=results.reduce((a,x)=>a+x.count,0);
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px',maxHeight:'80vh',display:'flex',flexDirection:'column'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},'Formic Pro — '+opName));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},total+' hives across '+results.length+' site'+(results.length!==1?'s':'')));
+  const list=h('div',{style:{overflowY:'auto',flex:'1'}});
+  results.forEach(({site,count,date})=>{
+    const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'},
+      onClick:()=>{overlay.remove();Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(site))setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});});}});
+    const left=h('div',null);
+    left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},site));
+    left.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginTop:'2px'}},fmtDate(date)));
+    const right=h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}});
+    right.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#b05a1a',lineHeight:'1'}},count));
+    right.appendChild(h('span',{style:{color:'#ddd',fontSize:'16px'}},'›'));
+    row.appendChild(left);row.appendChild(right);
+    list.appendChild(row);
+  });
+  box.appendChild(list);
+  box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function showDeadHivesModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const lfSites=[];
@@ -1119,12 +1163,23 @@ function renderSummaryPanel(opName){
     g3.appendChild(box3);
   });
   panel.appendChild(g3);
-  if(s.lidsFloors>0){
-    const lfBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #1a6fb044',marginBottom:'7px'}});
-    lfBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#1a6fb0',lineHeight:'1.1'}},s.lidsFloors));
-    lfBox.appendChild(h('div',{className:'stat-lbl'},'Lids & Floors ↗'));
-    lfBox.addEventListener('click',()=>showLidsFloorsModal(opName));
-    panel.appendChild(lfBox);
+  if(s.lidsFloors>0||s.formicTotal>0){
+    const lfRow=h('div',{style:{display:'grid',gridTemplateColumns:s.lidsFloors>0&&s.formicTotal>0?'1fr 1fr':'1fr',gap:'7px',marginBottom:'7px'}});
+    if(s.lidsFloors>0){
+      const lfBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #1a6fb044'}});
+      lfBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#1a6fb0',lineHeight:'1.1'}},s.lidsFloors));
+      lfBox.appendChild(h('div',{className:'stat-lbl'},'Lids & Floors ↗'));
+      lfBox.addEventListener('click',()=>showLidsFloorsModal(opName));
+      lfRow.appendChild(lfBox);
+    }
+    if(s.formicTotal>0){
+      const fBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #e0a06a44'}});
+      fBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#b05a1a',lineHeight:'1.1'}},s.formicTotal));
+      fBox.appendChild(h('div',{className:'stat-lbl'},'Formic Pro ↗'));
+      fBox.addEventListener('click',()=>showFormicModal(opName));
+      lfRow.appendChild(fBox);
+    }
+    panel.appendChild(lfRow);
   }
   if(s.pol+s.part+s.carrot>0){
     const g3b=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
@@ -1875,6 +1930,21 @@ function renderForm(){
         btn.style.background=active?'#f3e8ff':'#fff';
         btn.style.color=active?'#7a4fa8':'#555';
       }
+      // Formic Pro count stored separately
+      if(!STATE.formVals._formic_count) STATE.formVals._formic_count=vals._formic_count||'';
+      const formicCountWrap=h('div',{style:{display:'none',marginTop:'6px',marginBottom:'2px'}});
+      const formicRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+      formicRow.appendChild(h('label',{style:{fontSize:'12px',color:'#7a4fa8',fontWeight:'600'}},'Formic Pro — hives:'));
+      const formicInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'70px',padding:'6px 8px',border:'1.5px solid #9b59b6',borderRadius:'7px',fontSize:'14px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
+      formicInp.value=STATE.formVals._formic_count||'';
+      formicInp.addEventListener('input',e=>{
+        STATE.formVals._formic_count=e.target.value;
+        // Update treatment string to include count
+        const txArr=[...selectedTx];
+        STATE.formVals[f.key]=txArr.map(t=>t==='Formic Pro'&&e.target.value?`Formic Pro · ${e.target.value}`:t).join(', ')||'';
+      });
+      formicRow.appendChild(formicInp);
+      formicCountWrap.appendChild(formicRow);
       // None button — shown as active only when nothing selected
       const noneBtn=h('button',{type:'button',style:{
         padding:'7px 12px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',
@@ -1905,12 +1975,19 @@ function renderForm(){
           if(selectedTx.has(t)){selectedTx.delete(t);}
           else{selectedTx.add(t);}
           styleBtn(btn,selectedTx.has(t));
-          STATE.formVals[f.key]=[...selectedTx].join(', ')||'';
-          updateNoneBtn(); // update None to reflect whether anything is selected
+          // Build treatment string — Formic Pro includes count if set
+          const txArr=[...selectedTx];
+          STATE.formVals[f.key]=txArr.map(tx=>tx==='Formic Pro'&&STATE.formVals._formic_count?`Formic Pro · ${STATE.formVals._formic_count}`:tx).join(', ')||'';
+          // Show/hide formic count input
+          if(t==='Formic Pro') formicCountWrap.style.display=selectedTx.has('Formic Pro')?'block':'none';
+          updateNoneBtn();
         });
         txGrid.appendChild(btn);
       });
       fw.appendChild(txGrid);
+      // Show formic count if Formic Pro already selected (e.g. editing)
+      if(selectedTx.has('Formic Pro')) formicCountWrap.style.display='block';
+      fw.appendChild(formicCountWrap);
     } else if(f.type==='select'){
       fw.appendChild(h('label',{className:'lbl'},f.label));
       const sel=h('select',{className:'inp'});
