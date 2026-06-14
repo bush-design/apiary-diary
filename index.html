@@ -1905,6 +1905,10 @@ function renderForm(){
       lblRow.appendChild(h('label',{className:'lbl',style:{marginBottom:'0'}},f.label));
       // Flag toggle button — only on comments field
       if(f.key==='comments'){
+        // Pre-fill flag state from existing flag when editing
+        if(STATE.editing!==null&&getFlag(op,site)&&STATE.formVals._flag===undefined){
+          STATE.formVals._flag=true;
+        }
         let flagged=STATE.formVals._flag||false;
         const flagToggle=h('button',{type:'button',style:{padding:'3px 10px',borderRadius:'20px',border:flagged?'1.5px solid #ef9f27':'1px solid #ddd',background:flagged?'#fff8e6':'none',color:flagged?'#b07800':'#aaa',fontSize:'11px',fontWeight:'700',cursor:'pointer',flexShrink:'0'}},flagged?'! Flagged':'Flag');
         flagToggle.addEventListener('click',()=>{
