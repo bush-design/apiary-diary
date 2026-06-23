@@ -301,7 +301,7 @@ const eKey = (op,site,rk)=>`${op}__${site}__${rk}`;
 const latestEntry=(op,site,rk)=>{
   const list=(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement);
   if(!list.length) return null;
-  return list.slice().sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');})[0];
+  return list.slice().sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);})[0];
 };
 const allSitesFor = op=>Object.values(getYards(op)).flatMap(y=>y.sites);
 
@@ -946,7 +946,7 @@ function showStatModal(opName, fieldKey, label, color){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
     // For hive fields use mostRecentWithHives logic, for others use last non-zero
     const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives','lids_floors'];
     let val=0;
@@ -999,7 +999,7 @@ function showFormicModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
     const fe=allE.find(e=>(e.treatment||'').includes('Formic Pro'));
     if(!fe) return;
     const fm=fe.treatment.match(/Formic Pro\s*·\s*(\d+)/);
@@ -1035,7 +1035,7 @@ function showDeadHivesModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const lfSites=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
     const withLF=allE.find(e=>parseInt(e.lids_floors)>0);
     if(!withLF) return;
     lfSites.push({site,lf:parseInt(withLF.lids_floors),date:withLF.date});
@@ -1315,7 +1315,7 @@ function renderOverviewTab(){
     const allSitesFlat=[];
     Object.entries(yards).forEach(([batchName,batchData])=>{
       batchData.sites.forEach(site=>{
-        const latestDate=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');})[0]?.date||'';
+        const latestDate=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);})[0]?.date||'';
         allSitesFlat.push({batchName,batchData,site,latestDate});
       });
     });
@@ -1340,7 +1340,7 @@ function renderOverviewTab(){
       const allE=Object.entries(ROUNDS).map(([rk,r])=>{
         const list=(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement);
         if(!list.length) return null;
-        const best=list.slice().sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');})[0];
+        const best=list.slice().sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);})[0];
         return{roundDef:r,entry:best};
       }).filter(Boolean);
       const latest=allE.sort((a,b)=>b.entry.date.localeCompare(a.entry.date))[0]||null;
@@ -1472,7 +1472,7 @@ function renderSitesList(){
 
   data.sites.forEach(site=>{
     // Gather all real entries across rounds, newest first
-    const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>({...e,_rk:rk}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+    const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>({...e,_rk:rk}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
     const latest=allReal[0]||null;
     const days=latest?daysBetween(latest.date):null;
     const overdue=!latest||days>21;
@@ -2073,7 +2073,9 @@ function renderForm(){
       ...formData,
       logged_by:originalLoggedBy,
       ...(STATE.editing!==null && originalLoggedBy!==STATE.userName ? {edited_by:STATE.userName||'Unknown',edited_at:new Date().toISOString()} : {}),
-      saved_at:new Date().toISOString() // always update saved_at so sorting works
+      saved_at:new Date().toISOString(),
+      // logged_at = when user first tapped Save — never overwritten on edit/sync
+      logged_at:STATE.editing!==null?(formData.logged_at||new Date().toISOString()):new Date().toISOString()
     };
     // Set flag from comments if flagged, OR update existing flag if editing a flagged entry
     if(_flag&&entry.comments){
@@ -2154,7 +2156,7 @@ function renderRoundPicker(){
   Object.entries(ROUNDS).forEach(([k,r])=>{
     const btn=h('button',{style:{width:'100%',padding:'14px 16px',background:'#fff',border:`.5px solid ${r.color}33`,borderLeft:`4px solid ${r.color}`,borderRadius:'10px',marginBottom:'10px',cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'},
       onClick:()=>{
-        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
         ['hives','dead','singles','doubles','light','alive_hives','dead_hives'].forEach(key=>{
@@ -3684,15 +3686,77 @@ window.addEventListener('offline',()=>{
 // ── Service Worker (offline caching) ─────────────────────────────────────────
 if('serviceWorker' in navigator){
   const swCode=`
-const CACHE='apiary-v3';
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(['./']).catch(()=>{}))));
-self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))));
+const CACHE='apiary-v6';
+const OFFLINE_URL='/';
+
+// On install: cache the app shell immediately and skip waiting
+self.addEventListener('install',e=>{
+  e.waitUntil(
+    caches.open(CACHE).then(cache=>{
+      return cache.addAll([OFFLINE_URL,'./']);
+    }).then(()=>self.skipWaiting())
+  );
+});
+
+// On activate: clear old caches and take control immediately
+self.addEventListener('activate',e=>{
+  e.waitUntil(
+    caches.keys().then(keys=>Promise.all(
+      keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))
+    )).then(()=>self.clients.claim())
+  );
+});
+
+// Fetch: cache-first for the app, network-first for Supabase/APIs
 self.addEventListener('fetch',e=>{
-  if(e.request.url.includes('supabase.co')||e.request.url.includes('emailjs')||e.request.url.includes('jsdelivr'))return;
-  e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(res=>{const clone=res.clone();caches.open(CACHE).then(c=>c.put(e.request,clone));return res;}).catch(()=>caches.match('./'))));
+  const url=e.request.url;
+  // Always go to network for API calls — queue offline
+  if(url.includes('supabase.co')||url.includes('emailjs')||url.includes('jsdelivr')){
+    return; // let these fail gracefully, app handles offline queuing
+  }
+  // For navigation requests (loading the app): cache-first, fallback to cache
+  if(e.request.mode==='navigate'){
+    e.respondWith(
+      caches.match('./').then(cached=>{
+        if(cached) return cached;
+        return fetch(e.request).then(res=>{
+          const clone=res.clone();
+          caches.open(CACHE).then(c=>c.put('./',clone));
+          return res;
+        });
+      })
+    );
+    return;
+  }
+  // For all other requests: try cache first, then network, then cache fallback
+  e.respondWith(
+    caches.match(e.request).then(cached=>{
+      if(cached) return cached;
+      return fetch(e.request).then(res=>{
+        if(res&&res.status===200){
+          const clone=res.clone();
+          caches.open(CACHE).then(c=>c.put(e.request,clone));
+        }
+        return res;
+      }).catch(()=>caches.match('./'));
+    })
+  );
 });`;
-  const blob=new Blob([swCode],{type:'application/javascript'});
-  navigator.serviceWorker.register(URL.createObjectURL(blob)).catch(()=>{});
+
+  try {
+    const blob=new Blob([swCode],{type:'application/javascript'});
+    const swUrl=URL.createObjectURL(blob);
+    navigator.serviceWorker.register(swUrl).then(reg=>{
+      // Force update check on every load
+      reg.update();
+      // Cache the app immediately once SW is ready
+      navigator.serviceWorker.ready.then(()=>{
+        if(caches&&reg.active){
+          caches.open('apiary-v6').then(cache=>cache.add('./').catch(()=>{}));
+        }
+      });
+    }).catch(()=>{});
+  } catch(e){}
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
@@ -3817,28 +3881,45 @@ async function boot(){
 async function bootApp(){
   // Show app immediately with local data
   render();
+
+  // Proactively cache this page for offline use whenever we have signal
+  if(navigator.onLine&&'caches' in window){
+    caches.open('apiary-v6').then(cache=>{
+      cache.add(window.location.href).catch(()=>{});
+    }).catch(()=>{});
+  }
+
   if(!navigator.onLine){
-    document.getElementById('offline-bar').classList.add('show');
-    updateSyncDot('error');
+    updateSyncDot('offline');
+    showToast('Offline — using local data. Will sync when back in range.');
     return;
   }
   // Load Supabase library first, then pull data
   updateSyncDot('syncing');
-  _sbLoaded = await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
+  // Add timeout so slow signal doesn't block the app
+  const loadTimeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),8000));
+  try{
+    _sbLoaded = await Promise.race([
+      loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'),
+      loadTimeout
+    ]);
+  }catch(e){ _sbLoaded=false; }
+
   if(_sbLoaded){
     try{
       window._sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-      await pullFromSupabase(); // pulls all data and re-renders
+      await pullFromSupabase();
       subscribeRealtime();
       await flushPending();
       updateSyncDot('online');
     }catch(e){
       console.warn('Supabase init failed:',e);
-      updateSyncDot('error');
+      updateSyncDot('offline');
+      showToast('Sync failed — using local data');
     }
   } else {
-    updateSyncDot('error');
-    showToast('Could not connect to cloud — using local data');
+    updateSyncDot('offline');
+    showToast('No cloud connection — using local data. Will sync when back in range.');
   }
   // Load EmailJS in background then check quarterly backup
   loadScript('https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js').then(async loaded=>{
