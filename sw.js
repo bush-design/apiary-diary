@@ -1,4 +1,4 @@
-const CACHE = 'apiary-v7';
+const CACHE = 'apiary-v8';
 
 self.addEventListener('install', e => {
   e.waitUntil(
