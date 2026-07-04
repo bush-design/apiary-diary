@@ -1015,7 +1015,7 @@ function renderReportsScreen(){
   // Add season form
   const addSeasonCard=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'12px',border:'.5px solid #ddd'}});
   addSeasonCard.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#555',marginBottom:'10px'}},'+ Add season'));
-  const snInp=h('input',{type:'text',placeholder:'e.g. Spring 2026',style:{display:'block',width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fff',marginBottom:'8px',boxSizing:'border-box'}});
+  const snInp=h('input',{type:'text',placeholder:'Name (optional — e.g. Spring 2026)',style:{display:'block',width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fff',marginBottom:'8px',boxSizing:'border-box'}});
   addSeasonCard.appendChild(snInp);
   const dateRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}});
   const startInp=h('input',{type:'date',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fff',boxSizing:'border-box'}});
@@ -1027,9 +1027,10 @@ function renderReportsScreen(){
     onClick:()=>{
       const name=snInp.value.trim();
       const start=startInp.value;const end=endInp.value;
-      if(!name||!start||!end){showToast('Enter name, start and end date');return;}
+      if(!start||!end){showToast('Enter start and end date');return;}
       if(start>end){showToast('Start must be before end');return;}
-      const updated=[...loadSeasons(),{name,start,end}].sort((a,b)=>b.start.localeCompare(a.start));
+      const autoName=name||fmtDate(start)+' – '+fmtDate(end);
+      const updated=[...loadSeasons(),{name:autoName,start,end}].sort((a,b)=>b.start.localeCompare(a.start));
       saveSeasons(updated);
       setState({op:'__reports__'});
     }
