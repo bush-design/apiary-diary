@@ -6,7 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Apiary Diary">
-<meta name="theme-color" content="#111111">
+<meta name="theme-color" content="#1a2e1a">
+<link rel="manifest" href="/manifest.json">
 <title>Apiary Diary</title>
 <script>
 // Lazy-load Supabase and EmailJS only when online — app works fully without them
@@ -3685,78 +3686,12 @@ window.addEventListener('offline',()=>{
 
 // ── Service Worker (offline caching) ─────────────────────────────────────────
 if('serviceWorker' in navigator){
-  const swCode=`
-const CACHE='apiary-v6';
-const OFFLINE_URL='/';
-
-// On install: cache the app shell immediately and skip waiting
-self.addEventListener('install',e=>{
-  e.waitUntil(
-    caches.open(CACHE).then(cache=>{
-      return cache.addAll([OFFLINE_URL,'./']);
-    }).then(()=>self.skipWaiting())
-  );
-});
-
-// On activate: clear old caches and take control immediately
-self.addEventListener('activate',e=>{
-  e.waitUntil(
-    caches.keys().then(keys=>Promise.all(
-      keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))
-    )).then(()=>self.clients.claim())
-  );
-});
-
-// Fetch: cache-first for the app, network-first for Supabase/APIs
-self.addEventListener('fetch',e=>{
-  const url=e.request.url;
-  // Always go to network for API calls — queue offline
-  if(url.includes('supabase.co')||url.includes('emailjs')||url.includes('jsdelivr')){
-    return; // let these fail gracefully, app handles offline queuing
-  }
-  // For navigation requests (loading the app): cache-first, fallback to cache
-  if(e.request.mode==='navigate'){
-    e.respondWith(
-      caches.match('./').then(cached=>{
-        if(cached) return cached;
-        return fetch(e.request).then(res=>{
-          const clone=res.clone();
-          caches.open(CACHE).then(c=>c.put('./',clone));
-          return res;
-        });
-      })
-    );
-    return;
-  }
-  // For all other requests: try cache first, then network, then cache fallback
-  e.respondWith(
-    caches.match(e.request).then(cached=>{
-      if(cached) return cached;
-      return fetch(e.request).then(res=>{
-        if(res&&res.status===200){
-          const clone=res.clone();
-          caches.open(CACHE).then(c=>c.put(e.request,clone));
-        }
-        return res;
-      }).catch(()=>caches.match('./'));
-    })
-  );
-});`;
-
-  try {
-    const blob=new Blob([swCode],{type:'application/javascript'});
-    const swUrl=URL.createObjectURL(blob);
-    navigator.serviceWorker.register(swUrl).then(reg=>{
-      // Force update check on every load
-      reg.update();
-      // Cache the app immediately once SW is ready
-      navigator.serviceWorker.ready.then(()=>{
-        if(caches&&reg.active){
-          caches.open('apiary-v6').then(cache=>cache.add('./').catch(()=>{}));
-        }
-      });
-    }).catch(()=>{});
-  } catch(e){}
+  navigator.serviceWorker.register('/sw.js').then(reg=>{
+    reg.update();
+    navigator.serviceWorker.ready.then(()=>{
+      if(caches) caches.open('apiary-v7').then(cache=>cache.add('/').catch(()=>{}));
+    });
+  }).catch(e=>console.warn('SW registration failed:',e));
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
