@@ -164,6 +164,10 @@ function getPOLSites(){
   Object.values(OPERATIONS[opName].yards).forEach(y=>y.sites.forEach(s=>{if(!POL_SITES_BASE.includes(s))POL_SITES_BASE.push(s);}));
 });
 
+// Seasons storage
+function loadSeasons(){try{return JSON.parse(localStorage.getItem('apiary_seasons')||'[]');}catch(e){return[];}}
+function saveSeasons(s){try{localStorage.setItem('apiary_seasons',JSON.stringify(s));}catch(e){}}
+
 // Custom orchards storage
 function loadCustomOrchards(){try{return JSON.parse(localStorage.getItem('apiary_custom_orchards')||'[]');}catch(e){return[];}}
 function saveCustomOrchards(list){try{localStorage.setItem('apiary_custom_orchards',JSON.stringify(list));}catch(e){}}
@@ -709,7 +713,7 @@ function exportCSV(opName){
       });
     });
   });
-  const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
+  const q='"';const dq=q+q;const csv=rows.map(r=>r.map(cell=>q+String(cell).split(q).join(dq)+q).join(',')).join('\n');
   const filename=`${opName.replace(/\s+/g,'_')}_apiary_${todayStr()}.csv`;
   // Use data URI for mobile/tiiny.host compatibility
   const dataUri='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
@@ -736,7 +740,7 @@ function exportCSV(opName){
 function calcSummary(opName){
   const sites=allSitesFor(opName);
   // include custom yards
-  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0;
+  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0;
   const breederSites=[],finisherSites=[];
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
   let st=0,sc=0,logged=0,flagged=0;
@@ -756,7 +760,7 @@ function calcSummary(opName){
     // For each field, use the most recent entry that actually has a value for it
     // This prevents empty fields in a new entry zeroing out previous counts
     const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-    const HIVE_FIELDS_LV=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
+    const HIVE_FIELDS_LV=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
     const lastVal=k=>{
       for(const e of allSiteEntries){
         const raw=e[k];
@@ -769,7 +773,7 @@ function calcSummary(opName){
       }
       return 0;
     };
-    hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');lidsFloors+=lastVal('lids_floors');
+    hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');weak+=lastVal('weak');lidsFloors+=lastVal('lids_floors');
     // Count formic pro hives from treatment string
     const txStr=lastVal('treatment')||''; // won't work for string — use allSiteEntries directly
     const formicEntry=allSiteEntries.find(e=>(e.treatment||'').includes('Formic Pro'));
@@ -795,7 +799,7 @@ function calcSummary(opName){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(latestEntry(opName,site,'spring')?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
 }
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -939,7 +943,320 @@ function renderOpSelector(){
     ));
   }
   wrap.appendChild(movCard);
+
+  // Reports card
+  const repCard=h('button',{className:'op-card',style:{background:'#1a3a2a',border:'1.5px solid #2d6a4433',marginTop:'10px'},onClick:()=>setState({op:'__reports__'})});
+  repCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    h('div',null,
+      h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Reports'),
+      h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},'Spring scores · Yield · Pollination · Seasons')
+    ),
+    h('div',{style:{fontSize:'22px',color:'#7ecb8f',opacity:'0.8'}},'›')
+  ));
+  wrap.appendChild(repCard);
+
   wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'20px',color:'#fff',fontSize:'13px',fontWeight:'600',cursor:'pointer'},onClick:()=>{Object.keys(OPERATIONS).forEach(op=>exportCSV(op));}},'Export all data (CSV)'));
+  return wrap;
+}
+
+function getAFBInquiry(op, site){
+  const key='apiary_afb_'+op+'__'+site;
+  try{
+    const d=JSON.parse(localStorage.getItem(key)||'null');
+    if(!d) return null;
+    // Check if within 2 years
+    const found=new Date(d.date);
+    const expiry=new Date(found);
+    expiry.setFullYear(expiry.getFullYear()+2);
+    if(new Date()>expiry){localStorage.removeItem(key);return null;}
+    return d;
+  }catch(e){return null;}
+}
+
+function renderReportsScreen(){
+  const wrap=h('div',{className:'app'});
+  // Header
+  const header=h('div',{className:'header'});
+  const topRow=h('div',{className:'header-top'});
+  topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
+  topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
+  topRow.appendChild(h('div',{className:'sync-dot '+(navigator.onLine?'online':'error')}));
+  header.appendChild(topRow);
+  header.appendChild(h('div',{className:'header-title'},'Reports'));
+  wrap.appendChild(header);
+
+  const screen=h('div',{className:'screen'});
+
+  // ── Seasons ──────────────────────────────────────────────────────────────
+  const seasons=loadSeasons();
+
+  // Season management section
+  const seasonSec=h('div',{style:{marginBottom:'20px'}});
+  seasonSec.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.07em',color:'#888',marginBottom:'10px'}},'Seasons'));
+
+  // List existing seasons
+  seasons.forEach((s,i)=>{
+    const row=h('div',{style:{background:'#fff',borderRadius:'8px',padding:'10px 13px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center',border:'.5px solid #ddd'}});
+    row.appendChild(h('div',null,
+      h('div',{style:{fontWeight:'600',fontSize:'14px'}},s.name),
+      h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'1px'}},fmtDate(s.start)+' → '+fmtDate(s.end))
+    ));
+    const delBtn=h('button',{style:{background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',padding:'4px 10px',fontSize:'11px',color:'#c0392b',cursor:'pointer'},
+      onClick:()=>confirmAction('Delete season "'+s.name+'"?',()=>{
+        const updated=loadSeasons().filter((_,j)=>j!==i);
+        saveSeasons(updated);
+        setState({op:'__reports__'});
+      })
+    },'Delete');
+    row.appendChild(delBtn);
+    seasonSec.appendChild(row);
+  });
+
+  // Add season form
+  const addSeasonCard=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'12px',border:'.5px solid #ddd'}});
+  addSeasonCard.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#555',marginBottom:'10px'}},'+ Add season'));
+  const snInp=h('input',{type:'text',placeholder:'e.g. Spring 2026',style:{display:'block',width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fff',marginBottom:'8px',boxSizing:'border-box'}});
+  addSeasonCard.appendChild(snInp);
+  const dateRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}});
+  const startInp=h('input',{type:'date',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fff',boxSizing:'border-box'}});
+  const endInp=h('input',{type:'date',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fff',boxSizing:'border-box'}});
+  dateRow.appendChild(h('div',null,h('div',{style:{fontSize:'10px',color:'#aaa',marginBottom:'3px'}},'Start'),startInp));
+  dateRow.appendChild(h('div',null,h('div',{style:{fontSize:'10px',color:'#aaa',marginBottom:'3px'}},'End'),endInp));
+  addSeasonCard.appendChild(dateRow);
+  addSeasonCard.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'#1a3a2a',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>{
+      const name=snInp.value.trim();
+      const start=startInp.value;const end=endInp.value;
+      if(!name||!start||!end){showToast('Enter name, start and end date');return;}
+      if(start>end){showToast('Start must be before end');return;}
+      const updated=[...loadSeasons(),{name,start,end}].sort((a,b)=>b.start.localeCompare(a.start));
+      saveSeasons(updated);
+      setState({op:'__reports__'});
+    }
+  },'Add season'));
+  seasonSec.appendChild(addSeasonCard);
+  screen.appendChild(seasonSec);
+
+  if(!seasons.length){
+    screen.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'Add a season above to see reports'));
+    wrap.appendChild(screen);return wrap;
+  }
+
+  // ── Helper: get all entries for a season across all ops ──
+  function getSeasonEntries(season){
+    const entries=[];
+    Object.entries(OPERATIONS).forEach(([opName,op])=>{
+      Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+        batch.sites.forEach(site=>{
+          Object.keys(ROUNDS).forEach(rk=>{
+            (STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement&&e.date>=season.start&&e.date<=season.end).forEach(e=>{
+              entries.push({...e,_op:opName,_batch:batchName,_site:site,_rk:rk});
+            });
+          });
+        });
+      });
+    });
+    return entries;
+  }
+
+  // ── Season selector ──
+  let selectedSeason=seasons[0];
+  let compareSeason=null;
+  const seasonPicker=h('div',{style:{marginBottom:'16px'}});
+  seasonPicker.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.07em',color:'#888',marginBottom:'6px'}},'View season'));
+  const seasonSel=h('select',{style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fff',marginBottom:'8px',boxSizing:'border-box'}});
+  seasons.forEach(s=>seasonSel.appendChild(h('option',{value:s.name},s.name)));
+  seasonSel.addEventListener('change',e=>{selectedSeason=seasons.find(s=>s.name===e.target.value)||seasons[0];renderMetrics();});
+  seasonPicker.appendChild(seasonSel);
+
+  // Compare toggle
+  const cmpRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'}});
+  cmpRow.appendChild(h('label',{style:{fontSize:'13px',color:'#555',fontWeight:'600'}},'Compare with:'));
+  const cmpSel=h('select',{style:{flex:'1',padding:'7px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fff'}});
+  cmpSel.appendChild(h('option',{value:''},'— None —'));
+  seasons.forEach(s=>cmpSel.appendChild(h('option',{value:s.name},s.name)));
+  cmpSel.addEventListener('change',e=>{compareSeason=seasons.find(s=>s.name===e.target.value)||null;renderMetrics();});
+  cmpRow.appendChild(cmpSel);
+  seasonPicker.appendChild(cmpRow);
+  screen.appendChild(seasonPicker);
+
+  // ── Metrics area ──
+  const metricsArea=h('div',null);
+  screen.appendChild(metricsArea);
+
+  function calcSpringScore(entries){
+    let tot=0,cnt=0;
+    entries.forEach(e=>{
+      const bd=e.score_breakdown||{};
+      let at=0,ac=0;
+      [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+      if(ac>0){tot+=at/ac;cnt++;}
+    });
+    return cnt>0?(tot/cnt).toFixed(2):null;
+  }
+
+  function calcPolScore(entries, type){
+    // type: 'spring' = score_breakdown, 'carrot' = carrot_score
+    let tot=0,cnt=0;
+    entries.forEach(e=>{
+      const bd=type==='carrot'?(e.carrot_score||{}):(e.score_breakdown||{});
+      let at=0,ac=0;
+      const max=type==='carrot'?10:6;
+      [...Array(max+1).keys()].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+      if(ac>0){tot+=at/ac;cnt++;}
+    });
+    return cnt>0?(tot/cnt).toFixed(2):null;
+  }
+
+  function calcYield(entries){
+    let fdHarv=0,harv34=0,hcFd=0,hcHd=0,hives=0,sites=new Set();
+    entries.forEach(e=>{
+      fdHarv+=parseInt(e.fd_harv)||0;
+      harv34+=parseInt(e.harv_34)||0;
+      hcFd+=parseInt(e.honeycomb_fd)||0;
+      hcHd+=parseInt(e.honeycomb_hd)||0;
+      hives+=parseInt(e.hives)||0;
+      sites.add(e._op+'__'+e._site);
+    });
+    const total=fdHarv+harv34+hcFd+hcHd;
+    const mean=sites.size>0?(total/sites.size).toFixed(1):null;
+    return{fdHarv,harv34,hcFd,hcHd,total,mean};
+  }
+
+  function renderMetricCard(title, color, content){
+    const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'12px',overflow:'hidden',border:`.5px solid ${color}33`}});
+    card.appendChild(h('div',{style:{background:color,padding:'10px 14px',display:'flex',alignItems:'center'}},
+      h('div',{style:{fontWeight:'700',fontSize:'14px',color:'#fff'}},title)
+    ));
+    card.appendChild(content);
+    return card;
+  }
+
+  function renderDrilldown(rows, getValue, getLabel){
+    const body=h('div',{style:{padding:'10px 14px'}});
+    // Operation level
+    const opGroups={};
+    rows.forEach(r=>{if(!opGroups[r._op])opGroups[r._op]=[];opGroups[r._op].push(r);});
+    Object.entries(opGroups).forEach(([opName,opRows])=>{
+      const opVal=getValue(opRows);
+      if(!opVal) return;
+      const opRow=h('div',{style:{marginBottom:'8px'}});
+      const opHdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',padding:'6px 8px',background:'#f0f0ee',borderRadius:'7px',marginBottom:'4px'}});
+      opHdr.appendChild(h('span',{style:{fontWeight:'700',fontSize:'13px',color:'#1a1a1a'}},opName));
+      opHdr.appendChild(h('span',{style:{fontWeight:'700',fontSize:'14px',color:'#3d7a4f'}},getLabel(opVal)));
+      const batchArea=h('div',{style:{display:'none',paddingLeft:'10px'}});
+      opHdr.addEventListener('click',()=>{batchArea.style.display=batchArea.style.display==='none'?'block':'none';});
+      opRow.appendChild(opHdr);
+      // Batch level
+      const batchGroups={};
+      opRows.forEach(r=>{if(!batchGroups[r._batch])batchGroups[r._batch]=[];batchGroups[r._batch].push(r);});
+      Object.entries(batchGroups).forEach(([batchName,bRows])=>{
+        const bVal=getValue(bRows);
+        if(!bVal) return;
+        const bHdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',padding:'5px 8px',background:'#f8f8f6',borderRadius:'6px',marginBottom:'3px'}});
+        bHdr.appendChild(h('span',{style:{fontWeight:'600',fontSize:'12px',color:'#555'}},batchName));
+        bHdr.appendChild(h('span',{style:{fontWeight:'700',fontSize:'12px',color:'#3d7a4f'}},getLabel(bVal)));
+        const siteArea=h('div',{style:{display:'none',paddingLeft:'10px'}});
+        bHdr.addEventListener('click',()=>{siteArea.style.display=siteArea.style.display==='none'?'block':'none';});
+        // Site level
+        const siteGroups={};
+        bRows.forEach(r=>{if(!siteGroups[r._site])siteGroups[r._site]=[];siteGroups[r._site].push(r);});
+        Object.entries(siteGroups).forEach(([siteName,sRows])=>{
+          const sVal=getValue(sRows);
+          if(!sVal) return;
+          const sRow=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'4px 8px',marginBottom:'2px'}});
+          sRow.appendChild(h('span',{style:{fontSize:'12px',color:'#777'}},siteName));
+          sRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#555'}},getLabel(sVal)));
+          siteArea.appendChild(sRow);
+        });
+        batchArea.appendChild(bHdr);
+        batchArea.appendChild(siteArea);
+      });
+      opRow.appendChild(batchArea);
+      body.appendChild(opRow);
+    });
+    return body;
+  }
+
+  function renderMetrics(){
+    metricsArea.innerHTML='';
+    const entries=getSeasonEntries(selectedSeason);
+    const cmpEntries=compareSeason?getSeasonEntries(compareSeason):null;
+
+    if(!entries.length){
+      metricsArea.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No entries found for '+selectedSeason.name));
+      return;
+    }
+
+    metricsArea.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'700',color:'#1a1a1a',marginBottom:'12px'}},selectedSeason.name+(compareSeason?' vs '+compareSeason.name:'')));
+
+    // ── Spring Score ──
+    const springEntries=entries.filter(e=>e.score_breakdown&&Object.values(e.score_breakdown).some(v=>parseInt(v)>0));
+    if(springEntries.length){
+      const overall=calcSpringScore(springEntries);
+      const cmpOverall=cmpEntries?calcSpringScore(cmpEntries.filter(e=>e.score_breakdown&&Object.values(e.score_breakdown||{}).some(v=>parseInt(v)>0))):null;
+      const body=h('div',{style:{padding:'12px 14px 6px'}});
+      const topRow2=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'10px'}});
+      topRow2.appendChild(h('div',null,h('div',{style:{fontSize:'28px',fontWeight:'800',color:'#3d7a4f'}},overall),h('div',{style:{fontSize:'11px',color:'#aaa'}},'Overall average')));
+      if(cmpOverall) topRow2.appendChild(h('div',{style:{textAlign:'right'}},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#aaa'}},cmpOverall),h('div',{style:{fontSize:'11px',color:'#bbb'}},compareSeason.name)));
+      body.appendChild(topRow2);
+      body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'8px'}},'Tap operation to drill down to batch → yard'));
+      body.appendChild(renderDrilldown(springEntries,calcSpringScore,v=>'⌀ '+v));
+      metricsArea.appendChild(renderMetricCard('Spring Score','#3d7a4f',body));
+    }
+
+    // ── Pollination Score ──
+    const polEntries=entries.filter(e=>e.score_breakdown&&Object.values(e.score_breakdown||{}).some(v=>parseInt(v)>0));
+    const carrotEntries=entries.filter(e=>e.carrot_score&&Object.values(e.carrot_score||{}).some(v=>parseInt(v)>0));
+    if(polEntries.length||carrotEntries.length){
+      const body2=h('div',{style:{padding:'12px 14px 6px'}});
+      if(polEntries.length){
+        const polAvg=calcPolScore(polEntries,'spring');
+        body2.appendChild(h('div',{style:{marginBottom:'10px'}},
+          h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#aaa',textTransform:'uppercase',marginBottom:'4px'}},'Bee Pollination (Spring)'),
+          h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#b07800'}},polAvg),
+          renderDrilldown(polEntries,rows=>calcPolScore(rows,'spring'),v=>'⌀ '+v)
+        ));
+      }
+      if(carrotEntries.length){
+        const carAvg=calcPolScore(carrotEntries,'carrot');
+        body2.appendChild(h('div',null,
+          h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#aaa',textTransform:'uppercase',marginBottom:'4px'}},'Carrot Pollination'),
+          h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#b05a1a'}},carAvg),
+          renderDrilldown(carrotEntries,rows=>calcPolScore(rows,'carrot'),v=>'⌀ '+v)
+        ));
+      }
+      metricsArea.appendChild(renderMetricCard('Pollination Scores','#b07800',body2));
+    }
+
+    // ── Yield ──
+    const yieldEntries=entries.filter(e=>(parseInt(e.fd_harv)||0)+(parseInt(e.harv_34)||0)+(parseInt(e.honeycomb_fd)||0)+(parseInt(e.honeycomb_hd)||0)>0);
+    if(yieldEntries.length){
+      const y=calcYield(yieldEntries);
+      const body3=h('div',{style:{padding:'12px 14px 6px'}});
+      // Summary row
+      const yGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'12px'}});
+      [{l:'Total boxes',v:y.total,big:true},{l:'Mean per yard',v:y.mean},{l:'FD Harvested',v:y.fdHarv},{l:'3/4 Harvested',v:y.harv34},{l:'HC FD',v:y.hcFd},{l:'HC ½',v:y.hcHd}].forEach(({l,v,big})=>{
+        const tile=h('div',{style:{background:'#f8f4ee',borderRadius:'8px',padding:'8px 10px'}});
+        tile.appendChild(h('div',{style:{fontSize:big?'26px':'18px',fontWeight:'800',color:'#b05a1a',lineHeight:'1'}},v||'0'));
+        tile.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',marginTop:'2px',textTransform:'uppercase',letterSpacing:'.04em'}},l));
+        yGrid.appendChild(tile);
+      });
+      body3.appendChild(yGrid);
+      body3.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'8px'}},'Tap to drill down'));
+      body3.appendChild(renderDrilldown(yieldEntries,rows=>{const y2=calcYield(rows);return y2.total>0?String(y2.total):null;},v=>v+' boxes'));
+      const cmpY=cmpEntries?calcYield(cmpEntries.filter(e=>(parseInt(e.fd_harv)||0)+(parseInt(e.harv_34)||0)+(parseInt(e.honeycomb_fd)||0)+(parseInt(e.honeycomb_hd)||0)>0)):null;
+      if(cmpY&&cmpY.total>0) body3.appendChild(h('div',{style:{marginTop:'10px',padding:'8px',background:'#f0f0ee',borderRadius:'8px',fontSize:'13px',color:'#555'}},compareSeason.name+': '+cmpY.total+' boxes total, '+cmpY.mean+' per yard'));
+      metricsArea.appendChild(renderMetricCard('Yield','#b05a1a',body3));
+    }
+
+    if(!springEntries.length&&!polEntries.length&&!carrotEntries.length&&!yieldEntries.length){
+      metricsArea.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No score or yield data found for this season'));
+    }
+  }
+
+  renderMetrics();
+  wrap.appendChild(screen);
   return wrap;
 }
 
@@ -1157,7 +1474,7 @@ function renderSummaryPanel(opName){
     panel.appendChild(galiveDead);
   }
   const g3=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
-  [{l:'Singles',v:s.singles,key:'singles',color:'#555'},{l:'Doubles',v:s.doubles,key:'doubles',color:'#555'},{l:'Light',v:s.light,key:'light',color:'#ef9f27'}].forEach(st=>{
+  [{l:'Singles',v:s.singles,key:'singles',color:'#555'},{l:'Doubles',v:s.doubles,key:'doubles',color:'#555'},{l:'Light',v:s.light,key:'light',color:'#ef9f27'},{l:'Weak',v:s.weak,key:'weak',color:'#9b59b6'}].forEach(st=>{
     const clickable=st.v>0;
     const box3=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}44`}:{}});
     box3.appendChild(h('div',{className:'stat-val'},st.v));
@@ -1348,9 +1665,11 @@ function renderOverviewTab(){
       const days=latest?daysBetween(latest.entry.date):null;
       const overdue=!latest||days>21;
       const bd=latestEntry(op,site,'spring')?.score_breakdown||{};
-      let at=0,ac=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+      let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
       const avg=ac>0?Math.round(at/ac):null;
-      const card=h('div',{className:'card'+(overdue?' overdue':''),style:{position:'relative',overflow:'hidden',flexDirection:'column',alignItems:'stretch'},onClick:()=>setState({tab:'diary',run:batchName,site,diaryView:'entries',round:STATE.round})});
+      const afbInq2=getAFBInquiry(op,site);
+      const card=h('div',{className:'card'+(overdue?' overdue':''),style:{position:'relative',overflow:'hidden',flexDirection:'column',alignItems:'stretch',border:afbInq2?'2px solid #c0392b':''},onClick:()=>setState({tab:'diary',run:batchName,site,diaryView:'entries',round:STATE.round})});
+      if(afbInq2) card.appendChild(h('div',{style:{position:'absolute',top:'0',right:'0',background:'#c0392b',color:'#fff',fontSize:'9px',fontWeight:'800',padding:'2px 7px',borderRadius:'0 8px 0 5px',letterSpacing:'.05em'}},'⚠ AFB'));
       const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
       const left=h('div',{style:{flex:'1',paddingRight:'8px'}});
       left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',marginBottom:'1px'}},site));
@@ -1479,7 +1798,7 @@ function renderSitesList(){
     const overdue=!latest||days>21;
 
     // Field lookup — most recent non-zero value across all entries
-    const HIVE_FIELDS2=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
+    const HIVE_FIELDS2=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
     const lv=k=>{
       for(const e of allReal){
         const raw=e[k];
@@ -1496,7 +1815,7 @@ function renderSitesList(){
     // Spring score
     const springEntries=STATE.entries[eKey(op,site,'spring')]?.filter(e=>!e._movement)||[];
     const bd=latestEntry(op,site,'spring')?.score_breakdown||{};
-    let at=0,ac=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+    let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
     const avg=ac>0?Math.round(at/ac):null;
 
     // Movement-adjusted hive count
@@ -1519,13 +1838,15 @@ function renderSitesList(){
 
     const flag=getFlag(op,site);
     const chk=getCheck(op,site);
+    const afb=getAFBInquiry(op,site);
 
-    // Card
-    const card=h('div',{style:{background:'#fff',border:`1.5px solid ${overdue?'#f4a0a0':flag?'#ef9f27':chk?'#6ab0e0':'#e0e0de'}`,borderRadius:'12px',marginBottom:'8px',overflow:'hidden'}});
+    // Card — red border if AFB inquiry active
+    const card=h('div',{style:{background:'#fff',border:`1.5px solid ${afb?'#c0392b':overdue?'#f4a0a0':flag?'#ef9f27':chk?'#6ab0e0':'#e0e0de'}`,borderRadius:'12px',marginBottom:'8px',overflow:'hidden'}});
 
     // Header row — always visible, tap to navigate
-    const header=h('div',{style:{padding:'11px 13px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'},
+    const header=h('div',{style:{padding:'11px 13px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',position:'relative'},
       onClick:()=>setState({site,diaryView:'entries'})});
+    if(afb) header.appendChild(h('div',{style:{position:'absolute',top:'0',right:'0',background:'#c0392b',color:'#fff',fontSize:'9px',fontWeight:'800',padding:'3px 8px',borderRadius:'0 12px 0 6px',letterSpacing:'.05em'}},'UNDER INQUIRY'));
     const hLeft=h('div',{style:{flex:'1'}});
     hLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',color:'#1a1a1a',marginBottom:'2px'}},site));
     if(latest){
@@ -1598,6 +1919,12 @@ function renderSitesList(){
     }
 
     // Flag / check
+    if(afb){
+      body.appendChild(h('div',{style:{background:'#fde8e8',border:'1px solid #c0392b',borderRadius:'6px',padding:'6px 10px',fontSize:'12px',color:'#c0392b',fontWeight:'700',marginBottom:'6px',display:'flex',justifyContent:'space-between'}},
+        h('span',null,'⚠ AFB found'),
+        h('span',{style:{fontWeight:'400',color:'#e24b4a'}},fmtDate(afb.date))
+      ));
+    }
     if(flag){
       const fb=h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'6px',padding:'5px 8px',fontSize:'12px',color:'#b07800',cursor:'pointer',marginBottom:'4px',display:'flex',gap:'5px'}},
         h('span',{style:{fontWeight:'700'}},'!'),h('span',null,flag.comment));
@@ -1651,7 +1978,7 @@ function renderEntriesList(){
     // Tiebreaker 2: array index ASC (lower index = newer in storage)
     return a._arrIdx-b._arrIdx;
   });
-  const HIVE_FIELDS3=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
+  const HIVE_FIELDS3=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
   // Use most recent entry WITH hive data — falls back past treatment-only visits
   const mostRecentWithHives=allSiteEntries.find(e=>
     e.hives!==undefined&&e.hives!==null&&e.hives!==''
@@ -1705,7 +2032,7 @@ function renderEntriesList(){
 
   // Spring score avg
   const bd=STATE.entries[eKey(op,site,'spring')]?.find(e=>!e._movement)?.score_breakdown||{};
-  let at=0,ac=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+  let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
   const avg=ac>0?Math.round(at/ac):null;
 
   const summaryPanel=h('div',{style:{background:opData.color,borderRadius:'12px',padding:'13px 14px',marginBottom:'14px'}});
@@ -1810,7 +2137,15 @@ function renderEntriesList(){
   const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}});
   topRow.appendChild(h('div',{className:'section-label',style:{marginBottom:'0'}},realEntries.length===0?'No entries':`${realEntries.length} entr${realEntries.length===1?'y':'ies'}`));
   topRow.appendChild(h('button',{style:{background:opData.color,color:'#fff',border:'none',borderRadius:'20px',padding:'7px 14px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
-    onClick:()=>setState({diaryView:'round-picker'})},'+ New entry'));
+    onClick:()=>{
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+        const lastE=lastEntries[0]||{};
+        const prefill={date:todayStr()};
+        ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives'].forEach(key=>{
+          if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
+        });
+        setState({round:'clover',diaryView:'form',editing:null,formVals:prefill});
+      }},'+ New entry'));
   wrap.appendChild(topRow);
 
   if(!allEntries.length){wrap.appendChild(h('div',{className:'empty-msg'},"Tap '+ New entry' to log a visit"));return wrap;}
@@ -1818,7 +2153,7 @@ function renderEntriesList(){
   allEntries.forEach(({entry,rk,rd,idx})=>{
     const bd=entry.score_breakdown||{};
     const hasScores=Object.values(bd).some(v=>v!==''&&v!==undefined&&v!==null);
-    let at=0,ac=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+    let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
     const avg=ac>0?Math.round(at/ac):null;
     const ec=h('div',{style:{background:'#fff',border:`.5px solid ${rd.color}33`,borderLeft:`3px solid ${rd.color}`,borderRadius:'10px',marginBottom:'8px',overflow:'hidden'}});
     const hdr=h('div',{className:'entry-header'});
@@ -1884,244 +2219,662 @@ function renderForm(){
   const op=STATE.op,round=STATE.round,rd=ROUNDS[round],site=STATE.site;
   const vals=STATE.formVals;
   const wrap=h('div',null);
+
+  // Header
   const topRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px'}});
   topRow.appendChild(h('button',{style:{background:'none',border:'none',fontSize:'22px',cursor:'pointer',color:'#555',padding:'0'},onClick:()=>setState({diaryView:'entries',editing:null})},'←'));
   topRow.appendChild(h('div',null,h('div',{style:{fontWeight:'600',fontSize:'16px'}},site),h('div',{style:{fontSize:'12px',color:rd.color,fontWeight:'600'}},rd.label)));
   wrap.appendChild(topRow);
+
   const fc=h('div',{className:'form-card'});
+
+  // Date
   fc.appendChild(h('label',{className:'lbl'},'Date'));
   const di=h('input',{type:'date',value:vals.date||todayStr(),style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',marginBottom:'14px'}});
   di.addEventListener('change',e=>STATE.formVals.date=e.target.value);
   fc.appendChild(di);
-  rd.fields.forEach(f=>{
-    const fw=h('div',{style:{marginBottom:'12px'}});
-    if(f.type==='number'){
-      fw.appendChild(h('label',{className:'lbl'},f.label));
-      const i=h('input',{type:'number',inputmode:'numeric',value:vals[f.key]||'',placeholder:'—',className:'inp'});
-      i.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
-      fw.appendChild(i);
-    } else if(f.type==='textarea'){
-      // Label row with flag toggle to the right
-      const lblRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px'}});
-      lblRow.appendChild(h('label',{className:'lbl',style:{marginBottom:'0'}},f.label));
-      // Flag toggle button — only on comments field
-      if(f.key==='comments'){
-        // Pre-fill flag state from existing flag when editing
-        if(STATE.editing!==null&&getFlag(op,site)&&STATE.formVals._flag===undefined){
-          STATE.formVals._flag=true;
-        }
-        let flagged=STATE.formVals._flag||false;
-        const flagToggle=h('button',{type:'button',style:{padding:'3px 10px',borderRadius:'20px',border:flagged?'1.5px solid #ef9f27':'1px solid #ddd',background:flagged?'#fff8e6':'none',color:flagged?'#b07800':'#aaa',fontSize:'11px',fontWeight:'700',cursor:'pointer',flexShrink:'0'}},flagged?'! Flagged':'Flag');
-        flagToggle.addEventListener('click',()=>{
-          flagged=!flagged;
-          STATE.formVals._flag=flagged;
-          flagToggle.textContent=flagged?'! Flagged':'Flag';
-          flagToggle.style.border=flagged?'1.5px solid #ef9f27':'1px solid #ddd';
-          flagToggle.style.background=flagged?'#fff8e6':'none';
-          flagToggle.style.color=flagged?'#b07800':'#aaa';
-        });
-        lblRow.appendChild(flagToggle);
-      }
-      fw.appendChild(lblRow);
-      const ta=h('textarea',{rows:'3',placeholder:'Notes…',className:'inp',style:{resize:'vertical',height:'auto',lineHeight:'1.5'}});
-      ta.value=vals[f.key]||'';ta.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
-      fw.appendChild(ta);
-    } else if(f.type==='treatment'){
-      fw.appendChild(h('label',{className:'lbl'},f.label));
-      // Parse existing treatment — could be single string or comma-separated
-      const existingTx=(vals[f.key]||'').split(',').map(s=>s.trim()).filter(Boolean);
-      const selectedTx=new Set(existingTx);
-      const txGrid=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'4px'}});
-      function styleBtn(btn, active){
-        btn.style.border=`1.5px solid ${active?'#9b59b6':'#ddd'}`;
-        btn.style.background=active?'#f3e8ff':'#fff';
-        btn.style.color=active?'#7a4fa8':'#555';
-      }
-      // Formic Pro count stored separately
-      if(!STATE.formVals._formic_count) STATE.formVals._formic_count=vals._formic_count||'';
-      const formicCountWrap=h('div',{style:{display:'none',marginTop:'6px',marginBottom:'2px'}});
-      const formicRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});
-      formicRow.appendChild(h('label',{style:{fontSize:'12px',color:'#7a4fa8',fontWeight:'600'}},'Formic Pro — hives:'));
-      const formicInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'70px',padding:'6px 8px',border:'1.5px solid #9b59b6',borderRadius:'7px',fontSize:'14px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
-      formicInp.value=STATE.formVals._formic_count||'';
-      formicInp.addEventListener('input',e=>{
-        STATE.formVals._formic_count=e.target.value;
-        // Update treatment string to include count
-        const txArr=[...selectedTx];
-        STATE.formVals[f.key]=txArr.map(t=>t==='Formic Pro'&&e.target.value?`Formic Pro · ${e.target.value}`:t).join(', ')||'';
-      });
-      formicRow.appendChild(formicInp);
-      formicCountWrap.appendChild(formicRow);
-      // None button — shown as active only when nothing selected
-      const noneBtn=h('button',{type:'button',style:{
-        padding:'7px 12px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',
-        border:`1.5px solid ${selectedTx.size===0?'#9b59b6':'#ddd'}`,
-        background:selectedTx.size===0?'#f3e8ff':'#fff',
-        color:selectedTx.size===0?'#7a4fa8':'#555'
-      }},'None');
-      function updateNoneBtn(){
-        styleBtn(noneBtn,selectedTx.size===0);
-      }
-      noneBtn.addEventListener('click',()=>{
-        selectedTx.clear();
-        STATE.formVals[f.key]='';
-        // Reset all treatment buttons
-        [...txGrid.children].forEach(b=>{if(b!==noneBtn)styleBtn(b,false);});
-        updateNoneBtn();
-      });
-      txGrid.appendChild(noneBtn);
 
-      TREATMENTS.filter(t=>t).forEach(t=>{
-        const btn=h('button',{type:'button',style:{
-          padding:'7px 12px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',
-          border:`1.5px solid ${selectedTx.has(t)?'#9b59b6':'#ddd'}`,
-          background:selectedTx.has(t)?'#f3e8ff':'#fff',
-          color:selectedTx.has(t)?'#7a4fa8':'#555'
-        }},t);
-        btn.addEventListener('click',()=>{
-          if(selectedTx.has(t)){selectedTx.delete(t);}
-          else{selectedTx.add(t);}
-          styleBtn(btn,selectedTx.has(t));
-          // Build treatment string — Formic Pro includes count if set
-          const txArr=[...selectedTx];
-          STATE.formVals[f.key]=txArr.map(tx=>tx==='Formic Pro'&&STATE.formVals._formic_count?`Formic Pro · ${STATE.formVals._formic_count}`:tx).join(', ')||'';
-          // Show/hide formic count input
-          if(t==='Formic Pro') formicCountWrap.style.display=selectedTx.has('Formic Pro')?'block':'none';
-          updateNoneBtn();
-        });
-        txGrid.appendChild(btn);
-      });
-      fw.appendChild(txGrid);
-      // Show formic count if Formic Pro already selected (e.g. editing)
-      if(selectedTx.has('Formic Pro')) formicCountWrap.style.display='block';
-      fw.appendChild(formicCountWrap);
-    } else if(f.type==='select'){
-      fw.appendChild(h('label',{className:'lbl'},f.label));
-      const sel=h('select',{className:'inp'});
-      (f.options||[]).forEach(t=>{const opt=h('option',{value:t},t===''?'—':t);if(vals[f.key]===t)opt.selected=true;sel.appendChild(opt);});
-      sel.addEventListener('change',e=>STATE.formVals[f.key]=e.target.value);
-      fw.appendChild(sel);
-    } else if(f.type==='score_grid'){
-      fw.appendChild(h('label',{className:'lbl'},'Spring Score — hives per score'));
-      const grid=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:'5px',marginTop:'4px'}});
-      [0,1,2,3,4,5,6].forEach(n=>{
-        const cell=h('div',{style:{textAlign:'center'}},
-          h('div',{style:{width:'28px',height:'28px',borderRadius:'50%',margin:'0 auto 4px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'13px'}},n===6?'6+':n)
-        );
-        const ni=h('input',{type:'number',inputmode:'numeric',min:'0',value:(vals.score_breakdown||{})[n]||'',placeholder:'—',style:{width:'100%',padding:'5px 2px',border:'.5px solid #ccc',borderRadius:'5px',fontSize:'13px',textAlign:'center',boxSizing:'border-box',background:'#fafafa'}});
-        ni.addEventListener('input',e=>{if(!STATE.formVals.score_breakdown)STATE.formVals.score_breakdown={};STATE.formVals.score_breakdown[n]=e.target.value;});
-        cell.appendChild(ni);grid.appendChild(cell);
-      });
-      fw.appendChild(grid);
-    } else if(f.type==='queen_yard'){
-      const qyWrap=h('div',{style:{marginBottom:'0'}});
-      qyWrap.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#7a4fa8',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px',paddingTop:'4px',borderTop:'1px solid #f0e8fb'}},'Queen Yard'));
-      const qyGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
-      [{label:'Breeders',key:'breeders',color:'#7a4fa8'},{label:'Finishers',key:'finishers',color:'#3d7a4f'}].forEach(({label,key,color})=>{
-        const nw=h('div',null);
-        nw.appendChild(h('label',{style:{fontSize:'10px',color:color,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
-        const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'9px 10px',border:`.5px solid ${color}55`,borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
-        if(vals[key]) ni.value=vals[key];
-        ni.addEventListener('input',e=>STATE.formVals[key]=e.target.value);
-        nw.appendChild(ni);qyGrid.appendChild(nw);
-      });
-      qyWrap.appendChild(qyGrid);
-      fw.appendChild(qyWrap);
-    } else if(f.type==='check_note'){
-      // Compact text field for check description, inline below check number
-      const cnWrap=h('div',{style:{marginBottom:'0'}});
-      const cnInp=h('input',{type:'text',placeholder:'What needs checking? (optional)',className:'inp',style:{fontSize:'13px',padding:'7px 10px',borderColor:'#6ab0e033',background:'#f0f7ff'}});
-      cnInp.value=vals[f.key]||'';
-      cnInp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
-      cnWrap.appendChild(cnInp);
-      fw.appendChild(cnWrap);
-    } else if(f.type==='sugar_feed'){
-      fw.appendChild(h('label',{className:'lbl'},'Sugar Feed'));
-      const sfRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
-      [{label:'Hives fed',key:'hives_fed'},{label:'Litres fed',key:'litres_fed'}].forEach(({label,key})=>{
-        const nw=h('div',null);
-        nw.appendChild(h('label',{style:{fontSize:'10px',color:'#3d7a4f',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
-        const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'9px 10px',border:'.5px solid #3d7a4f55',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
-        ni.addEventListener('input',e=>STATE.formVals[key]=e.target.value);
-        if(vals[key]) ni.value=vals[key];
-        nw.appendChild(ni);sfRow.appendChild(nw);
-      });
-      fw.appendChild(sfRow);
-    } else if(f.type==='carrot_grid'){
-      fw.appendChild(h('label',{className:'lbl'},'Carrot Score — hives per score'));
-      // 0-10, two rows of 6 then 5
-      const grid=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:'5px',marginTop:'4px'}});
-      [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{
-        const col=n<=5?scoreColor(Math.round(n/10*6)):scoreColor(Math.round(n/10*6));
-        // Use a colour scale: 0-3 red/amber, 4-7 amber/yellow, 8-10 green
-        const bg=n<=2?'#e24b4a':n<=5?'#ef9f27':n<=7?'#c8b400':'#3d7a4f';
-        const cell=h('div',{style:{textAlign:'center'}});
-        cell.appendChild(h('div',{style:{width:'28px',height:'28px',borderRadius:'50%',margin:'0 auto 4px',background:bg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'9px':'12px'}},n===10?'10+':n));
-        const ni=h('input',{type:'number',inputmode:'numeric',min:'0',value:(vals.carrot_score||{})[n]||'',placeholder:'—',style:{width:'100%',padding:'5px 2px',border:'.5px solid #ccc',borderRadius:'5px',fontSize:'13px',textAlign:'center',boxSizing:'border-box',background:'#fafafa'}});
-        ni.addEventListener('input',e=>{if(!STATE.formVals.carrot_score)STATE.formVals.carrot_score={};STATE.formVals.carrot_score[n]=e.target.value;});
-        cell.appendChild(ni);grid.appendChild(cell);
-      });
-      fw.appendChild(grid);
-    }
-    fc.appendChild(fw);
+  // ── Quick entry grid — 2 per row square tiles ──
+  const QUICK_FIELDS=[
+    {key:'hives',label:'Hives',color:'#1a2e1a'},
+    {key:'dead',label:'Dead',color:'#c0392b'},
+    {key:'singles',label:'Singles',color:'#555'},
+    {key:'doubles',label:'Doubles',color:'#555'},
+    {key:'lids_floors',label:'Lids & Floors',color:'#1a6fb0'},
+    {key:'light',label:'Light',color:'#ef9f27'},
+  ];
+  const quickGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}});
+  QUICK_FIELDS.forEach(f=>{
+    const tile=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'10px',border:`.5px solid ${f.color}22`}});
+    tile.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:f.color,textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'6px'}},f.label));
+    const inp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',fontSize:'20px',fontWeight:'700',border:'none',background:'transparent',color:'#1a1a1a',padding:'0',outline:'none'}});
+    inp.value=vals[f.key]||'';
+    inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
+    tile.appendChild(inp);
+    quickGrid.appendChild(tile);
   });
-  fc.appendChild(h('button',{className:'save-btn',style:{background:rd.color},onClick:async()=>{
-    const k=eKey(op,site,round);
-    const {_flag,...formData}=STATE.formVals;
-    // Preserve original logged_by; add edited_by if this is an edit
-    const originalLoggedBy=formData.logged_by||STATE.userName||'Unknown';
-    const entry={
-      ...formData,
-      logged_by:originalLoggedBy,
-      ...(STATE.editing!==null && originalLoggedBy!==STATE.userName ? {edited_by:STATE.userName||'Unknown',edited_at:new Date().toISOString()} : {}),
-      saved_at:new Date().toISOString(),
-      // logged_at = when user first tapped Save — never overwritten on edit/sync
-      logged_at:STATE.editing!==null?(formData.logged_at||new Date().toISOString()):new Date().toISOString()
-    };
-    // Set flag from comments if flagged, OR update existing flag if editing a flagged entry
-    if(_flag&&entry.comments){
-      setFlag(op,site,entry.comments);
-    } else if(STATE.editing!==null&&getFlag(op,site)&&entry.comments){
-      // Entry was already flagged — update flag with new comment
-      setFlag(op,site,entry.comments);
-    }
-    if(entry.check_note){setCheck(op,site,entry.check_note);}
-    else if(STATE.editing!==null&&getCheck(op,site)&&entry.check_note!==undefined){
-      // Update check note if it changed
-      if(entry.check_note) setCheck(op,site,entry.check_note);
-    }
-    const existing=STATE.entries[k]||[];
-    let updated;
-    if(STATE.editing!==null){updated={...STATE.entries,[k]:existing.map((e,i)=>i===STATE.editing?entry:e)};}
-    else{updated={...STATE.entries,[k]:[entry,...existing]};}
-    // Save locally and navigate immediately — don't wait for Supabase
-    saveLocal(updated);
-    STATE.entries=updated;
-    maybeSendReport(op);
-    showToast('Entry saved');
-    setState({entries:updated,diaryView:'entries',editing:null});
+  fc.appendChild(quickGrid);
 
-    // Push to Supabase in the background (won't block UI)
-    pushToSupabase(k,updated[k]).catch(e=>console.warn('Supabase push failed, will retry:',e));
+  // Row 1: Weak + Treatment (side by side)
+  const ctGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}});
 
-    // If editing a movement diary entry, also update the movement record's date
-    if(STATE.editing!==null&&entry._movement){
-      const oldEntry=existing[STATE.editing];
-      const oldDate=oldEntry?.date;
-      const newDate=entry.date;
-      if(oldDate&&newDate&&oldDate!==newDate){
-        const movs=loadMovements();
-        const updatedMovs=movs.map(m=>{
-          const matchesSite=(m.from_site===site||m.to_site===site);
-          if(matchesSite&&m.date===oldDate) return {...m,date:newDate};
-          return m;
+  // Weak tile
+  const weakTile=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'10px',border:'.5px solid #9b59b622'}});
+  weakTile.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'6px'}},'Weak'));
+  const weakInp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',fontSize:'20px',fontWeight:'700',border:'none',background:'transparent',color:'#1a1a1a',padding:'0',outline:'none'}});
+  weakInp.value=vals.weak||'';
+  weakInp.addEventListener('input',e=>STATE.formVals.weak=e.target.value);
+  weakTile.appendChild(weakInp);
+  ctGrid.appendChild(weakTile);
+
+  // Treatment tile
+  const txTile=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'10px',border:'.5px solid #9b59b622'}});
+  txTile.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:'#7a4fa8',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'6px'}},'Treatment'));
+  const existingTx=(vals.treatment||'').split(',').map(s=>s.trim()).filter(Boolean);
+  const selectedTx=new Set(existingTx);
+  const txWrap=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'4px'}});
+  if(!STATE.formVals._formic_count) STATE.formVals._formic_count=vals._formic_count||'';
+  const formicCountWrap=h('div',{style:{display:'none',marginTop:'4px',width:'100%'}});
+  const formicInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'hives',style:{width:'60px',padding:'4px 6px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'13px',fontWeight:'700',background:'#fff'}});
+  formicInp.value=STATE.formVals._formic_count||'';
+  formicInp.addEventListener('input',e=>{
+    STATE.formVals._formic_count=e.target.value;
+    const txArr=[...selectedTx];
+    STATE.formVals.treatment=txArr.map(t=>t==='Formic Pro'&&e.target.value?`Formic Pro · ${e.target.value}`:t).join(', ')||'';
+  });
+  const formicLbl=h('div',{style:{display:'flex',alignItems:'center',gap:'4px',fontSize:'11px',color:'#7a4fa8'}},h('span',null,'Formic:'),formicInp);
+  formicCountWrap.appendChild(formicLbl);
+
+  function styleTxBtn(btn,active){btn.style.border=`1px solid ${active?'#9b59b6':'#ddd'}`;btn.style.background=active?'#f3e8ff':'#fff';btn.style.color=active?'#7a4fa8':'#888';}
+  const noneBtn=h('button',{type:'button',style:{padding:'3px 8px',borderRadius:'12px',fontSize:'11px',fontWeight:'600',cursor:'pointer',border:`1px solid ${selectedTx.size===0?'#9b59b6':'#ddd'}`,background:selectedTx.size===0?'#f3e8ff':'#fff',color:selectedTx.size===0?'#7a4fa8':'#888'}},'None');
+  function updateNoneBtn2(){styleTxBtn(noneBtn,selectedTx.size===0);}
+  noneBtn.addEventListener('click',()=>{selectedTx.clear();STATE.formVals.treatment='';[...txWrap.children].forEach(b=>{if(b!==noneBtn)styleTxBtn(b,false);});updateNoneBtn2();});
+  txWrap.appendChild(noneBtn);
+  TREATMENTS.filter(t=>t).forEach(t=>{
+    const btn=h('button',{type:'button',style:{padding:'3px 8px',borderRadius:'12px',fontSize:'11px',fontWeight:'600',cursor:'pointer',border:`1px solid ${selectedTx.has(t.split(' ·')[0].trim())||selectedTx.has(t)?'#9b59b6':'#ddd'}`,background:selectedTx.has(t)||[...selectedTx].some(s=>s.startsWith(t))?'#f3e8ff':'#fff',color:selectedTx.has(t)||[...selectedTx].some(s=>s.startsWith(t))?'#7a4fa8':'#888'}},t);
+    const isSelected=()=>[...selectedTx].some(s=>s===t||s.startsWith(t+' ·'));
+    btn.addEventListener('click',()=>{
+      if(isSelected()){selectedTx.forEach(s=>{if(s===t||s.startsWith(t+' ·'))selectedTx.delete(s);});}
+      else{selectedTx.add(t);}
+      styleTxBtn(btn,isSelected());
+      if(t==='Formic Pro') formicCountWrap.style.display=isSelected()?'block':'none';
+      STATE.formVals.treatment=[...selectedTx].map(tx=>tx==='Formic Pro'&&STATE.formVals._formic_count?`Formic Pro · ${STATE.formVals._formic_count}`:tx).join(', ')||'';
+      updateNoneBtn2();
+    });
+    txWrap.appendChild(btn);
+  });
+  if(selectedTx.has('Formic Pro')||[...selectedTx].some(s=>s.startsWith('Formic Pro'))) formicCountWrap.style.display='block';
+  txTile.appendChild(txWrap);
+  txTile.appendChild(formicCountWrap);
+  ctGrid.appendChild(txTile);
+  fc.appendChild(ctGrid);
+
+  // Check — full width below Weak+Treatment
+  const checkFullRow=h('div',{style:{marginBottom:'8px'}});
+  const checkTile=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'10px',border:'.5px solid #6ab0e022'}});
+  checkTile.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:'#1a6fb0',textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'6px'}},'Check'));
+  const checkInp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',fontSize:'20px',fontWeight:'700',border:'none',background:'transparent',color:'#1a1a1a',padding:'0',outline:'none',marginBottom:'4px'}});
+  checkInp.value=vals.check||'';
+  checkInp.addEventListener('input',e=>STATE.formVals.check=e.target.value);
+  checkTile.appendChild(checkInp);
+  const checkNoteInp=h('input',{type:'text',placeholder:'What to check…',style:{width:'100%',fontSize:'11px',border:'none',borderTop:'.5px solid #ddd',background:'transparent',color:'#555',padding:'4px 0 0',outline:'none',boxSizing:'border-box'}});
+  checkNoteInp.value=vals.check_note||'';
+  checkNoteInp.addEventListener('input',e=>STATE.formVals.check_note=e.target.value);
+  checkTile.appendChild(checkNoteInp);
+  checkFullRow.appendChild(checkTile);
+  fc.appendChild(checkFullRow);
+
+  // Comments + Flag
+  const commWrap=h('div',{style:{marginBottom:'10px'}});
+  const lblRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px'}});
+  lblRow.appendChild(h('label',{className:'lbl',style:{marginBottom:'0'}},'Comments'));
+  if(STATE.editing!==null&&getFlag(op,site)&&STATE.formVals._flag===undefined) STATE.formVals._flag=true;
+  let flagged=STATE.formVals._flag||false;
+  const flagToggle=h('button',{type:'button',style:{padding:'3px 10px',borderRadius:'20px',border:flagged?'1.5px solid #ef9f27':'1px solid #ddd',background:flagged?'#fff8e6':'none',color:flagged?'#b07800':'#aaa',fontSize:'11px',fontWeight:'700',cursor:'pointer'}},flagged?'! Flagged':'Flag');
+  flagToggle.addEventListener('click',()=>{flagged=!flagged;STATE.formVals._flag=flagged;flagToggle.textContent=flagged?'! Flagged':'Flag';flagToggle.style.border=flagged?'1.5px solid #ef9f27':'1px solid #ddd';flagToggle.style.background=flagged?'#fff8e6':'none';flagToggle.style.color=flagged?'#b07800':'#aaa';});
+  lblRow.appendChild(flagToggle);
+  commWrap.appendChild(lblRow);
+  const ta=h('textarea',{rows:'3',placeholder:'Notes…',className:'inp',style:{resize:'vertical',height:'auto',lineHeight:'1.5'}});
+  ta.value=vals.comments||'';ta.addEventListener('input',e=>STATE.formVals.comments=e.target.value);
+  commWrap.appendChild(ta);
+  fc.appendChild(commWrap);
+
+  // ── Expandable section tiles 2x2 ──
+  const SECTIONS=[
+    {key:'spring',label:'Hive Strength',color:'#3d7a4f',fields:[
+      {key:'score_breakdown',type:'score_grid',label:'Spring Score'},
+    ]},
+    {key:'queens',label:'Queen Raising',color:'#7a4fa8',fields:[
+      {key:'qr',label:'QR',type:'number'},{key:'virgin',label:'Virgin',type:'number'},
+      {key:'cell_needed',label:'Cell Needed',type:'number'},{key:'tops',label:'Tops',type:'number'},
+      {key:'splits',label:'Splits Taken',type:'number'},
+      {key:'breeders',label:'Breeders',type:'number'},{key:'finishers',label:'Finishers',type:'number'},
+    ]},
+    {key:'pollination',label:'Pollination',color:'#b07800',fields:[
+      {key:'pol_pallet',label:'POL Pallets',type:'number'},{key:'part_pallet',label:'Part Pallets',type:'number'},
+      {key:'pol_singles',label:'POL Singles',type:'number'},
+    ]},
+    {key:'feed',label:'Feed',color:'#3d7a4f',fields:[
+      {key:'_sugar_label',label:'Sugar Feed',type:'subtitle'},
+      {key:'hives_fed',label:'Hives Fed',type:'number'},{key:'litres_fed',label:'Litres Fed',type:'number'},
+      {key:'_honey_label',label:'Honey Fed',type:'subtitle'},
+      {key:'honey_fed_type',label:'Type',type:'honey_feed'},
+      {key:'honey_hives_fed',label:'Hives Fed',type:'number'},
+    ]},
+    {key:'disease',label:'Disease',color:'#e24b4a',fields:[
+      {key:'_disease_checks',type:'disease_checks',label:'Disease'},
+      {key:'disease_notes',label:'Notes',type:'text'},
+    ]},
+    {key:'harvest',label:'Harvest',color:'#b05a1a',fields:[
+      {key:'fd_on',label:'FD on',type:'number'},{key:'on_34',label:'3/4 on',type:'number'},
+      {key:'fd_harv',label:'FD Harvested',type:'number'},{key:'harv_34',label:'3/4 Harvested',type:'number'},
+      {key:'harvest_pct',label:'% Full (whole load)',type:'percent'},
+      {key:'honeycomb_fd',label:'Honeycomb FD',type:'number'},{key:'honeycomb_hd',label:'Honeycomb ½',type:'number'},
+      {key:'best_hive_boxes',label:'Best hive (boxes)',type:'number'},
+    ]},
+  ];
+
+  const sectionGrid=h('div',{style:{display:'flex',flexDirection:'column',gap:'8px',marginBottom:'10px'}});
+
+  // Track which section is open
+  const openSections=new Set();
+
+  SECTIONS.forEach(sec=>{
+    // Check if section has any data
+    const hasData=sec.fields.some(f=>{
+      if(f.type==='score_grid'){const bd=vals.score_breakdown||{};return Object.values(bd).some(v=>v&&v!=='');}
+      if(f.type==='carrot_grid'){const cbd=vals.carrot_score||{};return Object.values(cbd).some(v=>v&&v!=='');}
+      return vals[f.key]&&vals[f.key]!=='';
+    });
+    if(hasData) openSections.add(sec.key);
+
+    const tile=h('div',{style:{borderRadius:'12px',overflow:'hidden',border:`1.5px solid ${sec.color}33`,background:`${sec.color}08`}});
+
+    // Tile header — always visible, tap to expand
+    const tileHeader=h('div',{style:{padding:'12px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+    tileHeader.appendChild(h('div',null,
+      h('div',{style:{fontSize:'11px',fontWeight:'700',color:sec.color,textTransform:'uppercase',letterSpacing:'.06em'}},sec.label),
+      hasData?h('div',{style:{fontSize:'10px',color:sec.color,opacity:'0.7',marginTop:'2px'}},'Has data'):null
+    ));
+    const chevEl=h('span',{style:{color:sec.color,fontSize:'14px',transition:'transform .2s',display:'inline-block'}},openSections.has(sec.key)?'▲':'▼');
+    tileHeader.appendChild(chevEl);
+    tile.appendChild(tileHeader);
+
+    // Section body
+    const body=h('div',{style:{padding:'0 12px 12px',display:openSections.has(sec.key)?'block':'none',borderTop:`1px solid ${sec.color}22`}});
+
+    sec.fields.forEach(f=>{
+      const fw=h('div',{style:{marginTop:'10px'}});
+      if(f.type==='number'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
+        const inp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box'}});
+        inp.value=vals[f.key]||'';
+        inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
+        fw.appendChild(inp);
+      } else if(f.type==='score_grid'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},'Spring Score'));
+        const grid=h('div',{style:{display:'flex',flexDirection:'column',gap:'5px'}});
+        [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{
+          const bg=n<=2?'#e24b4a':n<=4?'#ef9f27':n<=6?'#c8b400':n<=8?'#7ecb8f':'#3d7a4f';
+          const row=h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+          row.appendChild(h('div',{style:{width:'24px',height:'24px',borderRadius:'50%',flexShrink:'0',background:bg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:'10px'}},n===10?'10+':String(n)));
+          row.appendChild(h('label',{style:{fontSize:'12px',color:'#888',width:'55px',flexShrink:'0'}},n===10?'10+ hives':'Score '+n));
+          const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'5px 8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'14px',fontWeight:'600',background:'#fafafa',boxSizing:'border-box'}});
+          ni.value=(vals.score_breakdown||{})[n]||'';
+          ni.addEventListener('input',e=>{if(!STATE.formVals.score_breakdown)STATE.formVals.score_breakdown={};STATE.formVals.score_breakdown[n]=e.target.value;});
+          row.appendChild(ni);
+          grid.appendChild(row);
         });
-        saveMovements(updatedMovs);
-        pushToSupabase('hive_movements',updatedMovs).catch(e=>console.warn('Movement sync failed:',e));
+        fw.appendChild(grid);
+      } else if(f.type==='disease_checks'){
+        const DISEASES=['AFB','Varroa','Sacbrood','Chalkbrood','HMS','Nosema'];
+        const existing=(vals.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
+        const found=new Set(existing);
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'8px'}},'Diseases found'));
+        const diseaseList=h('div',{style:{display:'flex',flexDirection:'column',gap:'8px'}});
+
+        // Mite test section (always visible, separate from disease toggles)
+        const miteSection=h('div',{style:{background:'#f8f8f6',borderRadius:'8px',padding:'10px',border:'.5px solid #eee',marginBottom:'4px'}});
+        miteSection.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#555',marginBottom:'8px'}},'Mite Test'));
+        const miteGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+        [{label:'Mites found',key:'mites_found'},{label:'Hives tested',key:'mites_tested'}].forEach(({label,key})=>{
+          const wrap=h('div',null);
+          wrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}}),label);
+          const inp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box',textAlign:'center'}});
+          inp.value=vals[key]||'';
+          inp.addEventListener('input',e=>STATE.formVals[key]=e.target.value);
+          wrap.appendChild(inp);
+          miteGrid.appendChild(wrap);
+        });
+        miteSection.appendChild(miteGrid);
+        // Show mite rate live
+        const miteRate=h('div',{style:{fontSize:'11px',color:'#888',marginTop:'6px',textAlign:'center'}});
+        function updateMiteRate(){
+          const mf=parseInt(document.querySelector&&miteSection.querySelector('input:first-of-type')?.value)||parseInt(STATE.formVals.mites_found)||0;
+          const mt=parseInt(STATE.formVals.mites_tested)||0;
+          miteRate.textContent=mt>0?'Rate: '+(mf/mt).toFixed(2)+' mites per hive':'';
+        }
+        miteSection.querySelectorAll&&miteSection.addEventListener('input',updateMiteRate);
+        miteSection.appendChild(miteRate);
+        fw.appendChild(miteSection);
+
+        DISEASES.forEach(disease=>{
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',borderRadius:'8px',background:found.has(disease)?'#fde8e8':'#f8f8f6',border:found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee'}});
+          row.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'600',color:found.has(disease)?'#c0392b':'#444'}},disease+(disease==='AFB'?' ⚠':'')) );
+          const btn=h('button',{type:'button',style:{padding:'5px 14px',borderRadius:'20px',border:found.has(disease)?'1.5px solid #c0392b':'1.5px solid #ddd',background:found.has(disease)?'#c0392b':'#fff',color:found.has(disease)?'#fff':'#aaa',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},found.has(disease)?'Found':'Not found');
+          // Hive count input — shown when disease is found
+          const countKey='disease_count_'+disease.toLowerCase().replace(/\s/g,'_');
+          const countWrap=h('div',{style:{display:found.has(disease)?'flex':'none',alignItems:'center',gap:'6px',marginTop:'6px'}});
+          const countInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'60px',padding:'5px 8px',border:'.5px solid #c0392b',borderRadius:'6px',fontSize:'14px',fontWeight:'700',background:'#fff',textAlign:'center'}});
+          countInp.value=vals[countKey]||'';
+          countInp.addEventListener('input',e=>STATE.formVals[countKey]=e.target.value);
+          countWrap.appendChild(countInp);
+          countWrap.appendChild(h('span',{style:{fontSize:'12px',color:'#c0392b'}},'hives'));
+
+          btn.addEventListener('click',()=>{
+            if(found.has(disease)){found.delete(disease);}
+            else{found.add(disease);}
+            STATE.formVals.diseases=[...found].join(', ');
+            row.style.background=found.has(disease)?'#fde8e8':'#f8f8f6';
+            row.style.border=found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee';
+            row.querySelector('span').style.color=found.has(disease)?'#c0392b':'#444';
+            btn.style.background=found.has(disease)?'#c0392b':'#fff';
+            btn.style.color=found.has(disease)?'#fff':'#aaa';
+            btn.style.border=found.has(disease)?'1.5px solid #c0392b':'1.5px solid #ddd';
+            btn.textContent=found.has(disease)?'Found':'Not found';
+            countWrap.style.display=found.has(disease)?'flex':'none';
+          });
+          row.appendChild(btn);
+          // Stack: top row has name+btn, bottom has count
+          const rowWrap=h('div',{style:{background:'inherit',borderRadius:'8px'}});
+          rowWrap.appendChild(row);
+          rowWrap.appendChild(countWrap);
+          diseaseList.appendChild(rowWrap);
+        });
+        fw.appendChild(diseaseList);
+      } else if(f.type==='percent'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
+        const pctRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+        const pctInp=h('input',{type:'number',inputmode:'numeric',min:'0',max:'100',placeholder:'0',style:{flex:'1',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'18px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box',textAlign:'center'}});
+        pctInp.value=vals[f.key]||'';
+        pctInp.addEventListener('input',e=>{
+          let v=parseInt(e.target.value);
+          if(v>100){v=100;pctInp.value='100';}
+          STATE.formVals[f.key]=String(v||'');
+          // Show estimated honey
+          const fdH=parseInt(STATE.formVals.fd_harv)||0;
+          const h34=parseInt(STATE.formVals.harv_34)||0;
+          const totalBoxes=fdH+h34;
+          est.textContent=totalBoxes>0&&v>0?'≈ '+(totalBoxes*(v/100)).toFixed(1)+' boxes of honey':'';
+        });
+        pctRow.appendChild(pctInp);
+        pctRow.appendChild(h('span',{style:{fontSize:'16px',fontWeight:'700',color:'#888',flexShrink:'0'}},'%'));
+        fw.appendChild(pctRow);
+        const est=h('div',{style:{fontSize:'12px',color:'#b05a1a',marginTop:'4px',fontWeight:'600'}});
+        fw.appendChild(est);
+      } else if(f.type==='subtitle'){
+        fw.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:sec.color,textTransform:'uppercase',letterSpacing:'.06em',marginTop:'8px',marginBottom:'2px',borderBottom:`1px solid ${sec.color}33`,paddingBottom:'4px'}},f.label));
+      } else if(f.type==='honey_feed'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},'Type'));
+        const honeyOptions=['Full Depth','3/4','Half'];
+        const currentHoney=(vals.honey_fed_type||'').split(',').map(s=>s.trim()).filter(Boolean);
+        const selectedHoney=new Set(currentHoney);
+        const hRow=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
+        honeyOptions.forEach(opt=>{
+          const btn=h('button',{type:'button',style:{padding:'7px 14px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',border:`1.5px solid ${selectedHoney.has(opt)?sec.color:'#ddd'}`,background:selectedHoney.has(opt)?`${sec.color}18`:'#fff',color:selectedHoney.has(opt)?sec.color:'#888'}},opt);
+          btn.addEventListener('click',()=>{
+            if(selectedHoney.has(opt))selectedHoney.delete(opt);
+            else selectedHoney.add(opt);
+            btn.style.border=`1.5px solid ${selectedHoney.has(opt)?sec.color:'#ddd'}`;
+            btn.style.background=selectedHoney.has(opt)?`${sec.color}18`:'#fff';
+            btn.style.color=selectedHoney.has(opt)?sec.color:'#888';
+            STATE.formVals.honey_fed_type=[...selectedHoney].join(', ');
+          });
+          hRow.appendChild(btn);
+        });
+        fw.appendChild(hRow);
+      } else if(f.type==='carrot_grid'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},'Carrot Score — hives per score'));
+        const grid=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:'4px'}});
+        [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{
+          const bg=n<=2?'#e24b4a':n<=5?'#ef9f27':n<=7?'#c8b400':'#3d7a4f';
+          const cell=h('div',{style:{textAlign:'center'}});
+          cell.appendChild(h('div',{style:{width:'24px',height:'24px',borderRadius:'50%',margin:'0 auto 3px',background:bg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'7px':'10px'}},n===10?'10+':n));
+          const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'—',style:{width:'100%',padding:'3px 2px',border:'.5px solid #ccc',borderRadius:'5px',fontSize:'12px',textAlign:'center',boxSizing:'border-box',background:'#fafafa'}});
+          ni.value=(vals.carrot_score||{})[n]||'';
+          ni.addEventListener('input',e=>{if(!STATE.formVals.carrot_score)STATE.formVals.carrot_score={};STATE.formVals.carrot_score[n]=e.target.value;});
+          cell.appendChild(ni);grid.appendChild(cell);
+        });
+        fw.appendChild(grid);
+      }
+      body.appendChild(fw);
+    });
+
+    tile.appendChild(body);
+
+    tileHeader.addEventListener('click',()=>{
+      const isOpen=body.style.display!=='none';
+      body.style.display=isOpen?'none':'block';
+      chevEl.textContent=isOpen?'▼':'▲';
+    });
+
+    sectionGrid.appendChild(tile);
+  });
+  fc.appendChild(sectionGrid);
+
+  // Save button
+  const saveBtn=h('button',{style:{width:'100%',padding:'14px',background:OPERATIONS[op].color,color:'#fff',border:'none',borderRadius:'10px',fontSize:'16px',fontWeight:'700',cursor:'pointer',marginTop:'4px'},
+    onClick:async()=>{
+      const {_flag,_formic_count,...formData}=STATE.formVals;
+      const originalLoggedBy=formData.logged_by||STATE.userName||'Unknown';
+      const entry={
+        ...formData,
+        logged_by:originalLoggedBy,
+        ...(STATE.editing!==null&&originalLoggedBy!==STATE.userName?{edited_by:STATE.userName||'Unknown',edited_at:new Date().toISOString()}:{}),
+        saved_at:new Date().toISOString(),
+        logged_at:STATE.editing!==null?(formData.logged_at||new Date().toISOString()):new Date().toISOString()
+      };
+      const k=eKey(op,site,STATE.round);
+      const existing=STATE.entries[k]||[];
+      let updated;
+      if(STATE.editing!==null){updated={...STATE.entries,[k]:existing.map((e,i)=>i===STATE.editing?entry:e)};}
+      else{updated={...STATE.entries,[k]:[entry,...existing]};}
+      saveLocal(updated);
+      STATE.entries=updated;
+      maybeSendReport(op);
+      showToast('Entry saved');
+      setState({entries:updated,diaryView:'entries',editing:null});
+      pushToSupabase(k,updated[k]).catch(e=>console.warn('Supabase push failed:',e));
+      if(_flag&&entry.comments){setFlag(op,site,entry.comments);}
+      else if(STATE.editing!==null&&getFlag(op,site)&&entry.comments){setFlag(op,site,entry.comments);}
+      // AFB inquiry — store date found, auto-expires after 2 years
+      if((entry.diseases||'').includes('AFB')){
+        const inquiryKey='apiary_afb_'+op+'__'+site;
+        if(!localStorage.getItem(inquiryKey)) localStorage.setItem(inquiryKey,JSON.stringify({date:entry.date,site,op}));
+      }
+      if(entry.check_note){setCheck(op,site,entry.check_note);}
+      if(STATE.editing!==null&&entry._movement){
+        const oldEntry=existing[STATE.editing];
+        const oldDate=oldEntry?.date;const newDate=entry.date;
+        if(oldDate&&newDate&&oldDate!==newDate){
+          const movs=loadMovements();
+          const updatedMovs=movs.map(m=>{const matchesSite=(m.from_site===site||m.to_site===site);if(matchesSite&&m.date===oldDate)return{...m,date:newDate};return m;});
+          saveMovements(updatedMovs);
+          pushToSupabase('hive_movements',updatedMovs).catch(e=>console.warn('Movement sync failed:',e));
+        }
       }
     }
-  }},'Save entry'));
+  },'Save entry');
+  fc.appendChild(saveBtn);
   wrap.appendChild(fc);
+  return wrap;
+}
+
+function renderEntriesList(){
+  const op=STATE.op,site=STATE.site;
+  const opData=OPERATIONS[op];
+  // Gather ALL entries across all rounds, tag with round, sort newest first
+  const allEntries=[];
+  Object.entries(ROUNDS).forEach(([rk,rd])=>{
+    const list=STATE.entries[eKey(op,site,rk)]||[];
+    list.forEach((entry,idx)=>allEntries.push({entry,rk,rd,idx}));
+  });
+  allEntries.sort((a,b)=>(b.entry.date||'').localeCompare(a.entry.date||''));
+
+  // Real entries only (no movement auto-entries)
+  const realEntries=allEntries.filter(x=>!x.entry._movement);
+
+  const wrap=h('div',null);
+
+  // ── Yard summary panel ──
+  // Build entries list: attach original array index so we can use it as tiebreaker
+  // (entries are stored newest-first, so lower index = more recently saved)
+  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>
+    (STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map((e,i)=>({...e,_arrIdx:i}))
+  ).sort((a,b)=>{
+    // Primary: date DESC (YYYY-MM-DD sorts correctly as string)
+    const dc=(b.date||'').localeCompare(a.date||'');
+    if(dc!==0) return dc;
+    // Tiebreaker 1: saved_at DESC
+    const sc=(b.saved_at||'').localeCompare(a.saved_at||'');
+    if(sc!==0) return sc;
+    // Tiebreaker 2: array index ASC (lower index = newer in storage)
+    return a._arrIdx-b._arrIdx;
+  });
+  const HIVE_FIELDS3=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
+  // Use most recent entry WITH hive data — falls back past treatment-only visits
+  const mostRecentWithHives=allSiteEntries.find(e=>
+    e.hives!==undefined&&e.hives!==null&&e.hives!==''
+  )||null;
+  const lv=k=>{
+    if(HIVE_FIELDS3.includes(k)){
+      if(mostRecentWithHives){
+        const raw=mostRecentWithHives[k];
+        if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;
+        return 0;
+      }
+      return 0;
+    }
+    for(const e of allSiteEntries){
+      const raw=e[k];
+      if(raw===undefined||raw===null||raw==='') continue;
+      const v=parseInt(raw);
+      if(!isNaN(v)&&v>0) return v;
+    }
+    return 0;
+  };
+  const latestReal=allSiteEntries[0]||null;
+  const days=latestReal?daysBetween(latestReal.date):null;
+
+  // Calculate current hive count:
+  // 1. Use most recent real diary entry hive count as base
+  // 2. Also check movement diary entries (_movement:true) for hive count
+  // 3. Adjust by net movements logged in hive movements log
+  const allMovements=loadMovements();
+  // Only count movements AFTER the most recent diary entry — earlier ones are baked in
+  const latestDiaryDate2=allSiteEntries[0]?.date||'';
+  let movementNet=0;
+  allMovements.forEach(m=>{
+    if(latestDiaryDate2&&m.date<latestDiaryDate2) return; // movements on same date as diary still count
+    const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+    if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
+    else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
+    else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
+    else if(m.direction==='yard_yard'&&m.to_site===site) movementNet+=hives;
+  });
+  const baseHives=lv('hives');
+  // Also check movement diary entries for hive count (these have _movement:true)
+  const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
+  // Use whichever source gives us data
+  let currentHives=0;
+  if(latestReal) currentHives=Math.max(0,baseHives+movementNet); // use diary entry (even if 0) + net movements
+  else if(latestMovementHives>0) currentHives=latestMovementHives;
+  else if(movementNet>0) currentHives=movementNet;
+  const hasMovement=movementNet!==0||latestMovementHives>0;
+
+  // Spring score avg
+  const bd=STATE.entries[eKey(op,site,'spring')]?.find(e=>!e._movement)?.score_breakdown||{};
+  let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+  const avg=ac>0?Math.round(at/ac):null;
+
+  const summaryPanel=h('div',{style:{background:opData.color,borderRadius:'12px',padding:'13px 14px',marginBottom:'14px'}});
+  // Large site name
+  summaryPanel.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',letterSpacing:'-.02em',marginBottom:'4px'}},site));
+  // Last visited
+  summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},
+    latestReal?'Last visit: '+fmtDate(latestReal.date)+(days!==null?' · '+days+'d ago':''):(currentHives>0?'No diary entries yet':'Not yet visited')));
+
+  if(latestReal||currentHives>0){
+    // Hive counts row — use movement-adjusted count for hives
+    const deadVal=lv('dead_hives')||lv('dead');
+    const hiveCounts=[
+      {l:'Hives',v:currentHives,show:currentHives>0,bright:hasMovement},
+      {l:'Alive',v:lv('alive_hives'),show:lv('alive_hives')>0,green:true},
+      {l:'Dead',v:deadVal,show:currentHives>0||deadVal>0,red:deadVal>0},  // always show Dead if hives present
+      {l:'Singles',v:lv('singles'),show:lv('singles')>0},
+      {l:'Doubles',v:lv('doubles'),show:lv('doubles')>0},
+      {l:'Light',v:lv('light'),show:lv('light')>0},
+    ].filter(x=>x.show);
+    if(hiveCounts.length){
+      const hRow=h('div',{style:{display:'grid',gridTemplateColumns:`repeat(${Math.min(hiveCounts.length,4)},1fr)`,gap:'6px',marginBottom:'8px'}});
+      hiveCounts.forEach(f=>{
+        hRow.appendChild(h('div',{style:{background:f.bright?'rgba(255,255,255,0.2)':'rgba(255,255,255,0.1)',borderRadius:'7px',padding:'7px 4px',textAlign:'center',border:f.bright?'1px solid rgba(255,255,255,0.4)':'none'}},
+          h('div',{style:{fontSize:'18px',fontWeight:'800',color:f.red?'#f4a0a0':f.green?'#7ecb8f':'#fff',lineHeight:'1.1'}},f.v),
+          h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},f.l)
+        ));
+      });
+      summaryPanel.appendChild(hRow);
+    }
+    // Boxes on row
+    const boxes=[
+      {l:'FD on',v:lv('fd_on'),show:lv('fd_on')>0},
+      {l:'3/4 on',v:lv('on_34'),show:lv('on_34')>0},
+      {l:'HC FD',v:lv('honeycomb_fd'),show:lv('honeycomb_fd')>0},
+      {l:'HC ½',v:lv('honeycomb_hd'),show:lv('honeycomb_hd')>0},
+    ].filter(x=>x.show);
+    if(boxes.length){
+      const bRow=h('div',{style:{display:'grid',gridTemplateColumns:`repeat(${Math.min(boxes.length,4)},1fr)`,gap:'6px',marginBottom:'8px'}});
+      boxes.forEach(f=>{
+        bRow.appendChild(h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'7px',padding:'6px 4px',textAlign:'center'}},
+          h('div',{style:{fontSize:'16px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},f.v),
+          h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},f.l)
+        ));
+      });
+      summaryPanel.appendChild(bRow);
+    }
+    // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
+    const extras=[
+      {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
+      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
+      {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
+      {l:'Pol singles',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
+      {l:'Check',v:lv('check'),show:lv('check')>0},
+      {l:'QR',v:lv('qr'),show:lv('qr')>0},
+      {l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
+      {l:'Splits',v:lv('splits'),show:lv('splits')>0},
+      {l:'Tops',v:lv('tops'),show:lv('tops')>0},
+      {l:'FD Harv',v:lv('fd_harv'),show:lv('fd_harv')>0},
+      {l:'3/4 Harv',v:lv('harv_34'),show:lv('harv_34')>0},
+      {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
+      {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
+    ].filter(x=>x.show);
+    if(extras.length){
+      const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
+      extras.forEach(f=>{
+        eRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l));
+      });
+      summaryPanel.appendChild(eRow);
+    }
+    // Spring score circle
+    if(avg!==null){
+      summaryPanel.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginTop:'4px'}},
+        h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.05em'}},'Spring score avg'),
+        scoreCircle(avg,28,13)
+      ));
+    }
+    // Treatment
+    const tx=allSiteEntries.find(e=>e.treatment)?.treatment;
+    if(tx) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#c39bd3',marginTop:'6px','fontWeight':'600'}},'Tx: '+tx));
+  }
+  wrap.appendChild(summaryPanel);
+
+  // Flag if present (urgent — amber)
+  const flag=getFlag(op,site);
+  if(flag){
+    const fb=h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',cursor:'pointer',display:'flex',gap:'6px',alignItems:'flex-start'}},
+      h('span',{style:{fontWeight:'700',color:'#ef9f27',flexShrink:'0'}},'!'),h('span',{style:{fontSize:'13px',color:'#b07800'}},flag.comment));
+    fb.addEventListener('click',()=>showFlagModal(op,site));
+    wrap.appendChild(fb);
+  }
+  // Check reminder (less urgent — blue)
+  const chkYard=getCheck(op,site);
+  if(chkYard){
+    const cb=h('div',{style:{background:'#e8f4fd',border:'1px solid #6ab0e0',borderRadius:'8px',padding:'8px 12px',marginBottom:'10px',cursor:'pointer',display:'flex',gap:'6px',alignItems:'flex-start'}},
+      h('span',{style:{fontWeight:'700',color:'#1a6fb0',flexShrink:'0'}},'✓'),h('span',{style:{fontSize:'13px',color:'#1a6fb0'}},chkYard.note));
+    cb.addEventListener('click',()=>showCheckModal(op,site));
+    wrap.appendChild(cb);
+  }
+
+  const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}});
+  topRow.appendChild(h('div',{className:'section-label',style:{marginBottom:'0'}},realEntries.length===0?'No entries':`${realEntries.length} entr${realEntries.length===1?'y':'ies'}`));
+  topRow.appendChild(h('button',{style:{background:opData.color,color:'#fff',border:'none',borderRadius:'20px',padding:'7px 14px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>{
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+        const lastE=lastEntries[0]||{};
+        const prefill={date:todayStr()};
+        ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives'].forEach(key=>{
+          if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
+        });
+        setState({round:'clover',diaryView:'form',editing:null,formVals:prefill});
+      }},'+ New entry'));
+  wrap.appendChild(topRow);
+
+  if(!allEntries.length){wrap.appendChild(h('div',{className:'empty-msg'},"Tap '+ New entry' to log a visit"));return wrap;}
+
+  allEntries.forEach(({entry,rk,rd,idx})=>{
+    const bd=entry.score_breakdown||{};
+    const hasScores=Object.values(bd).some(v=>v!==''&&v!==undefined&&v!==null);
+    let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+    const avg=ac>0?Math.round(at/ac):null;
+    const ec=h('div',{style:{background:'#fff',border:`.5px solid ${rd.color}33`,borderLeft:`3px solid ${rd.color}`,borderRadius:'10px',marginBottom:'8px',overflow:'hidden'}});
+    const hdr=h('div',{className:'entry-header'});
+    const hl=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flex:'1',flexWrap:'wrap'}});
+    hl.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px'}},fmtDate(entry.date)));
+    hl.appendChild(h('span',{style:{fontSize:'11px',background:rd.bg||'#eee',color:rd.color,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},rd.label));
+    if(entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
+    if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
+    if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
+    if(rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
+    // Carrot score avg in header
+    const cbd2=entry.carrot_score||{};
+    let cat2=0,cac2=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(cbd2[n]);if(!isNaN(v)&&v>0){cat2+=n*v;cac2+=v;}});
+    if(cac2>0){const cavg2=Math.round(cat2/cac2);const cbg=cavg2<=2?'#e24b4a':cavg2<=5?'#ef9f27':cavg2<=7?'#c8b400':'#3d7a4f';hl.appendChild(h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:cbg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:'11px',flexShrink:'0'}},cavg2));}
+    hdr.appendChild(hl);
+    const chev=h('span',{style:{color:'#bbb',fontSize:'16px',flexShrink:'0'}},'▼');
+    hdr.appendChild(chev);
+    const body=h('div',{className:'entry-body'});
+    const skip=['date','comments','score_breakdown','treatment','logged_by'];
+    const fields=rd.fields.filter(f=>!skip.includes(f.key)&&entry[f.key]!==undefined&&entry[f.key]!=='');
+    if(fields.length){const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});fields.forEach(f=>grid.appendChild(h('div',null,h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),h('div',{style:{fontWeight:'600',fontSize:'14px'}},entry[f.key]))));body.appendChild(grid);}
+    if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
+    // Carrot score breakdown
+    const cbd=entry.carrot_score||{};
+    const hasCarrotScores=Object.values(cbd).some(v=>v!==''&&v!==undefined&&v!==null);
+    if(hasCarrotScores){
+      let cat=0,cac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(cbd[n]);if(!isNaN(v)&&v>0){cat+=n*v;cac+=v;}});
+      const cavg=cac>0?Math.round(cat/cac):null;
+      const carrotBg=n=>n<=2?'#e24b4a':n<=5?'#ef9f27':n<=7?'#c8b400':'#3d7a4f';
+      body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Carrot Score'+(cavg!==null?' — avg '+cavg:'')));
+      const csr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});
+      [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=cbd[n];if(!v&&v!==0)return;
+        csr.appendChild(h('div',{style:{textAlign:'center',minWidth:'30px'}},
+          h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:carrotBg(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'8px':'11px'}},n===10?'10+':n),
+          h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)
+        ));
+      });
+      body.appendChild(csr);
+    }
+    if(entry.comments)body.appendChild(h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}},entry.comments));
+    const btnRow=h('div',{style:{display:'flex',gap:'8px',marginTop:'10px'}});
+    btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #bbb',borderRadius:'6px',fontSize:'13px',cursor:'pointer'},
+      onClick:()=>setState({round:rk,diaryView:'form',editing:idx,formVals:{...entry}})},'Edit'));
+    btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',fontSize:'13px',color:'#c0392b',cursor:'pointer'},onClick:()=>{
+      confirmAction('This will permanently delete this diary entry.',async()=>{
+        const k=eKey(op,site,rk);
+        const updated={...STATE.entries,[k]:STATE.entries[k].filter((_,i)=>i!==idx)};
+        saveLocal(updated);
+        await pushToSupabase(k,updated[k]||[]);
+        setState({entries:updated});
+      });
+    }},'Delete'));
+    body.appendChild(btnRow);
+
+    let open=false;
+    hdr.addEventListener('click',()=>{open=!open;body.style.display=open?'block':'none';chev.textContent=open?'▲':'▼';});
+    ec.appendChild(hdr);ec.appendChild(body);wrap.appendChild(ec);
+  });
   return wrap;
 }
 
@@ -2160,7 +2913,7 @@ function renderRoundPicker(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','light','alive_hives','dead_hives'].forEach(key=>{
+        ['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'].forEach(key=>{
           if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
         });
         setState({round:k,diaryView:'form',editing:null,formVals:prefill});
@@ -2465,7 +3218,7 @@ function renderMovementsScreen(){
   header.appendChild(topRow);
   header.appendChild(h('div',{className:'header-title'},'Hive Movements'));
   const tb=h('div',{className:'tab-bar'});
-  [{key:'movements',label:'Log Movement'},{key:'orchards',label:'Orchards'},{key:'history',label:'History'},{key:'manage_orchards',label:'Manage'}].forEach(t=>{
+  [{key:'movements',label:'Log Movement'},{key:'orchards',label:'Orchards'},{key:'return_trip',label:'Return Trip'},{key:'history',label:'History'},{key:'manage_orchards',label:'Manage'}].forEach(t=>{
     tb.appendChild(h('button',{className:'tab-btn'+(STATE.tab===t.key?' active':''),
       style:STATE.tab===t.key?{'--op-accent':movColor}:{},
       onClick:()=>setState({tab:t.key})},t.label));
@@ -2562,8 +3315,12 @@ function renderMovementsScreen(){
     headerCard.appendChild(ta);
     wrap.appendChild(headerCard);
 
+    const truckTotalArea=h('div',null);
+    wrap.appendChild(truckTotalArea);
     const pickupContainer=h('div',null);
     wrap.appendChild(pickupContainer);
+    const addPickupSep=h('div',{style:{borderTop:'.5px solid #e0e0de',margin:'4px 0 8px'}});
+    wrap.appendChild(addPickupSep);
     const addPickupArea=h('div',null);
     wrap.appendChild(addPickupArea);
 
@@ -2616,8 +3373,8 @@ function renderMovementsScreen(){
         const barBg=h('div',{style:{width:'100%',height:'6px',background:'#f0f0ee',borderRadius:'3px',overflow:'hidden',marginBottom:'4px'}});
         barBg.appendChild(h('div',{style:{width:pct+'%',height:'100%',background:isDone?'#3d7a4f':'#ef9f27',borderRadius:'3px',transition:'width .3s'}}));
         leftDiv.appendChild(barBg);
-        leftDiv.appendChild(h('div',{style:{fontSize:'11px',color:isDone?'#3d7a4f':'#ef9f27',fontWeight:'600'}},
-          isDone?'All assigned ✓':`${assignedHives}/${totalHives} hives assigned (${rem} remaining)`
+        leftDiv.appendChild(h('div',{style:{fontSize:'13px',color:isDone?'#3d7a4f':'#ef9f27',fontWeight:'700'}},
+          isDone?'All assigned ✓':'= '+totalHives+' hives'
         ));
         topRow.appendChild(leftDiv);
         const rightDiv=h('div',{style:{display:'flex',alignItems:'flex-start',gap:'6px',marginLeft:'8px',flexShrink:'0'}});
@@ -2701,63 +3458,50 @@ function renderMovementsScreen(){
             splitForm.appendChild(destSel);
           }
 
-          // Assignment input — toggle between hives or pallets+singles
+          // Assignment input — pallets default, toggle to hive count
           const rem2=remaining(p);
-          let usePS=false; // false=hives, true=pallets+singles
+          let useHives=false;
           const splitInputArea=h('div',{style:{marginBottom:'6px'}});
 
-          // Toggle button
-          const toggleBtn=h('button',{type:'button',style:{fontSize:'10px',color:movColor,background:'none',border:'none',cursor:'pointer',fontWeight:'600',padding:'0',marginBottom:'4px',display:'block'}},
-            'Switch to pallets/singles');
-          splitInputArea.appendChild(toggleBtn);
-
-          // Hive input (default)
-          const hiveWrap=h('div',null);
-          hiveWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},`Hives (${rem2} remaining)`));
-          const splitHiveInp=h('input',{type:'number',inputmode:'numeric',min:'1',max:String(rem2),placeholder:String(rem2),style:{width:'100%',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
-          splitHiveInp.value=rem2;
-          hiveWrap.appendChild(splitHiveInp);
-          splitInputArea.appendChild(hiveWrap);
-
-          // Pallets+singles input (hidden by default)
-          const psWrap=h('div',{style:{display:'none'}});
-          const psGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'6px',alignItems:'end'}});
-          // Pallets
-          const spInpWrap=h('div',null);
-          spInpWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},'Pallets'));
-          const splitPalInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
-          spInpWrap.appendChild(splitPalInp);psGrid.appendChild(spInpWrap);
-          // Half pallet toggle
-          const spHalfWrap=h('div',{style:{textAlign:'center',paddingBottom:'2px'}});
-          spHalfWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}}),'½');
-          const spHalfBtn=h('button',{type:'button',style:{width:'32px',height:'32px',borderRadius:'50%',border:'1.5px solid #ddd',background:'#fff',fontSize:'12px',cursor:'pointer',color:'#aaa',fontWeight:'700'}},'+½');
+          // Pallets input (DEFAULT)
+          const psWrap=h('div',null);
+          const psGrid=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px'}});
+          const splitPalInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'18px',fontWeight:'800',background:'#fafafa',boxSizing:'border-box',textAlign:'center'}});
+          psGrid.appendChild(splitPalInp);
+          psGrid.appendChild(h('span',{style:{fontSize:'13px',color:'#888',flexShrink:'0'}},'pallets'));
           let spHalf=false;
+          const spHalfBtn=h('button',{type:'button',style:{padding:'6px 10px',borderRadius:'20px',border:'1.5px solid #ddd',background:'#fff',fontSize:'12px',cursor:'pointer',color:'#aaa',fontWeight:'700',flexShrink:'0',whiteSpace:'nowrap'}},'+½');
           spHalfBtn.addEventListener('click',()=>{spHalf=!spHalf;spHalfBtn.style.background=spHalf?movColor:'#fff';spHalfBtn.style.color=spHalf?'#fff':'#aaa';spHalfBtn.style.border=spHalf?`1.5px solid ${movColor}`:'1.5px solid #ddd';});
-          spHalfWrap.appendChild(spHalfBtn);psGrid.appendChild(spHalfWrap);
-          // Singles
-          const ssSingWrap=h('div',null);
-          ssSingWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},'Singles'));
-          const splitSingInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
-          ssSingWrap.appendChild(splitSingInp);psGrid.appendChild(ssSingWrap);
+          psGrid.appendChild(spHalfBtn);
           psWrap.appendChild(psGrid);
           splitInputArea.appendChild(psWrap);
 
+          // Hive count input (hidden by default)
+          const hiveWrap=h('div',{style:{display:'none'}});
+          const splitHiveInp=h('input',{type:'number',inputmode:'numeric',min:'1',max:String(rem2),placeholder:String(rem2),style:{width:'100%',padding:'7px 8px',border:'1px solid #9b59b6',borderRadius:'6px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+          splitHiveInp.value=rem2;
+          hiveWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#9b59b6',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},`Hives (${rem2} remaining)`));
+          hiveWrap.appendChild(splitHiveInp);
+          splitInputArea.appendChild(hiveWrap);
+
+          // Toggle
+          const toggleBtn=h('button',{type:'button',style:{fontSize:'10px',color:movColor,background:'none',border:'none',cursor:'pointer',fontWeight:'600',padding:'0',marginTop:'4px',display:'block'}},'Switch to hive count');
           toggleBtn.addEventListener('click',()=>{
-            usePS=!usePS;
-            hiveWrap.style.display=usePS?'none':'block';
-            psWrap.style.display=usePS?'block':'none';
-            toggleBtn.textContent=usePS?'Switch to hive count':'Switch to pallets/singles';
+            useHives=!useHives;
+            psWrap.style.display=useHives?'none':'block';
+            hiveWrap.style.display=useHives?'block':'none';
+            toggleBtn.textContent=useHives?'Switch to pallets':'Switch to hive count';
           });
+          splitInputArea.appendChild(toggleBtn);
           splitForm.appendChild(splitInputArea);
 
-          // Helper to get hive count from current input mode
           function getSplitHives(){
-            if(usePS){return(parseInt(splitPalInp.value)||0)*4+(spHalf?2:0)+(parseInt(splitSingInp.value)||0);}
-            return parseInt(splitHiveInp.value)||0;
+            if(useHives) return parseInt(splitHiveInp.value)||0;
+            return(parseInt(splitPalInp.value)||0)*4+(spHalf?2:0);
           }
           function getSplitDesc(){
-            if(usePS){const p2=(parseInt(splitPalInp.value)||0)+(spHalf?'½':'');const s2=parseInt(splitSingInp.value)||0;return p2+'p'+(s2?' '+s2+'s':'');}
-            return getSplitHives()+' hives';
+            if(useHives) return getSplitHives()+' hives';
+            return (parseInt(splitPalInp.value)||0)+(spHalf?'½':'')+'p';
           }
 
           const assignBtnRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}});
@@ -2797,7 +3541,8 @@ function renderMovementsScreen(){
         pickupContainer.appendChild(card);
       });
 
-      // ── Truck total tile — sits below all pickups ──
+      // ── Truck total tile — sits above pickup cards ──
+      truckTotalArea.innerHTML='';
       if(pickups.length>0){
         const totalPallets=pickups.reduce((a,p)=>a+(parseInt(p.pallets)||0),0);
         const totalHalfPallets=pickups.filter(p=>p.half_pallet).length;
@@ -2829,7 +3574,7 @@ function renderMovementsScreen(){
           truckBar.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)'}},
             allDone?'All assigned ✓':`${assignedHives}/${totalHives} assigned · ${unassignedHives} remaining`));
         }
-        pickupContainer.appendChild(truckBar);
+        truckTotalArea.appendChild(truckBar);
       }
 
       // Save button — shown once all pickups have all hives assigned
@@ -3021,15 +3766,28 @@ function renderMovementsScreen(){
       const isOut=loadDirection.val==='to_orchard';
       const isEditing=!!(pre.site);
       const card=h('div',{className:'form-card',style:{marginBottom:'12px',border:isEditing?'1.5px solid #9b59b6':''}});
-      card.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'600',color:isEditing?'#9b59b6':'#666',marginBottom:'10px'}},
-        isEditing?`Editing: ${pre.site}`:(isOut?'+ Pick up from yard':isYY?'+ Pick up from yard':'+ Pick up from orchard')));
+      // Collapsible header — collapsed by default when there are already pickups
+      const addTitle=isEditing?`Editing: ${pre.site}`:(isOut?'+ Pick up from yard':isYY?'+ Pick up from yard':'+ Pick up from orchard');
+      const isCollapsed=pickups.length>0&&!isEditing;
+      const addHeaderRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',marginBottom:isCollapsed?'0':'10px'}});
+      addHeaderRow.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'700',color:isEditing?'#9b59b6':movColor}},addTitle));
+      const addChev=h('span',{style:{fontSize:'14px',color:movColor}},isCollapsed?'▼':'▲');
+      addHeaderRow.appendChild(addChev);
+      card.appendChild(addHeaderRow);
+      const addBody=h('div',{style:{display:isCollapsed?'none':'block',marginTop:'10px'}});
+      addHeaderRow.addEventListener('click',()=>{
+        const open=addBody.style.display!=='none';
+        addBody.style.display=open?'none':'block';
+        addChev.textContent=open?'▼':'▲';
+        addHeaderRow.style.marginBottom=open?'0':'10px';
+      });
 
       if(isOut||isYY){
         // Yard search for all yard selections
         const searchArea=h('div',{style:{marginBottom:'10px'}});
         const selectedDisplay=h('div',{style:{display:'none',marginBottom:'10px'}});
-        card.appendChild(searchArea);
-        card.appendChild(selectedDisplay);
+        addBody.appendChild(searchArea);
+        addBody.appendChild(selectedDisplay);
         function showSelected(site, opName){
           searchArea.style.display='none';
           selectedDisplay.style.display='block';
@@ -3164,7 +3922,7 @@ function renderMovementsScreen(){
         if(pickupData.site) renderYardBreakdown(pickupData.site);
         sw.appendChild(sel);
         sw.appendChild(yardBreakdownArea);
-        card.appendChild(sw);
+        addBody.appendChild(sw);
 
 
         // Orchard→Orchard only: optional "from yards" dropdown multi-select
@@ -3201,47 +3959,51 @@ function renderMovementsScreen(){
             refreshTags();yardSel.value='';
           });
           ywrap.appendChild(yardSel);
-          card.appendChild(ywrap);
+          addBody.appendChild(ywrap);
         }
       }
 
-      // Truck space row — pallets + half pallet toggle + singles
+      // Truck space — pallets (large), ½ pill, singles, live hive total
       const truckRow=h('div',{style:{marginBottom:'10px'}});
       truckRow.appendChild(h('label',{className:'lbl'},'Truck space'));
-      const truckGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:'6px',alignItems:'end'}});
-      // Pallets
-      const palWrap=h('div',null);
-      palWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},'Full pallets'));
-      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+
+      // Pallets — big prominent input
+      const palRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}});
+      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'10px 12px',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'22px',fontWeight:'800',background:'#fff',boxSizing:'border-box',color:'#1a1a1a',textAlign:'center'}});
       if(pickupData.pallets) palInp.value=pickupData.pallets;
-      palInp.addEventListener('input',e=>pickupData.pallets=e.target.value);
-      palWrap.appendChild(palInp);
-      truckGrid.appendChild(palWrap);
-      // Half pallet toggle
-      const halfWrap=h('div',{style:{textAlign:'center',paddingBottom:'2px'}});
-      halfWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}}),'½');
-      const halfBtn=h('button',{type:'button',style:{width:'36px',height:'36px',borderRadius:'50%',border:'1.5px solid #ddd',background:'#fff',fontSize:'14px',cursor:'pointer',fontWeight:'700',color:'#aaa',transition:'all .15s'}},'+½');
-      if(pickupData.half_pallet){
-        halfBtn.style.background='#9b59b6';halfBtn.style.color='#fff';halfBtn.style.border='1.5px solid #9b59b6';
-      }
+      palInp.addEventListener('input',e=>{pickupData.pallets=e.target.value;updateHiveTotal();});
+      palRow.appendChild(palInp);
+      palRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888',flexShrink:'0'}},'pallets'));
+      // ½ toggle pill
+      const halfBtn=h('button',{type:'button',style:{padding:'8px 10px',borderRadius:'20px',border:pickupData.half_pallet?'1.5px solid '+movColor:'1.5px solid #ddd',background:pickupData.half_pallet?movColor:'#fff',color:pickupData.half_pallet?'#fff':'#aaa',fontSize:'12px',fontWeight:'700',cursor:'pointer',flexShrink:'0',transition:'all .15s',whiteSpace:'nowrap'}},'+½');
       halfBtn.addEventListener('click',()=>{
         pickupData.half_pallet=!pickupData.half_pallet;
-        halfBtn.style.background=pickupData.half_pallet?'#9b59b6':'#fff';
+        halfBtn.style.border=pickupData.half_pallet?'1.5px solid '+movColor:'1.5px solid #ddd';
+        halfBtn.style.background=pickupData.half_pallet?movColor:'#fff';
         halfBtn.style.color=pickupData.half_pallet?'#fff':'#aaa';
-        halfBtn.style.border=pickupData.half_pallet?'1.5px solid #9b59b6':'1.5px solid #ddd';
+        updateHiveTotal();
       });
-      halfWrap.appendChild(halfBtn);
-      truckGrid.appendChild(halfWrap);
-      // Singles
-      const sinWrap=h('div',null);
-      sinWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},'Singles'));
-      const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
+      palRow.appendChild(halfBtn);
+      truckRow.appendChild(palRow);
+
+      // Singles — smaller secondary input
+      const singRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}});
+      const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'8px 12px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'16px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box',color:'#555',textAlign:'center'}});
       if(pickupData.singles) sinInp.value=pickupData.singles;
-      sinInp.addEventListener('input',e=>pickupData.singles=e.target.value);
-      sinWrap.appendChild(sinInp);
-      truckGrid.appendChild(sinWrap);
-      truckRow.appendChild(truckGrid);
-      card.appendChild(truckRow);
+      sinInp.addEventListener('input',e=>{pickupData.singles=e.target.value;updateHiveTotal();});
+      singRow.appendChild(sinInp);
+      singRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888',flexShrink:'0'}},'singles'));
+      truckRow.appendChild(singRow);
+
+      // Live hive total
+      const hiveTotal=h('div',{style:{textAlign:'center',fontSize:'12px',color:movColor,fontWeight:'600',marginBottom:'4px'}});
+      function updateHiveTotal(){
+        const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+(parseInt(sinInp.value)||0);
+        hiveTotal.textContent=p>0?'= '+p+' hive'+(p!==1?'s':''):'';
+      }
+      updateHiveTotal();
+      truckRow.appendChild(hiveTotal);
+      addBody.appendChild(truckRow);
 
       // Hive count row — alive + dead
       const hiveRow=h('div',{style:{marginBottom:'10px'}});
@@ -3256,9 +4018,9 @@ function renderMovementsScreen(){
         nw.appendChild(ni);hiveGrid.appendChild(nw);
       });
       hiveRow.appendChild(hiveGrid);
-      card.appendChild(hiveRow);
+      addBody.appendChild(hiveRow);
 
-      card.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'rgba(155,89,182,0.1)',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'13px',fontWeight:'700',color:movColor,cursor:'pointer'},
+      addBody.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'rgba(155,89,182,0.1)',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'13px',fontWeight:'700',color:movColor,cursor:'pointer'},
         onClick:()=>{
           if(!pickupData.site){showToast(isOut?'Select a yard site':isYY?'Select a yard site':'Select an orchard');return;}
           if(!pickupData.pallets&&!pickupData.singles&&!pickupData.half_pallet){showToast('Enter truck space (pallets or singles)');return;}
@@ -3267,10 +4029,38 @@ function renderMovementsScreen(){
           renderAddPickupForm();
         }
       },'+ Add to truck'));
+      card.appendChild(addBody);
       addPickupArea.appendChild(card);
     }
 
     function rebuildAll(){renderPickups();renderAddPickupForm();}
+
+    // ── Return trip mode: pre-populate from plan ──
+    if(STATE._returnMode&&STATE._returnPlan&&STATE._returnPlan.length){
+      loadDirection.val='from_orchard';
+      updateDirBtns();
+      // Group plan by orchard (source) — each orchard becomes a pickup
+      const byOrchard={};
+      STATE._returnPlan.forEach(p=>{
+        if(!byOrchard[p.orchard])byOrchard[p.orchard]={orchard:p.orchard,pallets:0,singles:0,destinations:[],half_pallet:false,alive_hives:'',dead_hives:''};
+        byOrchard[p.orchard].pallets+=parseInt(p.pallets)||0;
+        byOrchard[p.orchard].singles+=parseInt(p.singles)||0;
+        byOrchard[p.orchard].destinations.push(p); // for auto-split
+      });
+      Object.values(byOrchard).forEach(item=>{
+        const pick={site:item.orchard,op:'',pallets:String(item.pallets),singles:String(item.singles),half_pallet:false,alive_hives:'',dead_hives:'',id:nextId++,splits:[]};
+        // Auto-assign splits back to source yards
+        item.destinations.forEach(dest=>{
+          const h=(parseInt(dest.pallets)||0)*4+(parseInt(dest.singles)||0);
+          if(h>0) pick.splits.push({dest:dest.site,dest_op:dest.op,hives:h,desc:(parseInt(dest.pallets)||0)+'p'+(parseInt(dest.singles)>0?' · '+dest.singles+'s':'')});
+        });
+        pickups.push(pick);
+      });
+      delete STATE._returnMode;
+      delete STATE._returnPlan;
+      showToast('Return trip loaded — review and save');
+    }
+
     rebuildAll();
     screen.appendChild(wrap);
   }
@@ -3285,65 +4075,113 @@ function renderMovementsScreen(){
     if(STATE.selectedOrchard){
       const o=STATE.selectedOrchard;
       const t=totals[o]||{hives:0,pallets:0,singles:0};
+
       // Breadcrumb
       const bc=h('div',{className:'breadcrumb'});
       bc.appendChild(h('span',{style:{cursor:'pointer',color:'#9b59b6'},onClick:()=>setState({selectedOrchard:null})},'Orchards'));
       bc.appendChild(document.createTextNode(' / '));
-      bc.appendChild(h('span',{style:{color:'#333'}},o));
+      bc.appendChild(h('span',{style:{color:'#333',fontWeight:'600'}},o));
       screen.appendChild(bc);
-      // Summary bar
-      screen.appendChild(h('div',{style:{background:'#2a1f3d',borderRadius:'10px',padding:'12px 14px',marginBottom:'14px',display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}},
-        h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#fff'}},t.hives),h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.04em'}},'Total hives')),
-        h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#fff'}},t.pallets),h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.04em'}},'Pallets')),
-        h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#fff'}},t.singles),h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.04em'}},'Singles'))
-      ));
-      // Build breakdown: group active movements into orchard by source site
+
+      // Build per-site net breakdown
       const siteBreakdown={};
       movements.forEach(m=>{
         if(m.direction==='to_orchard'&&m.to_orchard===o){
-          const site=m.from_site;
-          if(!siteBreakdown[site])siteBreakdown[site]={pallets:0,singles:0,moves:[]};
-          siteBreakdown[site].pallets+=parseInt(m.pallets)||0;
-          siteBreakdown[site].singles+=parseInt(m.singles)||0;
-          siteBreakdown[site].moves.push(m);
+          const site=m.from_site;if(!site)return;
+          if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,moves:[]};
+          siteBreakdown[site].sent+=parseInt(m.pallets)||0;
+          siteBreakdown[site].sentSingles+=parseInt(m.singles)||0;
+          siteBreakdown[site].moves.push({...m,type:'in'});
         }
         if(m.direction==='from_orchard'&&m.from_orchard===o){
-          const site=m.to_site;
-          if(!siteBreakdown[site])siteBreakdown[site]={pallets:0,singles:0,moves:[]};
-          siteBreakdown[site].pallets-=parseInt(m.pallets)||0;
-          siteBreakdown[site].singles-=parseInt(m.singles)||0;
+          const site=m.to_site;if(!site)return;
+          if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,moves:[]};
+          siteBreakdown[site].returned+=parseInt(m.pallets)||0;
+          siteBreakdown[site].retSingles+=parseInt(m.singles)||0;
+          siteBreakdown[site].moves.push({...m,type:'out'});
         }
       });
-      const activeSites=Object.entries(siteBreakdown).filter(([,v])=>(v.pallets+v.singles)>0);
+
+      const activeSites=Object.entries(siteBreakdown).filter(([,v])=>(v.sent-v.returned)>0||(v.sentSingles-v.retSingles)>0);
+      const totalNetPal=activeSites.reduce((a,[,v])=>a+(v.sent-v.returned),0);
+      const totalNetSing=activeSites.reduce((a,[,v])=>a+(v.sentSingles-v.retSingles),0);
+      const totalNetHives=totalNetPal*4+totalNetSing;
+
+      // Summary bar
+      screen.appendChild(h('div',{style:{background:'#2a1f3d',borderRadius:'10px',padding:'14px',marginBottom:'14px'}},
+        h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom: activeSites.some(([,v])=>v.returned>0)?'10px':'0'}},
+          h('div',{style:{textAlign:'center'}},
+            h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',lineHeight:'1'}},totalNetHives),
+            h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'3px'}},'Hives in orchard')
+          ),
+          h('div',{style:{textAlign:'center'}},
+            h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',lineHeight:'1'}},totalNetPal),
+            h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'3px'}},'Pallets')
+          ),
+          h('div',{style:{textAlign:'center'}},
+            h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',lineHeight:'1'}},totalNetSing),
+            h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'3px'}},'Singles')
+          )
+        )
+      ));
+
       if(!activeSites.length){
-        screen.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#ccc',fontSize:'14px'}},'All hives have returned from this orchard'));
+        screen.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#ccc',fontSize:'14px'}},'All hives have returned from this orchard'));
       } else {
-        screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Hives currently from:'));
-        activeSites.sort((a,b)=>b[1].pallets-a[1].pallets).forEach(([site,data])=>{
-          const hives=(data.pallets*4)+data.singles;
-          const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'10px',padding:'12px 13px',marginBottom:'7px'}});
-          const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
-          topRow.appendChild(h('div',null,
-            h('div',{style:{fontWeight:'600',fontSize:'15px'}},site),
-            h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${data.pallets} pallet${data.pallets!==1?'s':''} · ${data.singles} single${data.singles!==1?'s':''}`)
+        screen.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},activeSites.length+' yard'+(activeSites.length!==1?'s':'')+' currently here'));
+        activeSites.sort((a,b)=>(b[1].sent-b[1].returned)-(a[1].sent-a[1].returned)).forEach(([site,data])=>{
+          const netPal=data.sent-data.returned;
+          const netSing=data.sentSingles-data.retSingles;
+          const netHives=netPal*4+netSing;
+          const hasReturns=data.returned>0||data.retSingles>0;
+
+          const card=h('div',{style:{background:'#fff',border:'.5px solid #e0e0de',borderRadius:'12px',marginBottom:'10px',overflow:'hidden'}});
+
+          // Site header
+          const hdr=h('div',{style:{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'.5px solid #f0f0ee'}});
+          const hdrLeft=h('div',null);
+          hdrLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},site));
+          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},netPal+'p'+(netSing?' · '+netSing+'s':'')+(hasReturns?' remaining':' in orchard')));
+          hdr.appendChild(hdrLeft);
+          hdr.appendChild(h('div',{style:{textAlign:'center',flexShrink:'0',marginLeft:'12px'}},
+            h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#2a1f3d',lineHeight:'1'}},netHives),
+            h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},'hives')
           ));
-          topRow.appendChild(h('div',{style:{textAlign:'center',flexShrink:'0',marginLeft:'10px'}},
-            h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#2a1f3d'}},hives),
-            h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase'}},'hives')
-          ));
-          card.appendChild(topRow);
-          // Show individual movements for this site
-          const siteMoves=data.moves.sort((a,b)=>b.date.localeCompare(a.date));
-          if(siteMoves.length){
-            const movList=h('div',{style:{marginTop:'8px',borderTop:'.5px solid #f0f0f0',paddingTop:'8px'}});
-            siteMoves.forEach(m=>{
-              movList.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',color:'#777',marginBottom:'3px'}},
-                h('span',null,`${m.pallets||0}p + ${m.singles||0}s moved in`+(m.notes?' — '+m.notes:'')),
-                h('span',{style:{color:'#aaa',flexShrink:'0',marginLeft:'8px'}},fmtDate(m.date))
-              ));
-            });
-            card.appendChild(movList);
+          addBody.appendChild(hdr);
+
+          // Progress bar (only if some have returned)
+          if(hasReturns){
+            const body=h('div',{style:{padding:'10px 14px',background:'#fafafa',borderBottom:'.5px solid #f0f0ee'}});
+            const pct=data.sent>0?Math.round(((data.sent-data.returned)/data.sent)*100):100;
+            const barWrap=h('div',{style:{marginBottom:'5px'}});
+            const bar=h('div',{style:{width:'100%',height:'5px',background:'#e8e8e6',borderRadius:'3px',overflow:'hidden'}});
+            bar.appendChild(h('div',{style:{width:pct+'%',height:'100%',background:'#9b59b6',borderRadius:'3px'}}));
+            barWrap.appendChild(bar);
+            body.appendChild(barWrap);
+            body.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'11px',color:'#aaa'}},
+              h('span',null,data.sent+'p sent'),
+              h('span',null,data.returned+'p returned'),
+              h('span',{style:{color:'#9b59b6',fontWeight:'600'}},netPal+'p still here')
+            ));
+            addBody.appendChild(body);
           }
+
+          // Movement timeline
+          const movBody=h('div',{style:{padding:'10px 14px'}});
+          const allMoves=data.moves.sort((a,b)=>b.date.localeCompare(a.date));
+          allMoves.forEach(m=>{
+            const isIn=m.type==='in';
+            const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'5px'}});
+            const left=h('div',{style:{display:'flex',gap:'6px',alignItems:'center'}});
+            left.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:isIn?'#ef9f27':'#3d7a4f',background:isIn?'#fff8e6':'#e6f2eb',borderRadius:'6px',padding:'2px 6px'}},isIn?'↓ In':'↑ Out'));
+            left.appendChild(h('span',{style:{fontSize:'13px',color:'#444'}},
+              (parseInt(m.pallets)||0)+'p'+(parseInt(m.singles)>0?' · '+m.singles+'s':'')+(m.notes?' — '+m.notes:'')
+            ));
+            row.appendChild(left);
+            row.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb',flexShrink:'0',marginLeft:'8px'}},fmtDate(m.date)));
+            movBody.appendChild(row);
+          });
+          addBody.appendChild(movBody);
           screen.appendChild(card);
         });
       }
@@ -3363,7 +4201,7 @@ function renderMovementsScreen(){
           const t=totals[o];
           const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'},
             onClick:()=>setState({selectedOrchard:o})});
-          card.appendChild(h('div',null,
+          addBody.appendChild(h('div',null,
             h('div',{style:{fontWeight:'600',fontSize:'15px'}},o),
             h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} single${t.singles!==1?'s':''}`)
           ));
@@ -3373,10 +4211,134 @@ function renderMovementsScreen(){
             h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase'}},'hives')
           ));
           right.appendChild(h('span',{style:{color:'#ccc',fontSize:'18px'}},'›'));
-          card.appendChild(right);
+          addBody.appendChild(right);
           screen.appendChild(card);
         });
       }
+    }
+  }
+
+  // ── Return Trip tab ──
+  else if(STATE.tab==='return_trip'){
+    const movements=loadMovements();
+
+    // Build per-orchard, per-source-yard net position
+    const orchardSites={};
+    movements.forEach(m=>{
+      if(m.direction==='to_orchard'&&m.from_site&&m.to_orchard){
+        if(!orchardSites[m.to_orchard])orchardSites[m.to_orchard]={};
+        if(!orchardSites[m.to_orchard][m.from_site])orchardSites[m.to_orchard][m.from_site]={pallets:0,singles:0,op:m.from_op||''};
+        orchardSites[m.to_orchard][m.from_site].pallets+=parseInt(m.pallets)||0;
+        orchardSites[m.to_orchard][m.from_site].singles+=parseInt(m.singles)||0;
+      }
+      if(m.direction==='from_orchard'&&m.to_site&&m.from_orchard){
+        if(!orchardSites[m.from_orchard])orchardSites[m.from_orchard]={};
+        if(!orchardSites[m.from_orchard][m.to_site])orchardSites[m.from_orchard][m.to_site]={pallets:0,singles:0,op:m.to_op||''};
+        orchardSites[m.from_orchard][m.to_site].pallets-=parseInt(m.pallets)||0;
+        orchardSites[m.from_orchard][m.to_site].singles-=parseInt(m.singles)||0;
+      }
+    });
+
+    const activeOrchards=Object.entries(orchardSites).filter(([,sites])=>
+      Object.values(sites).some(s=>s.pallets>0||s.singles>0)
+    );
+
+    if(!activeOrchards.length){
+      screen.appendChild(h('div',{className:'empty-msg'},'No hives currently in orchards'));
+    } else {
+      screen.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'12px',lineHeight:'1.5'}},'Enter how many pallets you are taking from each yard today. Leave blank to skip.'));
+
+      // Track taking amounts: {orchard__site: pallets}
+      const taking={};
+
+      // Live truck total
+      const truckTile=h('div',{style:{background:'#2a1f3d',borderRadius:'10px',padding:'12px 14px',marginBottom:'12px'}});
+      const truckNum=h('div',{style:{fontSize:'26px',fontWeight:'800',color:'#fff',lineHeight:'1'}});
+      const truckSub=h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.45)',marginTop:'4px'}});
+      truckTile.appendChild(truckNum);
+      truckTile.appendChild(truckSub);
+      screen.appendChild(truckTile);
+
+      function updateTruckTotal(){
+        const totalPal=Object.values(taking).reduce((a,v)=>a+(parseInt(v)||0),0);
+        const totalHives=totalPal*4;
+        truckNum.textContent=totalPal+'p = '+totalHives+' hives';
+        truckSub.textContent=totalPal>0?'Tap "Build load" to pre-fill the movement form':'Enter pallets below';
+      }
+      updateTruckTotal();
+
+      // Build load button (sticky at bottom)
+      const buildBtn=h('button',{style:{width:'100%',padding:'13px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'10px',fontSize:'15px',fontWeight:'700',cursor:'pointer',marginBottom:'12px',opacity:'0.4',pointerEvents:'none'},
+        onClick:()=>{
+          const plan=[];
+          Object.entries(taking).forEach(([key,pallets])=>{
+            if(!parseInt(pallets)) return;
+            const [orchard,...siteParts]=key.split('__');
+            const site=siteParts.join('__');
+            const op=(orchardSites[orchard]||{})[site]?.op||'';
+            plan.push({orchard,site,pallets:String(pallets),singles:'0',op});
+          });
+          if(!plan.length){showToast('Enter pallets to take for at least one yard');return;}
+          STATE._returnPlan=plan;
+          setState({tab:'movements',_returnMode:true});
+        }
+      },'Build load');
+      screen.appendChild(buildBtn);
+
+      function updateBuildBtn(){
+        const hasSome=Object.values(taking).some(v=>parseInt(v)>0);
+        buildBtn.style.opacity=hasSome?'1':'0.4';
+        buildBtn.style.pointerEvents=hasSome?'auto':'none';
+        updateTruckTotal();
+      }
+
+      // Orchard cards
+      activeOrchards.forEach(([orchard,sites])=>{
+        const activeSites=Object.entries(sites).filter(([,s])=>s.pallets>0||s.singles>0);
+        const orchTotal=activeSites.reduce((a,[,s])=>a+s.pallets,0);
+
+        const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid #ddd'}});
+
+        // Orchard header
+        const hdr=h('div',{style:{padding:'11px 14px',background:'#f8f8f6',borderBottom:'.5px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+        hdr.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},orchard));
+        hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},orchTotal+'p in orchard'));
+        card.appendChild(hdr);
+
+        // Per-yard rows
+        activeSites.sort((a,b)=>b[1].pallets-a[1].pallets).forEach(([site,data])=>{
+          const key=orchard+'__'+site;
+          const row=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3'}});
+
+          // Site name + pallets in orchard
+          const left=h('div',{style:{flex:'1'}});
+          left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site));
+          left.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},data.pallets+'p in orchard'));
+          row.appendChild(left);
+
+          // Input: pallets taking today
+          const inp=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.pallets),placeholder:'0',style:{width:'60px',padding:'7px 8px',border:'1.5px solid #ddd',borderRadius:'8px',fontSize:'16px',fontWeight:'700',textAlign:'center',background:'#fafafa',boxSizing:'border-box'}});
+          inp.addEventListener('input',e=>{
+            const v=Math.min(parseInt(e.target.value)||0,data.pallets);
+            if(v>0){
+              inp.value=String(v);
+              taking[key]=String(v);
+              inp.style.border='1.5px solid #9b59b6';
+              inp.style.color='#9b59b6';
+            } else {
+              delete taking[key];
+              inp.style.border='1.5px solid #ddd';
+              inp.style.color='#333';
+            }
+            updateBuildBtn();
+          });
+          row.appendChild(inp);
+          row.appendChild(h('span',{style:{fontSize:'13px',color:'#aaa',flexShrink:'0'}},'pallets'));
+          card.appendChild(row);
+        });
+
+        screen.appendChild(card);
+      });
     }
   }
 
@@ -3470,7 +4432,7 @@ function renderMovementsScreen(){
           h('div',{style:{fontSize:'12px',color:'#aaa'}},fmtDate(m.date)),
           h('div',{style:{fontSize:'11px',color:'#bbb',marginTop:'2px'}},m.logged_by||'')
         ));
-        card.appendChild(mainRow);
+        addBody.appendChild(mainRow);
         // Edit + Delete buttons
         const btnBar=h('div',{style:{display:'flex',justifyContent:'flex-end',gap:'8px',marginTop:'8px'}});
         // Edit button
@@ -3535,7 +4497,7 @@ function renderMovementsScreen(){
           }
         },'Delete');
         btnBar.appendChild(delBtn);
-        card.appendChild(btnBar);
+        addBody.appendChild(btnBar);
         screen.appendChild(card);
       });
     }
@@ -3627,6 +4589,7 @@ function renderApp(){
   const op=STATE.op;
   if(!op) return renderOpSelector();
   if(op==='__movements__') return renderMovementsScreen();
+  if(op==='__reports__') return renderReportsScreen();
   const opData=OPERATIONS[op];
   document.documentElement.style.setProperty('--op-color',opData.color);
   document.documentElement.style.setProperty('--op-accent',opData.accent);
