@@ -789,14 +789,17 @@ function calcSummary(opName){
     // This prevents empty fields in a new entry zeroing out previous counts
     const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     const HIVE_FIELDS_LV=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
+    // Fields where we want most recent non-zero (not just most recent entry)
+    const NON_ZERO_FIELDS=['singles','doubles','light','weak','lids_floors'];
     const lastVal=k=>{
       for(const e of allSiteEntries){
         const raw=e[k];
         if(raw===undefined||raw===null||raw==='') continue;
         const v=parseInt(raw);
         if(!isNaN(v)){
-          if(HIVE_FIELDS_LV.includes(k)) return v;
-          if(v>0) return v;
+          if(NON_ZERO_FIELDS.includes(k)){if(v>0) return v;}
+          else if(HIVE_FIELDS_LV.includes(k)) return v;
+          else if(v>0) return v;
         }
       }
       return 0;
