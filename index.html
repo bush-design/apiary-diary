@@ -1576,8 +1576,8 @@ function renderReportsScreen(){
 
   function renderChart(){
     metricsArea.innerHTML='';
-    if(!seasons.length){
-      metricsArea.appendChild(h('div',{style:{textAlign:'center',padding:'20px',color:'#bbb'}},'Add seasons above to see charts'));
+    if(!years.length){
+      metricsArea.appendChild(h('div',{style:{textAlign:'center',padding:'20px',color:'#bbb'}},'Add a seasonal year above to see charts'));
       return;
     }
 
@@ -1638,7 +1638,7 @@ function renderReportsScreen(){
     // Season filter (shown when mode=season and x=operations or batches)
     const seasonFilterWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
     const seasonFilter=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
-    seasons.forEach(s=>seasonFilter.appendChild(h('option',{value:s.name},s.name)));
+    years.forEach(yr=>seasonFilter.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
     seasonFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Season'));
     seasonFilterWrap.appendChild(seasonFilter);
     ctrl.appendChild(seasonFilterWrap);
@@ -1646,8 +1646,8 @@ function renderReportsScreen(){
     // Compare season 2
     const cmpSeason2Wrap=h('div',{style:{display:'none',marginBottom:'8px'}});
     const cmpSeason2Sel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
-    seasons.forEach(s=>cmpSeason2Sel.appendChild(h('option',{value:s.name},s.name)));
-    if(seasons.length>1) cmpSeason2Sel.value=seasons[1]?.name||seasons[0].name;
+    years.forEach(yr=>cmpSeason2Sel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+    if(years.length>1) cmpSeason2Sel.value=years[1]?.startYear||years[0]?.startYear;
     cmpSeason2Wrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Compare season'));
     cmpSeason2Wrap.appendChild(cmpSeason2Sel);
     ctrl.appendChild(cmpSeason2Wrap);
