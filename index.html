@@ -1171,7 +1171,7 @@ function renderReportsScreen(){
     const yMax=globalMax+range*0.1;
 
     const toY=v=>pad.top+chartH-(((v-yMin)/(yMax-yMin))*chartH);
-    const boxW=Math.min(40,chartW/groups.length*0.5);
+    const boxW=Math.min(50,chartW/groups.length*0.7);
     const step=chartW/groups.length;
 
     // Y axis
@@ -1181,7 +1181,7 @@ function renderReportsScreen(){
       const v=yMin+(yMax-yMin)*i/ticks;
       const y=toY(v);
       ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+chartW,y);ctx.stroke();
-      ctx.fillStyle='#aaa';ctx.font='10px system-ui';ctx.textAlign='right';
+      ctx.fillStyle='#aaa';ctx.font='bold 13px system-ui';ctx.textAlign='right';
       ctx.fillText(v.toFixed(1),pad.left-4,y+3);
     }
 
@@ -1213,7 +1213,7 @@ function renderReportsScreen(){
         stats.outliers.forEach(v=>{ctx.beginPath();ctx.arc(x,toY(v),3,0,Math.PI*2);ctx.fill();});
       }
       // X label
-      ctx.fillStyle='#555';ctx.font='10px system-ui';ctx.textAlign='center';
+      ctx.fillStyle='#555';ctx.font='bold 13px system-ui';ctx.textAlign='center';
       const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
       ctx.fillText(lbl,x,H-pad.bottom+14);
       // n count
@@ -1222,8 +1222,8 @@ function renderReportsScreen(){
     });
 
     // Y axis label
-    ctx.save();ctx.translate(12,pad.top+chartH/2);ctx.rotate(-Math.PI/2);
-    ctx.fillStyle='#888';ctx.font='10px system-ui';ctx.textAlign='center';
+    ctx.save();ctx.translate(14,pad.top+chartH/2);ctx.rotate(-Math.PI/2);
+    ctx.fillStyle='#555';ctx.font='bold 13px system-ui';ctx.textAlign='center';
     ctx.fillText(yLabel,0,0);ctx.restore();
   }
 
@@ -1276,10 +1276,12 @@ function renderReportsScreen(){
     const canvas=document.createElement('canvas');
     canvas.style.width='100%';canvas.style.display='block';
     const resizeCanvas=()=>{
+      const dpr=window.devicePixelRatio||1;
       const w=canvas.parentElement?.offsetWidth||300;
-      canvas.width=w*window.devicePixelRatio||w;
-      canvas.height=220*window.devicePixelRatio||220;
-      canvas.style.height='220px';
+      canvas.width=w*dpr;
+      canvas.height=300*dpr;
+      canvas.style.height='300px';
+      ctx.scale(dpr,dpr);
       updateChart();
     };
     chartCard.appendChild(canvas);
@@ -1304,7 +1306,7 @@ function renderReportsScreen(){
     function drawStackedBar(canvas, groups){
       const ctx2=canvas.getContext('2d');
       const W=canvas.width,H=canvas.height;
-      const pad={top:20,bottom:50,left:45,right:10};
+      const pad={top:30,bottom:60,left:50,right:15};
       const chartW=W-pad.left-pad.right;
       const chartH=H-pad.top-pad.bottom;
       ctx2.clearRect(0,0,W,H);
@@ -1318,7 +1320,7 @@ function renderReportsScreen(){
         const v=Math.round(maxHives*i/5);
         const y=pad.top+chartH-(chartH*i/5);
         ctx2.beginPath();ctx2.moveTo(pad.left,y);ctx2.lineTo(pad.left+chartW,y);ctx2.stroke();
-        ctx2.fillStyle='#aaa';ctx2.font='10px system-ui';ctx2.textAlign='right';
+        ctx2.fillStyle='#aaa';ctx2.font='bold 11px system-ui';ctx2.textAlign='right';
         ctx2.fillText(v,pad.left-4,y+3);
       }
       groups.forEach((g,i)=>{
@@ -1335,7 +1337,7 @@ function renderReportsScreen(){
         ctx2.strokeStyle='#3d7a4f';ctx2.lineWidth=1;
         ctx2.strokeRect(x-halfW-1,baseY-aliveH,halfW,aliveH);
         // Alive count label
-        ctx2.fillStyle='#3d7a4f';ctx2.font='bold 9px system-ui';ctx2.textAlign='center';
+        ctx2.fillStyle='#3d7a4f';ctx2.font='bold 10px system-ui';ctx2.textAlign='center';
         if(aliveH>14) ctx2.fillText(alive,x-halfW/2-1,baseY-aliveH-3);
         // Dead bar (right, red)
         if(dead>0){
@@ -1344,22 +1346,22 @@ function renderReportsScreen(){
           ctx2.fillRect(x+1,baseY-deadH,halfW,deadH);
           ctx2.strokeStyle='#e24b4a';ctx2.lineWidth=1;
           ctx2.strokeRect(x+1,baseY-deadH,halfW,deadH);
-          ctx2.fillStyle='#c0392b';ctx2.font='bold 9px system-ui';ctx2.textAlign='center';
+          ctx2.fillStyle='#c0392b';ctx2.font='bold 10px system-ui';ctx2.textAlign='center';
           if(deadH>14) ctx2.fillText(dead,x+halfW/2+1,baseY-deadH-3);
           const pct=Math.round(dead/total*100);
           ctx2.fillStyle='#888';ctx2.font='9px system-ui';
           ctx2.fillText(pct+'%',x,baseY+12);
         }
         // X label
-        ctx2.fillStyle='#555';ctx2.font='10px system-ui';ctx2.textAlign='center';
+        ctx2.fillStyle='#555';ctx2.font='bold 11px system-ui';ctx2.textAlign='center';
         const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
         ctx2.fillText(lbl,x,H-pad.bottom+14);
-        ctx2.fillStyle='#aaa';ctx2.font='9px system-ui';
+        ctx2.fillStyle='#666';ctx2.font='10px system-ui';
         ctx2.fillText(total+'h',x,H-pad.bottom+26);
       });
       // Legend
       ctx2.fillStyle='#3d7a4f88';ctx2.fillRect(pad.left,8,12,10);
-      ctx2.fillStyle='#555';ctx2.font='10px system-ui';ctx2.textAlign='left';ctx2.fillText('Alive',pad.left+15,17);
+      ctx2.fillStyle='#555';ctx2.font='bold 11px system-ui';ctx2.textAlign='left';ctx2.fillText('Alive',pad.left+15,17);
       ctx2.fillStyle='#e24b4a88';ctx2.fillRect(pad.left+55,8,12,10);
       ctx2.fillStyle='#555';ctx2.fillText('Dead',pad.left+70,17);
     }
