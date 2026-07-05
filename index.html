@@ -2251,10 +2251,12 @@ function renderSitesList(){
     const days=latest?daysBetween(latest.date):null;
     const overdue=!latest||days>21;
 
-    // Field lookup — most recent non-zero value across all entries
+    // Field lookup — most recent non-zero value across all entries (includes movement for singles/doubles/light)
     const HIVE_FIELDS2=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
+    const allWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
     const lv=k=>{
-      for(const e of allReal){
+      const pool=['singles','doubles','light','weak'].includes(k)?allWithMov:allReal;
+      for(const e of pool){
         const raw=e[k];
         if(raw===undefined||raw===null||raw==='') continue;
         const v=parseInt(raw);
@@ -3104,25 +3106,21 @@ function renderEntriesList(){
     return a._arrIdx-b._arrIdx;
   });
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
-  // Use most recent entry WITH hive data — falls back past treatment-only visits
-  const mostRecentWithHives=allSiteEntries.find(e=>
-    e.hives!==undefined&&e.hives!==null&&e.hives!==''
-  )||null;
+  const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
   const lv=k=>{
-    if(HIVE_FIELDS3.includes(k)){
-      if(mostRecentWithHives){
-        const raw=mostRecentWithHives[k];
-        if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;
-        return 0;
+    if(['singles','doubles','light','weak'].includes(k)){
+      // Check movement entries too for these fields
+      for(const e of allSiteEntriesWithMov){
+        const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;
+        const v=parseInt(raw);if(!isNaN(v)&&v>0)return v;
       }
       return 0;
     }
-    for(const e of allSiteEntries){
-      const raw=e[k];
-      if(raw===undefined||raw===null||raw==='') continue;
-      const v=parseInt(raw);
-      if(!isNaN(v)&&v>0) return v;
+    if(HIVE_FIELDS3.includes(k)){
+      if(mostRecentWithHives){const raw=mostRecentWithHives[k];if(raw!==undefined&&raw!==null&&raw!=='')return parseInt(raw)||0;return 0;}
+      return 0;
     }
+    for(const e of allSiteEntries){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v)&&v>0)return v;}
     return 0;
   };
   const latestReal=allSiteEntries[0]||null;
@@ -4700,10 +4698,10 @@ function renderMovementsScreen(){
             h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase'}},'hives')
           ));
           right.appendChild(h('span',{style:{color:'#ccc',fontSize:'18px'}},'›'));
-          addBody.appendChild(right);
+          card.appendChild(right);
           screen.appendChild(card);
         });
-      }
+    }
     }
   }
 
@@ -4986,7 +4984,7 @@ function renderMovementsScreen(){
           }
         },'Delete');
         btnBar.appendChild(delBtn);
-        addBody.appendChild(btnBar);
+        card.appendChild(btnBar);
         screen.appendChild(card);
       });
     }
