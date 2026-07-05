@@ -1050,6 +1050,272 @@ function getAFBInquiry(op, site){
   }catch(e){return null;}
 }
 
+
+function showChangeSourceModal(op, nucYardKey, batchIdx, onSave){
+  const all=loadNucYards();
+  const batch=all[nucYardKey].batches[batchIdx];
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'16px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Change source yard'));
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'14px'}},'Currently: '+batch.sourceYard));
+  const srcSearch=h('div',null);
+  const srcDisplay=h('div',{style:{display:'none',background:'#f3e8ff',border:'1.5px solid #9b59b6',borderRadius:'8px',padding:'8px 12px',justifyContent:'space-between',alignItems:'center'}});
+  let selectedSrc=batch.sourceYard;
+  makeYardSearchGlobal(srcSearch,(site,opName)=>{
+    selectedSrc=site;
+    srcDisplay.style.display='flex';srcSearch.style.display='none';
+    srcDisplay.innerHTML='';
+    srcDisplay.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'600'}},site+' · '+opName));
+    const chg=h('button',{style:{background:'none',border:'none',color:'#9b59b6',fontSize:'12px',cursor:'pointer'},onClick:()=>{srcDisplay.style.display='none';srcSearch.style.display='block';selectedSrc=batch.sourceYard;}});
+    chg.textContent='Change';srcDisplay.appendChild(chg);
+  });
+  box.appendChild(srcSearch);box.appendChild(srcDisplay);
+  const btnRow=h('div',{style:{display:'flex',gap:'10px',marginTop:'14px'}});
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>{
+      batch.sourceYard=selectedSrc;
+      saveNucYards(all);overlay.remove();onSave();
+    }},'Save'));
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
+  box.appendChild(btnRow);
+  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+function showSendNucsModal(op, nucYardKey, batchIdx, onSave){
+  const all=loadNucYards();
+  const batch=all[nucYardKey].batches[batchIdx];
+  const matedNucs=(batch.nucs||[]).filter(n=>n.status==='mated'&&!n.transferredTo);
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'16px',overflowY:'auto'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Send nucs to yard'));
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'12px'}},matedNucs.length+' mated nuc'+(matedNucs.length!==1?'s':'')+' available to send'));
+
+  // Destination yard search
+  const destSearch=h('div',null);
+  const destDisplay=h('div',{style:{display:'none',background:'#e6f2eb',border:'1.5px solid #3d7a4f',borderRadius:'8px',padding:'8px 12px',justifyContent:'space-between',alignItems:'center'}});
+  let destSite='';
+  makeYardSearchGlobal(destSearch,(site)=>{
+    destSite=site;destSearch.style.display='none';destDisplay.style.display='flex';
+    destDisplay.innerHTML='';
+    destDisplay.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'600',color:'#3d7a4f'}},site));
+    const chg=h('button',{style:{background:'none',border:'none',color:'#3d7a4f',fontSize:'12px',cursor:'pointer'},onClick:()=>{destDisplay.style.display='none';destSearch.style.display='block';destSite='';}});
+    chg.textContent='Change';destDisplay.appendChild(chg);
+  });
+  box.appendChild(h('label',{style:{fontSize:'11px',color:'#aaa',display:'block',marginBottom:'4px',textTransform:'uppercase'}},'Destination yard'));
+  box.appendChild(destSearch);box.appendChild(destDisplay);
+
+  // Date
+  const dateInp=h('input',{type:'date',value:todayStr(),style:{display:'block',width:'100%',padding:'9px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'14px',marginTop:'10px',boxSizing:'border-box'}});
+  box.appendChild(h('label',{style:{fontSize:'11px',color:'#aaa',display:'block',marginTop:'10px',marginBottom:'4px',textTransform:'uppercase'}},'Date'));
+  box.appendChild(dateInp);
+
+  // Which nucs to send
+  box.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',marginTop:'12px',marginBottom:'6px'}},'Select nucs to send'));
+  const nucChecks=[];
+  matedNucs.forEach(nuc=>{
+    const row=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'}});
+    const cb=h('input',{type:'checkbox',checked:true,style:{width:'16px',height:'16px',cursor:'pointer'}});
+    row.appendChild(cb);
+    row.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},batch.sourceYard+' '+((batch.nucs||[]).indexOf(nuc)+1)));
+    box.appendChild(row);
+    nucChecks.push({nuc,cb});
+  });
+
+  if(!matedNucs.length){
+    box.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No mated nucs available — update nuc status to Mated first'));
+  }
+
+  const btnRow=h('div',{style:{display:'flex',gap:'10px',marginTop:'14px'}});
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#3d7a4f',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>{
+      if(!destSite){showToast('Select a destination yard');return;}
+      const selected=nucChecks.filter(({cb})=>cb.checked).map(({nuc})=>nuc);
+      if(!selected.length){showToast('Select at least one nuc');return;}
+      selected.forEach(nuc=>{
+        nuc.transferredTo=destSite;
+        nuc.transferredDate=dateInp.value;
+      });
+      saveNucYards(all);
+      showToast(selected.length+' nuc'+(selected.length!==1?'s':'')+' sent to '+destSite);
+      overlay.remove();onSave();
+    }},'Send'));
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
+  box.appendChild(btnRow);
+  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+function renderNucsScreen(){
+  const wrap=h('div',{className:'app'});
+
+  // Header
+  const header=h('div',{className:'header'});
+  const topRow=h('div',{className:'header-top'});
+  topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
+  topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
+  topRow.appendChild(h('div',{className:'sync-dot '+(navigator.onLine?'online':'error')}));
+  header.appendChild(topRow);
+  header.appendChild(h('div',{className:'header-title'},'Nucs'));
+  wrap.appendChild(header);
+
+  const screen=h('div',{className:'screen'});
+
+  // Operation toggle
+  const ops=Object.keys(OPERATIONS);
+  let selectedOp=STATE._nucOp||ops[0];
+  const opToggle=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px',flexWrap:'wrap'}});
+  ops.forEach(op=>{
+    const btn=h('button',{type:'button',style:{padding:'6px 14px',borderRadius:'20px',border:'1.5px solid '+(selectedOp===op?OPERATIONS[op].color:'#ddd'),background:selectedOp===op?OPERATIONS[op].color+'18':'#fff',color:selectedOp===op?OPERATIONS[op].color:'#888',fontSize:'13px',fontWeight:'700',cursor:'pointer'}},op);
+    btn.addEventListener('click',()=>{
+      STATE._nucOp=op;
+      selectedOp=op;
+      renderBatches();
+      // Update toggle buttons
+      opToggle.querySelectorAll('button').forEach((b,i)=>{
+        const o=ops[i];
+        b.style.border='1.5px solid '+(selectedOp===o?OPERATIONS[o].color:'#ddd');
+        b.style.background=selectedOp===o?OPERATIONS[o].color+'18':'#fff';
+        b.style.color=selectedOp===o?OPERATIONS[o].color:'#888';
+      });
+    });
+    opToggle.appendChild(btn);
+  });
+  screen.appendChild(opToggle);
+
+  // Batches area
+  const batchArea=h('div',null);
+  screen.appendChild(batchArea);
+
+  function renderBatches(){
+    batchArea.innerHTML='';
+    const all=loadNucYards();
+    // Find all batches for this op
+    const opBatches=[];
+    Object.entries(all).forEach(([key,yard])=>{
+      if(yard.op===selectedOp){
+        (yard.batches||[]).forEach((batch,bi)=>opBatches.push({key,yard,batch,bi}));
+      }
+    });
+
+    // Summary stats
+    const allNucs=opBatches.flatMap(({batch})=>batch.nucs||[]);
+    if(allNucs.length){
+      const stats={waiting:0,cell:0,virgin:0,dl:0,mated:0,failed:0,transferred:0};
+      allNucs.forEach(n=>{
+        if(n.transferredTo) stats.transferred++;
+        else if(n.status==='failed') stats.failed++;
+        else if(n.status==='mated') stats.mated++;
+        else if(n.status==='dl') stats.dl++;
+        else if(n.status==='virgin') stats.virgin++;
+        else if(n.status==='cell') stats.cell++;
+        else stats.recheck++;
+      });
+      const statGrid=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'6px',marginBottom:'14px'}});
+      [{l:'Total',v:allNucs.length,col:'#555'},{l:'Mated',v:stats.mated+stats.transferred,col:'#3d7a4f'},{l:'Recheck',v:stats.recheck+stats.cell+stats.virgin+stats.dl,col:'#ef9f27'},{l:'Failed',v:stats.failed,col:'#e24b4a'}].forEach(({l,v,col})=>{
+        const tile=h('div',{style:{background:'#fff',borderRadius:'8px',padding:'8px',textAlign:'center',border:'.5px solid #eee'}});
+        tile.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'800',color:v>0&&l!=='Total'?col:'#1a1a1a',lineHeight:'1'}},String(v)));
+        tile.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',marginTop:'2px'}},l));
+        statGrid.appendChild(tile);
+      });
+      batchArea.appendChild(statGrid);
+    }
+
+    if(!opBatches.length){
+      batchArea.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},'No nuc batches yet for '+selectedOp));
+    } else {
+      opBatches.forEach(({key,yard,batch,bi})=>{
+        const nucs=batch.nucs||[];
+        const today=new Date();
+
+        // 2-week check reminder
+        const checkNucs=nucs.filter(n=>n.cellDate&&!n.matedDate&&!n.transferredTo&&n.status!=='failed');
+        let showCheck=false;
+        if(checkNucs.length){
+          const cellDate=new Date(checkNucs[0].cellDate);
+          const days=Math.floor((today-cellDate)/(1000*60*60*24));
+          if(days>=14) showCheck=days;
+        }
+
+        if(showCheck){
+          batchArea.appendChild(h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'8px',fontSize:'13px',color:'#b07800',fontWeight:'600'}},
+            '⏰ '+batch.sourceYard+' — check nucs (cells in '+showCheck+'d ago)'
+          ));
+        }
+
+        const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid #ddd'}});
+
+        // Batch header — tappable to expand
+        const bHdr=h('div',{style:{padding:'11px 14px',background:'#f8f8f6',borderBottom:'.5px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}});
+        const mated=nucs.filter(n=>n.status==='mated'||n.transferredTo).length;
+        const failed=nucs.filter(n=>n.status==='failed').length;
+        const bLeft=h('div',null);
+        bLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px'}},batch.sourceYard));
+        bLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},
+          nucs.length+' nucs · Added '+fmtDate(batch.dateAdded)+(mated?' · '+mated+' mated':'')+(failed?' · '+failed+' failed':'')
+        ));
+        bHdr.appendChild(bLeft);
+        const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},'▼');
+        bHdr.appendChild(bChev);
+        card.appendChild(bHdr);
+
+        const bBody=h('div',{style:{display:'none'}});
+
+        // Individual nucs
+        nucs.forEach((nuc,ni)=>{
+          const isTransferred=!!nuc.transferredTo;
+          const statusColor=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#aaa';
+          const statusLabel=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Recheck';
+          const nRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
+            onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})});
+          const nLeft=h('div',null);
+          nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' '+ni+1));
+          if(nuc.cellDate) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'Cell: '+fmtDate(nuc.cellDate)));
+          if(nuc.transferredTo) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#3d7a4f'}},'→ '+nuc.transferredTo+' · '+fmtDate(nuc.transferredDate)));
+          nRow.appendChild(nLeft);
+          nRow.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:statusColor,background:statusColor+'18',borderRadius:'10px',padding:'3px 8px'}},statusLabel));
+          bBody.appendChild(nRow);
+        });
+
+        // Batch actions
+        const actRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',padding:'10px 14px',borderTop:'.5px solid #f0f0ee'}});
+        actRow.appendChild(h('button',{style:{padding:'8px',background:'#9b59b611',border:'1px solid #9b59b6',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#9b59b6',cursor:'pointer'},
+          onClick:()=>showBatchUpdateModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Update batch'));
+        actRow.appendChild(h('button',{style:{padding:'8px',background:'#1a6fb011',border:'1px solid #1a6fb0',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#1a6fb0',cursor:'pointer'},
+          onClick:()=>showSendNucsModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Send to yard'));
+        actRow.appendChild(h('button',{style:{padding:'8px',background:'#55555511',border:'1px solid #999',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#666',cursor:'pointer'},
+          onClick:()=>showChangeSourceModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Change source'));
+        actRow.appendChild(h('button',{style:{padding:'8px',background:'#e24b4a11',border:'1px solid #e24b4a',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#e24b4a',cursor:'pointer'},
+          onClick:()=>confirmAction('Delete this nuc batch?',()=>{
+            const all2=loadNucYards();
+            all2[key].batches.splice(bi,1);
+            saveNucYards(all2);
+            STATE._nucOp=selectedOp;
+            setState({op:'__nucs__'});
+          })},'Delete batch'));
+        bBody.appendChild(actRow);
+
+        bHdr.addEventListener('click',()=>{
+          const open=bBody.style.display!=='none';
+          bBody.style.display=open?'none':'block';
+          bChev.textContent=open?'▼':'▲';
+        });
+        card.appendChild(bBody);
+        batchArea.appendChild(card);
+      });
+    }
+
+    // Add batch button
+    batchArea.appendChild(h('button',{style:{width:'100%',padding:'13px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'10px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginTop:'4px'},
+      onClick:()=>showAddNucBatchModal(selectedOp,'__nucs__'+selectedOp,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})
+    },'+ Add nuc batch'));
+  }
+
+  renderBatches();
+  wrap.appendChild(screen);
+  return wrap;
+}
+
 function renderReportsScreen(){
   const wrap=h('div',{className:'app'});
   // Header
@@ -2228,12 +2494,12 @@ function renderNucYard(op, nucYardKey){
     else if(n.status==='dl') stats.dl++;
     else if(n.status==='virgin') stats.virgin++;
     else if(n.status==='cell') stats.cell++;
-    else stats.waiting++;
+    else stats.recheck++;
   });
   const total=allNucs.length;
   if(total>0){
     const statRow=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'6px',marginBottom:'14px'}});
-    [{l:'Total',v:total,col:'#555'},{l:'Mated',v:stats.mated,col:'#3d7a4f'},{l:'Waiting',v:stats.waiting+stats.cell+stats.virgin+stats.dl,col:'#ef9f27'},{l:'Failed',v:stats.failed,col:'#e24b4a'}].forEach(({l,v,col})=>{
+    [{l:'Total',v:total,col:'#555'},{l:'Mated',v:stats.mated,col:'#3d7a4f'},{l:'Recheck',v:stats.recheck+stats.cell+stats.virgin+stats.dl,col:'#ef9f27'},{l:'Failed',v:stats.failed,col:'#e24b4a'}].forEach(({l,v,col})=>{
       const tile=h('div',{style:{background:'#f8f8f6',borderRadius:'8px',padding:'8px',textAlign:'center'}});
       tile.appendChild(h('div',{style:{fontSize:'18px',fontWeight:'800',color:v>0&&l!=='Total'?col:'#1a1a1a',lineHeight:'1'}},v));
       tile.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',marginTop:'2px'}},l));
@@ -2465,7 +2731,18 @@ function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
   notesInp.addEventListener('input',e=>{nuc.notes=e.target.value;saveNucYards(all);});
   box.appendChild(notesInp);
 
-  box.appendChild(h('button',{style:{marginTop:'12px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+  // Back to source yard button
+  const srcYardName=all[nucYardKey]?.batches[batchIdx]?.sourceYard?.replace(/ \d+$/,'').trim()||'';
+  if(srcYardName){
+    let srcOp2=null,srcBatch2=null;
+    Object.entries(OPERATIONS).forEach(([opN])=>{Object.entries(getYards(opN)).forEach(([bN,b])=>{if(b.sites.some(s=>srcYardName.includes(s)||s.includes(srcYardName))){srcOp2=opN;srcBatch2=bN;}});});
+    if(srcOp2){
+      box.appendChild(h('button',{style:{marginTop:'8px',width:'100%',padding:'10px',background:'#1a6fb011',border:'1px solid #1a6fb0',color:'#1a6fb0',borderRadius:'8px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
+        onClick:()=>{overlay.remove();setState({op:srcOp2,tab:'diary',run:srcBatch2,site:srcYardName,diaryView:'entries'});}
+      },'→ Go to '+srcYardName));
+    }
+  }
+  box.appendChild(h('button',{style:{marginTop:'8px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
   overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
 }
