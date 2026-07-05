@@ -2433,24 +2433,29 @@ function renderEntriesList(){
     return a._arrIdx-b._arrIdx;
   });
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
-  // Use most recent entry WITH hive data — falls back past treatment-only visits
+  // Also include movement entries for light/doubles/singles lookup
+  const allSiteEntriesWithMov=Object.keys(ROUNDS).flatMap(rk=>
+    (STATE.entries[eKey(op,site,rk)]||[]).map((e,i)=>({...e,_arrIdx:i}))
+  ).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
   const mostRecentWithHives=allSiteEntries.find(e=>
     e.hives!==undefined&&e.hives!==null&&e.hives!==''
   )||null;
   const lv=k=>{
     if(HIVE_FIELDS3.includes(k)){
-      if(mostRecentWithHives){
-        const raw=mostRecentWithHives[k];
-        if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;
+      if(['hives','dead','weak','alive_hives','dead_hives'].includes(k)){
+        if(mostRecentWithHives){const raw=mostRecentWithHives[k];if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;return 0;}
         return 0;
+      }
+      // singles/doubles/light: check movement entries too
+      for(const e of allSiteEntriesWithMov){
+        const raw=e[k];if(raw===undefined||raw===null||raw==='') continue;
+        const v=parseInt(raw);if(!isNaN(v)&&v>0) return v;
       }
       return 0;
     }
     for(const e of allSiteEntries){
-      const raw=e[k];
-      if(raw===undefined||raw===null||raw==='') continue;
-      const v=parseInt(raw);
-      if(!isNaN(v)&&v>0) return v;
+      const raw=e[k];if(raw===undefined||raw===null||raw==='') continue;
+      const v=parseInt(raw);if(!isNaN(v)&&v>0) return v;
     }
     return 0;
   };
