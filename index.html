@@ -2553,7 +2553,11 @@ function renderSitesList(){
     // Field lookup — most recent non-zero value across all entries (includes movement for singles/doubles/light)
     const HIVE_FIELDS2=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
     const allWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
+    // If most recent entry has 0 hives (whole yard moved out), boxes should also be 0
+    const mostRecentAny=allWithMov[0]||null;
+    const wholeYardMovedOut=mostRecentAny&&mostRecentAny._movement&&(parseInt(mostRecentAny.hives)||0)===0;
     const lv=k=>{
+      if(wholeYardMovedOut&&['singles','doubles','light','weak','lids_floors'].includes(k)) return 0;
       const pool=['singles','doubles','light','weak'].includes(k)?allWithMov:allReal;
       for(const e of pool){
         const raw=e[k];
@@ -3469,7 +3473,10 @@ function renderEntriesList(){
   const allSiteEntriesWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map((e,i)=>({...e,_arrIdx:i}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
   const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+  const mostRecentAnyE=allSiteEntriesWithMov[0]||null;
+  const wholeYardOut2=mostRecentAnyE&&mostRecentAnyE._movement&&(parseInt(mostRecentAnyE.hives)||0)===0;
   const lv=k=>{
+    if(wholeYardOut2&&['singles','doubles','light','weak','lids_floors'].includes(k)) return 0;
     if(['singles','doubles','light','weak'].includes(k)){
       // Check movement entries too for these fields
       for(const e of allSiteEntriesWithMov){
