@@ -311,7 +311,7 @@ function getOrchardTotals(){
 }
 
 const ROUNDS = {
-  spring:{label:"Spring / Pollination",short:"Spring / Pollination",color:"#3d7a4f",bg:"#e6f2eb",fields:[
+  spring:{label:"Spring",short:"Spring",color:"#3d7a4f",bg:"#e6f2eb",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"light",label:"Light",type:"number"},
     {key:"dead",label:"Dead",type:"number"},{key:"lids_floors",label:"Lids & Floors",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
@@ -322,7 +322,7 @@ const ROUNDS = {
     {key:"queen_yard",label:"Queen Yard",type:"queen_yard"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
   ]},
-  queen:{label:"Queens / Thyme",short:"Queens / Thyme",color:"#7a4fa8",bg:"#f0e8fb",fields:[
+  queen:{label:"Autumn",short:"Autumn",color:"#7a4fa8",bg:"#f0e8fb",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"dead",label:"Dead",type:"number"},
     {key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},{key:"qr",label:"QR",type:"number"},
@@ -334,7 +334,7 @@ const ROUNDS = {
     {key:"queen_yard",label:"Queen Yard",type:"queen_yard"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
   ]},
-  clover:{label:"Clover / Carrots",short:"Clover / Carrots",color:"#b05a1a",bg:"#faeeda",fields:[
+  clover:{label:"Summer",short:"Summer",color:"#b05a1a",bg:"#faeeda",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"light",label:"Light",type:"number"},
     {key:"dead",label:"Dead",type:"number"},{key:"lids_floors",label:"Lids & Floors",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
@@ -2931,7 +2931,11 @@ function renderEntriesList(){
         ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives'].forEach(key=>{
           if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
         });
-        setState({round:'clover',diaryView:'form',editing:null,formVals:prefill});
+        // Pick round based on current month (Southern Hemisphere)
+        const _mo=new Date().getMonth()+1; // 1-12
+        const _defaultRound=(_mo>=6&&_mo<=7)?'winter':(_mo>=8&&_mo<=11)?'spring':(_mo>=12||_mo<=3)?'clover':'queen';
+        // Jun-Jul=Winter, Aug-Nov=Spring, Dec-Mar=Summer, Apr-May=Autumn
+        setState({round:_defaultRound,diaryView:'form',editing:null,formVals:prefill});
       }},'+ New entry'));
   wrap.appendChild(topRow);
 
@@ -3109,10 +3113,38 @@ function renderForm(){
   const wrap=h('div',null);
 
   // Header
-  const topRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px'}});
+  const topRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'12px'}});
   topRow.appendChild(h('button',{style:{background:'none',border:'none',fontSize:'22px',cursor:'pointer',color:'#555',padding:'0'},onClick:()=>setState({diaryView:'entries',editing:null})},'←'));
   topRow.appendChild(h('div',null,h('div',{style:{fontWeight:'600',fontSize:'16px'}},site),h('div',{style:{fontSize:'12px',color:rd.color,fontWeight:'600'}},rd.label)));
   wrap.appendChild(topRow);
+
+  // Season confirmation — quick tap to change if wrong
+  if(STATE.editing===null){
+    const seasonBar=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',padding:'8px 12px',background:rd.bg||'#f8f8f6',borderRadius:'10px',border:'.5px solid '+rd.color+'44'}});
+    seasonBar.appendChild(h('span',{style:{fontSize:'13px',color:rd.color,fontWeight:'700',flex:'1'}},rd.label+' round?'));
+    // Round pills
+    Object.entries(ROUNDS).forEach(([rk,r])=>{
+      const pill=h('button',{type:'button',style:{padding:'4px 10px',borderRadius:'14px',border:'1.5px solid '+(STATE.round===rk?rd.color:'#ddd'),background:STATE.round===rk?rd.color:'#fff',color:STATE.round===rk?'#fff':'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer',transition:'all .15s'}},r.short);
+      pill.addEventListener('click',()=>{
+        STATE.round=rk;
+        // Re-render form with new round
+        const newRd=ROUNDS[rk];
+        seasonBar.style.background=newRd.bg||'#f8f8f6';
+        seasonBar.style.borderColor=newRd.color+'44';
+        seasonBar.querySelector('span').style.color=newRd.color;
+        seasonBar.querySelector('span').textContent=newRd.label+' round?';
+        [...seasonBar.querySelectorAll('button')].forEach(b=>{
+          const bRk=b.dataset.rk;
+          b.style.border='1.5px solid '+(STATE.round===bRk?newRd.color:'#ddd');
+          b.style.background=STATE.round===bRk?newRd.color:'#fff';
+          b.style.color=STATE.round===bRk?'#fff':'#888';
+        });
+      });
+      pill.dataset.rk=rk;
+      seasonBar.appendChild(pill);
+    });
+    wrap.appendChild(seasonBar);
+  }
 
   const fc=h('div',{className:'form-card'});
 
@@ -3695,7 +3727,11 @@ function renderEntriesList(){
         ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives'].forEach(key=>{
           if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
         });
-        setState({round:'clover',diaryView:'form',editing:null,formVals:prefill});
+        // Pick round based on current month (Southern Hemisphere)
+        const _mo=new Date().getMonth()+1; // 1-12
+        const _defaultRound=(_mo>=6&&_mo<=7)?'winter':(_mo>=8&&_mo<=11)?'spring':(_mo>=12||_mo<=3)?'clover':'queen';
+        // Jun-Jul=Winter, Aug-Nov=Spring, Dec-Mar=Summer, Apr-May=Autumn
+        setState({round:_defaultRound,diaryView:'form',editing:null,formVals:prefill});
       }},'+ New entry'));
   wrap.appendChild(topRow);
 
