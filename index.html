@@ -3357,7 +3357,11 @@ function renderDiaryTab(){
     if(STATE.site){bc.appendChild(document.createTextNode(' / '));bc.appendChild(h('span',{style:{color:'#333',fontWeight:'700',fontSize:'14px'}},STATE.site));}
     screen.appendChild(bc);
   }
-  if(STATE.nucYard){wrap.appendChild(renderNucYard(STATE.op,STATE.nucYard));return wrap;}
+  if(STATE.nucYard){
+    try{wrap.appendChild(renderNucYard(STATE.op,STATE.nucYard));}
+    catch(e){console.error('renderNucYard error:',e);wrap.appendChild(h('div',{style:{padding:'20px',color:'#c0392b'}},'Error loading nuc yard: '+e.message));}
+    return wrap;
+  }
   if(STATE.diaryView==='runs')screen.appendChild(renderBatchList());
   else if(STATE.diaryView==='sites')screen.appendChild(renderSitesList());
   else if(STATE.diaryView==='entries')screen.appendChild(renderEntriesList());
@@ -4896,13 +4900,13 @@ function renderMovementsScreen(){
     const movements=[...loadMovements()].reverse();
     if(!movements.length){screen.appendChild(h('div',{className:'empty-msg'},'No movements logged yet'));}
     else{
-      screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},`${movements.length} movements`));
+      screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},movements.length+' movements'));
       movements.forEach(m=>{
         const isOut=m.direction==='to_orchard';
         const isYY=m.direction==='yard_yard';
         const isOO=m.direction==='orchard_orchard';
-        const title=isOut?`${m.from_site} → ${m.to_orchard}`:isYY?`${m.from_site} → ${m.to_site}`:isOO?`${m.from_orchard} → ${m.to_orchard}`:`${m.from_orchard} → ${m.to_site}`;
-        const sub=`${m.pallets||0}p · ${m.singles||0}s`;
+        const title=isOut?(m.from_site||'?')+' → '+(m.to_orchard||'?'):isYY?(m.from_site||'?')+' → '+(m.to_site||'?'):isOO?(m.from_orchard||'?')+' → '+(m.to_orchard||'?'):(m.from_orchard||'?')+' → '+(m.to_site||'?');
+        const sub=(m.pallets||0)+'p · '+(m.singles||0)+'s';
         const fromYardsStr=(m.from_yards&&m.from_yards.length)?'From: '+m.from_yards.join(', '):'';
         const meta=[m.driver,m.vehicle].filter(Boolean).join(' · ');
         const card=h('div',{style:{background:'#fff',border:`.5px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}33`,borderLeft:`3px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}`,borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',overflow:'hidden'}});
