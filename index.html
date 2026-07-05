@@ -447,7 +447,7 @@ async function setFlag(op,site,comment){
 // ── State ─────────────────────────────────────────────────────────────────────
 let STATE={
   op:null,tab:'overview',round:'spring',
-  run:null,site:null,diaryView:'runs',editing:null,selectedOrchard:null,nucYard:null,
+  run:null,site:null,diaryView:'runs',editing:null,selectedOrchard:null,
   entries:loadLocal(),formVals:{},
   syncStatus:'online', // online|syncing|offline|error
   userName: localStorage.getItem('apiary_user')||null,
@@ -2487,21 +2487,7 @@ function renderBatchList(){
   const opData=OPERATIONS[op];
   const wrap=h('div',null);
 
-  // Nuc yard card — special batch for A2Bee
-  if(op==='A2Bee'){
-    const nucKey='A2Bee__GunClubNucs';
-    const nucData=loadNucYards()[nucKey]||{batches:[]};
-    const totalNucs=nucData.batches.reduce((a,b)=>a+(b.nucs||[]).length,0);
-    const mated=nucData.batches.reduce((a,b)=>a+(b.nucs||[]).filter(n=>n.status==='mated'||n.transferredTo).length,0);
-    const nucCard=h('div',{style:{background:'#2a1f3d',borderRadius:'12px',padding:'12px 14px',marginBottom:'10px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'},
-      onClick:()=>setState({nucYard:nucKey})});
-    nucCard.appendChild(h('div',null,
-      h('div',{style:{fontWeight:'700',fontSize:'16px',color:'#fff'}},'Gun Club — Nucs'),
-      h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.5)',marginTop:'2px'}},totalNucs>0?totalNucs+' nucs · '+mated+' mated':'No nucs yet')
-    ));
-    nucCard.appendChild(h('span',{style:{color:'#c39bd3',fontSize:'18px'}},'›'));
-    wrap.appendChild(nucCard);
-  }
+
 
   Object.entries(yards).forEach(([batch,data])=>{
     const s=calcBatchSummary(op,batch,data.sites);
@@ -3669,11 +3655,7 @@ function renderDiaryTab(){
     if(STATE.site){bc.appendChild(document.createTextNode(' / '));bc.appendChild(h('span',{style:{color:'#333',fontWeight:'700',fontSize:'14px'}},STATE.site));}
     screen.appendChild(bc);
   }
-  if(STATE.nucYard){
-    try{wrap.appendChild(renderNucYard(STATE.op,STATE.nucYard));}
-    catch(e){console.error('renderNucYard error:',e);wrap.appendChild(h('div',{style:{padding:'20px',color:'#c0392b'}},'Error loading nuc yard: '+e.message));}
-    return wrap;
-  }
+
   if(STATE.diaryView==='runs')screen.appendChild(renderBatchList());
   else if(STATE.diaryView==='sites')screen.appendChild(renderSitesList());
   else if(STATE.diaryView==='entries')screen.appendChild(renderEntriesList());
@@ -5391,8 +5373,7 @@ function renderApp(){
   if(!op) return renderOpSelector();
   if(op==='__movements__') return renderMovementsScreen();
   if(op==='__reports__') return renderReportsScreen();
-  // Clear nucYard if switching to an op that doesn't have one
-  if(STATE.nucYard&&!STATE.nucYard.startsWith(op)){STATE.nucYard=null;}
+
   const opData=OPERATIONS[op];
   document.documentElement.style.setProperty('--op-color',opData.color);
   document.documentElement.style.setProperty('--op-accent',opData.accent);
