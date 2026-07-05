@@ -170,9 +170,24 @@ function loadNucYards(){try{return JSON.parse(localStorage.getItem('apiary_nuc_y
 function saveNucYards(d){try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(d));}catch(e){}}
 // nucYards structure: { 'A2Bee__Gun Club Nucs': { name, op, batches: [{id, sourceYard, dateAdded, nucs: [{id, status, cellDate, virginDate, dlDate, matedDate, failedDate, transferredTo, transferredDate, notes}]}] } }
 
-// Seasons storage
-function loadSeasons(){try{return JSON.parse(localStorage.getItem('apiary_seasons')||'[]');}catch(e){return[];}}
-function saveSeasons(s){try{localStorage.setItem('apiary_seasons',JSON.stringify(s));}catch(e){}}
+// Years storage (replaces seasons)
+function loadYears(){try{return JSON.parse(localStorage.getItem('apiary_years')||'[]');}catch(e){return[];}}
+function saveYears(y){try{localStorage.setItem('apiary_years',JSON.stringify(y));}catch(e){}}
+// Keep loadSeasons/saveSeasons for backward compat
+function loadSeasons(){return loadYears();}
+function saveSeasons(s){saveYears(s);}
+
+// Get season date ranges for a given year object {startYear: 2026}
+function getSeasonRanges(yr){
+  const sy=yr.startYear; // e.g. 2026
+  const ey=sy+1;         // e.g. 2027
+  return {
+    winter: {label:'Winter '+sy,   start:sy+'-06-01', end:sy+'-07-31'},
+    spring: {label:'Spring '+sy,   start:sy+'-08-01', end:sy+'-11-30'},
+    summer: {label:'Summer '+sy+'/'+String(ey).slice(2), start:sy+'-12-01', end:ey+'-03-31'},
+    autumn: {label:'Autumn '+ey,   start:ey+'-04-01', end:ey+'-05-31'},
+  };
+}
 
 // Custom orchards storage
 function loadCustomOrchards(){try{return JSON.parse(localStorage.getItem('apiary_custom_orchards')||'[]');}catch(e){return[];}}
@@ -1330,61 +1345,41 @@ function renderReportsScreen(){
 
   const screen=h('div',{className:'screen'});
 
-  // ── Seasons ──────────────────────────────────────────────────────────────
-  const seasons=loadSeasons();
+  // ── Years & Seasons Management ──
+  const years=loadYears();
 
-  // Season management section
-  const seasonSec=h('div',{style:{marginBottom:'20px'}});
-  seasonSec.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.07em',color:'#888',marginBottom:'10px'}},'Seasons'));
-
-  // List existing seasons
-  seasons.forEach((s,i)=>{
+  // Years list
+  const yearSec=h('div',{style:{marginBottom:'16px'}});
+  yearSec.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.07em',color:'#888',marginBottom:'8px'}},'Seasonal Years'));
+  years.forEach((yr,i)=>{
     const row=h('div',{style:{background:'#fff',borderRadius:'8px',padding:'10px 13px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center',border:'.5px solid #ddd'}});
     row.appendChild(h('div',null,
-      h('div',{style:{fontWeight:'600',fontSize:'14px'}},s.name),
-      h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'1px'}},fmtDate(s.start)+' → '+fmtDate(s.end))
+      h('div',{style:{fontWeight:'600',fontSize:'14px'}},yr.name||yr.startYear+'-'+( yr.startYear+1)),
+      h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'1px'}},'Jul '+yr.startYear+' – Jun '+(yr.startYear+1))
     ));
-    const delBtn=h('button',{style:{background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',padding:'4px 10px',fontSize:'11px',color:'#c0392b',cursor:'pointer'},
-      onClick:()=>confirmAction('Delete season "'+s.name+'"?',()=>{
-        const updated=loadSeasons().filter((_,j)=>j!==i);
-        saveSeasons(updated);
-        setState({op:'__reports__'});
-      })
+    h('button',{style:{background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',padding:'4px 10px',fontSize:'11px',color:'#c0392b',cursor:'pointer'},
+      onClick:()=>confirmAction('Delete '+yr.startYear+'-'+(yr.startYear+1)+'?',()=>{saveYears(years.filter((_,j)=>j!==i));setState({op:'__reports__'});})
     },'Delete');
-    row.appendChild(delBtn);
-    seasonSec.appendChild(row);
+    yearSec.appendChild(row);
   });
 
-  // Add season form
-  const addSeasonCard=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'12px',border:'.5px solid #ddd'}});
-  addSeasonCard.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#555',marginBottom:'10px'}},'+ Add season'));
-  const snInp=h('input',{type:'text',placeholder:'Name (optional — e.g. Spring 2026)',style:{display:'block',width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fff',marginBottom:'8px',boxSizing:'border-box'}});
-  addSeasonCard.appendChild(snInp);
-  const dateRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}});
-  const startInp=h('input',{type:'date',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fff',boxSizing:'border-box'}});
-  const endInp=h('input',{type:'date',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fff',boxSizing:'border-box'}});
-  dateRow.appendChild(h('div',null,h('div',{style:{fontSize:'10px',color:'#aaa',marginBottom:'3px'}},'Start'),startInp));
-  dateRow.appendChild(h('div',null,h('div',{style:{fontSize:'10px',color:'#aaa',marginBottom:'3px'}},'End'),endInp));
-  addSeasonCard.appendChild(dateRow);
-  addSeasonCard.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'#1a3a2a',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+  // Add year form
+  const addYrCard=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'12px',border:'.5px solid #ddd',marginBottom:'4px'}});
+  addYrCard.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#555',marginBottom:'8px'}},'+ Add seasonal year'));
+  const yrInp=h('input',{type:'number',placeholder:'Start year (e.g. 2026)',min:'2020',max:'2040',style:{display:'block',width:'100%',padding:'8px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fff',marginBottom:'8px',boxSizing:'border-box'}});
+  addYrCard.appendChild(yrInp);
+  addYrCard.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'#1a3a2a',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
     onClick:()=>{
-      const name=snInp.value.trim();
-      const start=startInp.value;const end=endInp.value;
-      if(!start||!end){showToast('Enter start and end date');return;}
-      if(start>end){showToast('Start must be before end');return;}
-      const autoName=name||fmtDate(start)+' – '+fmtDate(end);
-      const updated=[...loadSeasons(),{name:autoName,start,end}].sort((a,b)=>b.start.localeCompare(a.start));
-      saveSeasons(updated);
+      const sy=parseInt(yrInp.value);
+      if(!sy||sy<2020||sy>2040){showToast('Enter a valid start year');return;}
+      if(years.find(y=>y.startYear===sy)){showToast('Year already added');return;}
+      const updated=[...years,{startYear:sy,name:sy+'-'+(sy+1)}].sort((a,b)=>b.startYear-a.startYear);
+      saveYears(updated);
       setState({op:'__reports__'});
     }
-  },'Add season'));
-  seasonSec.appendChild(addSeasonCard);
-  screen.appendChild(seasonSec);
-
-  if(!seasons.length){
-    screen.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'Add a season above to see reports'));
-    wrap.appendChild(screen);return wrap;
-  }
+  },'Add year'));
+  yearSec.appendChild(addYrCard);
+  screen.appendChild(yearSec);
 
   // ── Helper: get all entries for a season across all ops ──
   function getSeasonEntries(season){
@@ -1589,10 +1584,10 @@ function renderReportsScreen(){
     const ctrl=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
 
     // Mode selector — Season, Snapshot, Compare
-    const modeRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'12px'}});
-    let chartMode='season'; // 'season' | 'snapshot' | 'compare'
+    const modeRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'5px',marginBottom:'12px'}});
+    let chartMode='year'; // 'year' | 'season' | 'daterange' | 'snapshot'
     const modeBtns={};
-    [['season','Season'],['snapshot','Snapshot'],['compare','Compare']].forEach(([mode,label])=>{
+    [['year','Year'],['season','Season'],['daterange','Date Range'],['snapshot','Snapshot']].forEach(([mode,label])=>{
       const btn=h('button',{type:'button',style:{padding:'7px',borderRadius:'8px',border:mode==='season'?'1.5px solid #3d7a4f':'1px solid #ddd',background:mode==='season'?'#e6f2eb':'#fff',color:mode==='season'?'#3d7a4f':'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},label);
       btn.addEventListener('click',()=>{
         chartMode=mode;
@@ -1664,15 +1659,50 @@ function renderReportsScreen(){
     opFilterWrap.appendChild(opFilter);
     ctrl.appendChild(opFilterWrap);
 
+    // Year filter
+    const yearFilterWrap=h('div',{style:{display:'block',marginBottom:'8px'}});
+    const yearSel2=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+    years.forEach(yr=>yearSel2.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+    yearFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Year'));
+    yearFilterWrap.appendChild(yearSel2);
+    ctrl.appendChild(yearFilterWrap);
+
+    // Seasonal round filter (shown in year/season mode)
+    const roundFilterWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
+    const roundSel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+    roundSel.appendChild(h('option',{value:'all'},'All seasons'));
+    Object.entries(ROUNDS).forEach(([rk,r])=>roundSel.appendChild(h('option',{value:rk},r.label)));
+    roundFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Season'));
+    roundFilterWrap.appendChild(roundSel);
+    ctrl.appendChild(roundFilterWrap);
+
+    // Date range pickers
+    const drWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
+    const drGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+    const drStart=h('input',{type:'date',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',boxSizing:'border-box'}});
+    const drEnd=h('input',{type:'date',value:todayStr(),style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',boxSizing:'border-box'}});
+    drGrid.appendChild(h('div',null,h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}},'From'),drStart));
+    drGrid.appendChild(h('div',null,h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}},'To'),drEnd));
+    drWrap.appendChild(drGrid);
+    [drStart,drEnd].forEach(inp=>inp.addEventListener('change',updateChart));
+    ctrl.appendChild(drWrap);
+
+    yearSel2.addEventListener('change',updateChart);
+    roundSel.addEventListener('change',updateChart);
+
     function updateFilterVisibility(){
+      const isYear=chartMode==='year';
       const isSeason=chartMode==='season';
+      const isDR=chartMode==='daterange';
       const isSnap=chartMode==='snapshot';
-      const isCmp=chartMode==='compare';
       const xVal=xSel.value;
-      snapWrap.style.display=isSnap||isCmp?'block':'none';
-      cmp2Wrap.style.display=isCmp?'block':'none';
-      seasonFilterWrap.style.display=isSeason&&(xVal==='operations'||xVal==='batches')?'block':'none';
-      cmpSeason2Wrap.style.display=isCmp&&xVal==='seasons'?'block':'none';
+      yearFilterWrap.style.display=isYear||isSeason?'block':'none';
+      roundFilterWrap.style.display=isSeason?'block':'none';
+      drWrap.style.display=isDR?'block':'none';
+      snapWrap.style.display=isSnap?'block':'none';
+      cmp2Wrap.style.display='none';
+      seasonFilterWrap.style.display=(isSeason||isYear)&&(xVal==='operations'||xVal==='batches')?'block':'none';
+      cmpSeason2Wrap.style.display='none';
       opFilterWrap.style.display=xVal==='batches'?'block':'none';
     }
 
@@ -1773,10 +1803,32 @@ function renderReportsScreen(){
       ctx2.fillStyle='#555';ctx2.fillText('Dead',pad.left+70,17);
     }
 
-    function getEntries(dateOrSeason){
-      // dateOrSeason is either a season object {start,end} or a date string for snapshot
-      if(typeof dateOrSeason==='string') return getSnapshotEntries(dateOrSeason);
-      return getSeasonEntries(dateOrSeason);
+    function getEntriesForRange(start,end){
+      return getSeasonEntries({start,end});
+    }
+
+    function getEntriesForMode(){
+      const yr=years.find(y=>String(y.startYear)===String(yearSel2.value))||years[0];
+      if(chartMode==='year'&&yr){
+        const ranges=getSeasonRanges(yr);
+        // All entries across the full year
+        return getSeasonEntries({start:ranges.winter.start,end:ranges.autumn.end});
+      }
+      if(chartMode==='season'&&yr){
+        const ranges=getSeasonRanges(yr);
+        const rk=roundSel.value;
+        if(rk==='all') return getSeasonEntries({start:ranges.winter.start,end:ranges.autumn.end});
+        const sr=ranges[rk];
+        if(sr) return getSeasonEntries(sr);
+        return [];
+      }
+      if(chartMode==='daterange'){
+        const s=drStart.value;const e=drEnd.value;
+        if(!s||!e) return [];
+        return getEntriesForRange(s,e);
+      }
+      if(chartMode==='snapshot') return getSnapshotEntries(snapDate.value||todayStr());
+      return [];
     }
 
     function updateChart(){
@@ -1784,65 +1836,39 @@ function renderReportsScreen(){
       const color=COLORS[ySel.value]||'#555';
       const yLabel=YLABELS[ySel.value]||'';
       let groups=[];
-
-      const isSeason=chartMode==='season';
-      const isSnap=chartMode==='snapshot';
-      const isCmp=chartMode==='compare';
       const xVal=xSel.value;
 
-      // Get primary data source
-      const getPrimary=()=>{
-        if(isSnap||isCmp) return snapDate.value||todayStr();
-        return seasons.find(s=>s.name===seasonFilter.value)||seasons[0];
-      };
-      const getSecondary=()=>{
-        if(isCmp) return snapDate2.value||todayStr();
-        return null;
-      };
-
-      if(xVal==='seasons'&&isSeason){
-        groups=seasons.map(s=>{const se=getEntries(s);return{label:s.name,vals:getValsFn(se),deadAlive:getDeadAlive(se)};});
-      } else if(xVal==='seasons'&&isCmp){
-        // Compare two snapshots side by side as two groups per season
-        const d1=snapDate.value||todayStr();
-        const d2=snapDate2.value||todayStr();
-        const e1=getSnapshotEntries(d1);
-        const e2=getSnapshotEntries(d2);
-        groups=[
-          {label:d1,vals:getValsFn(e1),deadAlive:getDeadAlive(e1)},
-          {label:d2,vals:getValsFn(e2),deadAlive:getDeadAlive(e2)}
-        ];
+      if(chartMode==='year'&&xVal==='seasons'){
+        // Show all 4 seasons as bars on x-axis
+        const yr=years.find(y=>String(y.startYear)===String(yearSel2.value))||years[0];
+        if(yr){
+          const ranges=getSeasonRanges(yr);
+          groups=Object.entries(ranges).map(([rk,sr])=>{
+            const se=getSeasonEntries(sr);
+            return{label:sr.label,vals:getValsFn(se),deadAlive:getDeadAlive(se)};
+          });
+        }
+      } else if(xVal==='seasons'){
+        // Season mode: show selected season across all defined years
+        const rk=roundSel.value==='all'?'spring':roundSel.value;
+        groups=years.map(yr=>{
+          const ranges=getSeasonRanges(yr);
+          const sr=ranges[rk];
+          if(!sr) return null;
+          const se=getSeasonEntries(sr);
+          return{label:sr.label,vals:getValsFn(se),deadAlive:getDeadAlive(se)};
+        }).filter(Boolean);
       } else if(xVal==='operations'){
-        const primary=getPrimary();
-        const entries=getEntries(primary);
+        const entries=getEntriesForMode();
         groups=Object.keys(OPERATIONS).map(op=>{
           const oe=entries.filter(e=>e._op===op);
           return{label:op,vals:getValsFn(oe),deadAlive:getDeadAlive(oe)};
         });
-        if(isCmp){
-          const sec=getSecondary();
-          const entries2=getEntries(sec);
-          groups=Object.keys(OPERATIONS).flatMap(op=>{
-            const oe1=entries.filter(e=>e._op===op);
-            const oe2=entries2.filter(e=>e._op===op);
-            return[
-              {label:op+' ('+getPrimary()+')',vals:getValsFn(oe1),deadAlive:getDeadAlive(oe1)},
-              {label:op+' ('+sec+')',vals:getValsFn(oe2),deadAlive:getDeadAlive(oe2)}
-            ];
-          });
-        }
       } else {
-        const primary=getPrimary();
         const op=opFilter.value;
-        const entries=getEntries(primary).filter(e=>e._op===op);
+        const entries=getEntriesForMode().filter(e=>e._op===op);
         const batches=Object.keys(getYards(op));
         groups=batches.map(batch=>{const be=entries.filter(e=>e._batch===batch);return{label:batch,vals:getValsFn(be),deadAlive:getDeadAlive(be)};}).filter(g=>g.vals.length>0||g.deadAlive?.length>0);
-        if(isCmp){
-          const sec=getSecondary();
-          const entries2=getEntries(sec).filter(e=>e._op===op);
-          const cmpGroups=batches.map(batch=>{const be=entries2.filter(e=>e._batch===batch);return{label:batch+' ('+sec+')',vals:getValsFn(be),deadAlive:getDeadAlive(be)};}).filter(g=>g.vals.length>0||g.deadAlive?.length>0);
-          groups=[...groups,...cmpGroups];
-        }
       }
 
       if(ySel.value==='dead'){
@@ -1900,7 +1926,11 @@ function renderReportsScreen(){
     const diseaseSec=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginTop:'12px',border:'.5px solid #e24b4a33'}});
     diseaseSec.appendChild(h('div',{style:{fontWeight:'700',fontSize:'13px',color:'#e24b4a',marginBottom:'10px',textTransform:'uppercase',letterSpacing:'.05em'}},'Disease Prevalence'));
     const diseaseSeasonSel=h('select',{style:{width:'100%',padding:'7px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',marginBottom:'10px'}});
-    seasons.forEach(s=>diseaseSeasonSel.appendChild(h('option',{value:s.name},s.name)));
+    years.forEach(yr=>{
+      const ranges=getSeasonRanges(yr);
+      diseaseSeasonSel.appendChild(h('option',{value:'year_'+yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1)+' (full year)'));
+      Object.values(ranges).forEach(sr=>diseaseSeasonSel.appendChild(h('option',{value:sr.start+'|'+sr.end},sr.label)));
+    });
     diseaseSec.appendChild(diseaseSeasonSel);
     const diseaseArea=h('div',null);
     diseaseSec.appendChild(diseaseArea);
@@ -1908,8 +1938,18 @@ function renderReportsScreen(){
 
     function renderDiseaseStats(){
       diseaseArea.innerHTML='';
-      const season=seasons.find(s=>s.name===diseaseSeasonSel.value)||seasons[0];
-      const allEntries=getSeasonEntries(season);
+      const val=diseaseSeasonSel.value;
+      let allEntries=[];
+      if(val.startsWith('year_')){
+        const sy=parseInt(val.replace('year_',''));
+        const yr=years.find(y=>y.startYear===sy)||years[0];
+        if(yr){const r=getSeasonRanges(yr);allEntries=getSeasonEntries({start:r.winter.start,end:r.autumn.end});}
+      } else if(val.includes('|')){
+        const [s,e]=val.split('|');
+        allEntries=getSeasonEntries({start:s,end:e});
+      } else if(years.length){
+        const r=getSeasonRanges(years[0]);allEntries=getSeasonEntries({start:r.winter.start,end:r.autumn.end});
+      }
       const entries=allEntries.filter(e=>e.diseases&&e.diseases.trim());
       if(!entries.length){diseaseArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px'}},'No disease data for this season'));return;}
       const DISEASES=['AFB','Varroa','Sacbrood','Chalkbrood','HMS','Nosema'];
