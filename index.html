@@ -5253,6 +5253,8 @@ function renderApp(){
   if(!op) return renderOpSelector();
   if(op==='__movements__') return renderMovementsScreen();
   if(op==='__reports__') return renderReportsScreen();
+  // Clear nucYard if switching to an op that doesn't have one
+  if(STATE.nucYard&&!STATE.nucYard.startsWith(op)){STATE.nucYard=null;}
   const opData=OPERATIONS[op];
   document.documentElement.style.setProperty('--op-color',opData.color);
   document.documentElement.style.setProperty('--op-accent',opData.accent);
