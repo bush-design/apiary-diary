@@ -205,16 +205,20 @@ async function addMovement(mov){
     const newHives = isDeduction ? Math.max(0,lastHives-hiveChange) : lastHives+hiveChange;
     // Carry doubles and singles
     const movDoubles=parseInt(mov.doubles)||0;
-    const movSingles=parseInt(mov.singles_boxes)||0; // singles hive boxes (not pallet singles)
+    const movSingles=parseInt(mov.singles_boxes)||0;
+    const movLight=parseInt(mov.light)||0;
     const lastDoubles=parseInt(lastReal?.doubles)||0;
     const lastSingles=parseInt(lastReal?.singles)||0;
-    let newDoubles, newSingles;
+    const lastLight=parseInt(lastReal?.light)||0;
+    let newDoubles, newSingles, newLight;
     if(isDeduction){
       newDoubles=Math.max(0,lastDoubles-movDoubles);
       newSingles=Math.max(0,lastSingles-movSingles);
+      newLight=Math.max(0,lastLight-movLight);
     } else {
       newDoubles=lastDoubles+movDoubles;
       newSingles=lastSingles+movSingles;
+      newLight=lastLight+movLight;
     }
     let desc;
     const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'s':'');
@@ -229,6 +233,7 @@ async function addMovement(mov){
       hives: String(newHives),
       doubles: newDoubles>0?String(newDoubles):'',
       singles: newSingles>0?String(newSingles):'',
+      light: newLight>0?String(newLight):'',
       comments: desc,
       logged_by: mov.logged_by,
       saved_at: new Date().toISOString(),
@@ -4103,6 +4108,7 @@ function renderMovementsScreen(){
                     half_pallet:p.half_pallet||false,
                     doubles:p.doubles||'',
                     singles_boxes:p.singles_boxes||'',
+                    light:p.light||'',
                     alive_hives:p.alive_hives||'',
                     dead_hives:p.dead_hives||'',
                     hives:s.hives,
@@ -4220,7 +4226,7 @@ function renderMovementsScreen(){
       editingPickup=null;
       const pickupData={site:pre.site||'',op:pre.op||'',pallets:pre.pallets||'',singles:pre.singles||'',
         half_pallet:pre.half_pallet||false,alive_hives:pre.alive_hives||'',dead_hives:pre.dead_hives||'',
-        doubles:pre.doubles||'',singles_boxes:pre.singles_boxes||''};
+        doubles:pre.doubles||'',singles_boxes:pre.singles_boxes||'',light:pre.light||''};
       const isYY=loadDirection.val==='yard_yard';
       const isOut=loadDirection.val==='to_orchard';
       const isEditing=!!(pre.site);
@@ -4467,8 +4473,8 @@ function renderMovementsScreen(){
       // Doubles and singles boxes in this load
       const boxRow=h('div',{style:{marginBottom:'8px'}});
       boxRow.appendChild(h('label',{className:'lbl',style:{display:'block',marginBottom:'4px'}},'Boxes in this load'));
-      const boxGrid2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
-      [{label:'Doubles',key:'doubles'},{label:'Singles (box)',key:'singles_boxes'}].forEach(({label,key})=>{
+      const boxGrid2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}});
+      [{label:'Doubles',key:'doubles'},{label:'Singles (box)',key:'singles_boxes'},{label:'Light',key:'light'}].forEach(({label,key})=>{
         const wrap2=h('div',null);
         wrap2.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},label));
         const bi=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
@@ -5124,11 +5130,25 @@ window.addEventListener('offline',()=>{
 // ── Service Worker (offline caching) ─────────────────────────────────────────
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('/sw.js').then(reg=>{
+    // Force update check every time app opens
     reg.update();
-    navigator.serviceWorker.ready.then(()=>{
-      if(caches) caches.open('apiary-v8').then(cache=>cache.add('/').catch(()=>{}));
+    // When a new SW is waiting, activate it immediately
+    reg.addEventListener('updatefound',()=>{
+      const newSW=reg.installing;
+      if(!newSW) return;
+      newSW.addEventListener('statechange',()=>{
+        if(newSW.state==='installed'&&navigator.serviceWorker.controller){
+          // New version ready — tell it to skip waiting and reload
+          newSW.postMessage({type:'SKIP_WAITING'});
+        }
+      });
     });
   }).catch(e=>console.warn('SW registration failed:',e));
+  // Reload when new SW takes control
+  let refreshing=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(!refreshing){refreshing=true;window.location.reload();}
+  });
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
