@@ -1216,7 +1216,7 @@ function renderNucsScreen(){
     // Summary stats
     const allNucs=opBatches.flatMap(({batch})=>batch.nucs||[]);
     if(allNucs.length){
-      const stats={waiting:0,cell:0,virgin:0,dl:0,mated:0,failed:0,transferred:0};
+      const stats={recheck:0,cell:0,virgin:0,dl:0,mated:0,failed:0,transferred:0};
       allNucs.forEach(n=>{
         if(n.transferredTo) stats.transferred++;
         else if(n.status==='failed') stats.failed++;
@@ -1284,7 +1284,7 @@ function renderNucsScreen(){
           const nRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
             onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})});
           const nLeft=h('div',null);
-          nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' '+ni+1));
+          nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' '+(ni+1)));
           if(nuc.cellDate) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'Cell: '+fmtDate(nuc.cellDate)));
           if(nuc.transferredTo) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#3d7a4f'}},'→ '+nuc.transferredTo+' · '+fmtDate(nuc.transferredDate)));
           nRow.appendChild(nLeft);
@@ -1332,6 +1332,7 @@ function renderNucsScreen(){
 }
 
 function renderReportsScreen(){
+  try{
   const wrap=h('div',{className:'app'});
   // Header
   const header=h('div',{className:'header'});
@@ -2029,6 +2030,12 @@ function renderReportsScreen(){
   renderChart();
   wrap.appendChild(screen);
   return wrap;
+  }catch(e){
+    console.error('Reports error:',e);
+    const wrap2=h('div',{className:'app'});
+    wrap2.appendChild(h('div',{style:{padding:'20px',color:'#c0392b',fontSize:'14px'}},'Reports error: '+e.message));
+    return wrap2;
+  }
 }
 
 function showStatModal(opName, fieldKey, label, color){
