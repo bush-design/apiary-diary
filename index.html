@@ -4503,7 +4503,18 @@ function renderMovementsScreen(){
               const sh=getSplitHives();
               if(!sh){showToast('Enter hives, pallets or singles for this split');return;}
               if(sh>remaining(p)){showToast(`Only ${remaining(p)} hives remaining to assign`);return;}
-              const destOp=loadDirection.val==='yard_yard'?(destSel._selectedOp||''):(loadDirection.val==='from_orchard'?(Object.values(OPERATIONS['A2Bee'].yards).flatMap(y=>y.sites).includes(dest)?'A2Bee':'DH Alex'):'');
+              // Find which op the destination yard belongs to
+              let destOp='';
+              if(loadDirection.val==='yard_yard'||loadDirection.val==='from_orchard'){
+                destOp=destSel._selectedOp||'';
+                if(!destOp){
+                  Object.entries(OPERATIONS).forEach(([opN])=>{
+                    Object.values(getYards(opN)).forEach(batch=>{
+                      if(batch.sites.includes(dest)) destOp=opN;
+                    });
+                  });
+                }
+              }
               if(!p.splits)p.splits=[];
               p.splits.push({dest,dest_op:destOp,hives:sh,desc:getSplitDesc()});
               renderPickups();
@@ -4514,7 +4525,18 @@ function renderMovementsScreen(){
             onClick:()=>{
               const dest=(loadDirection.val==='yard_yard'||loadDirection.val==='from_orchard')?(destSel._selectedSite||''):destSel.value;
               if(!dest){showToast(loadDirection.val==='to_orchard'?'Select an orchard':'Select a yard site');return;}
-              const destOp=loadDirection.val==='yard_yard'?(destSel._selectedOp||''):(loadDirection.val==='from_orchard'?(Object.values(OPERATIONS['A2Bee'].yards).flatMap(y=>y.sites).includes(dest)?'A2Bee':'DH Alex'):'');
+              // Find which op the destination yard belongs to
+              let destOp='';
+              if(loadDirection.val==='yard_yard'||loadDirection.val==='from_orchard'){
+                destOp=destSel._selectedOp||'';
+                if(!destOp){
+                  Object.entries(OPERATIONS).forEach(([opN])=>{
+                    Object.values(getYards(opN)).forEach(batch=>{
+                      if(batch.sites.includes(dest)) destOp=opN;
+                    });
+                  });
+                }
+              }
               // Assign ALL pickups with remaining hives to this destination
               pickups.forEach(pk=>{
                 const r=remaining(pk);
