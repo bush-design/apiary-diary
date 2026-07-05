@@ -204,21 +204,45 @@ async function addMovement(mov){
     const lastHives = parseInt(existing[0]?.hives)||0;
     const newHives = isDeduction ? Math.max(0,lastHives-hiveChange) : lastHives+hiveChange;
     // Carry doubles and singles
+    // If no doubles/singles specified in movement form, pull from source yard's last entry
+    const srcSite=isDeduction?siteKey:(mov.direction==='yard_yard'?mov.from_site:null);
+    const srcOp=isDeduction?opName:(mov.from_op||opName);
+    let srcDoubles=0,srcSingles=0,srcLight=0;
+    if(!isDeduction&&(mov.direction==='yard_yard'||mov.direction==='to_orchard'||mov.direction==='from_orchard')){
+      // Get source yard's last real entry for doubles/singles/light
+      const srcYard=mov.direction==='yard_yard'?mov.from_site:mov.from_site;
+      const srcOpName=mov.from_op||opName;
+      if(srcYard&&srcOpName){
+        const srcEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(srcOpName,srcYard,rk)]||[]).filter(e=>!e._movement));
+        const srcLast=srcEntries.sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0]||null;
+        srcDoubles=parseInt(srcLast?.doubles)||0;
+        srcSingles=parseInt(srcLast?.singles)||0;
+        srcLight=parseInt(srcLast?.light)||0;
+      }
+    }
     const movDoubles=parseInt(mov.doubles)||0;
     const movSingles=parseInt(mov.singles_boxes)||0;
     const movLight=parseInt(mov.light)||0;
+    // Use manually entered values if provided, otherwise use source yard values
+    const effectiveDoubles=movDoubles>0?movDoubles:(!isDeduction?srcDoubles:0);
+    const effectiveSingles=movSingles>0?movSingles:(!isDeduction?srcSingles:0);
+    const effectiveLight=movLight>0?movLight:(!isDeduction?srcLight:0);
     const lastDoubles=parseInt(lastReal?.doubles)||0;
     const lastSingles=parseInt(lastReal?.singles)||0;
     const lastLight=parseInt(lastReal?.light)||0;
     let newDoubles, newSingles, newLight;
     if(isDeduction){
-      newDoubles=Math.max(0,lastDoubles-movDoubles);
-      newSingles=Math.max(0,lastSingles-movSingles);
-      newLight=Math.max(0,lastLight-movLight);
+      // Deduct: use manually entered values, or if none, deduct all (whole yard move)
+      const deductDoubles=movDoubles>0?movDoubles:srcDoubles||lastDoubles;
+      const deductSingles=movSingles>0?movSingles:srcSingles||lastSingles;
+      const deductLight=movLight>0?movLight:srcLight||lastLight;
+      newDoubles=Math.max(0,lastDoubles-deductDoubles);
+      newSingles=Math.max(0,lastSingles-deductSingles);
+      newLight=Math.max(0,lastLight-deductLight);
     } else {
-      newDoubles=lastDoubles+movDoubles;
-      newSingles=lastSingles+movSingles;
-      newLight=lastLight+movLight;
+      newDoubles=lastDoubles+effectiveDoubles;
+      newSingles=lastSingles+effectiveSingles;
+      newLight=lastLight+effectiveLight;
     }
     let desc;
     const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'s':'');
