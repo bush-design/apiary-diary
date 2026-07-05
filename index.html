@@ -2071,9 +2071,9 @@ function renderNucYard(op, nucYardKey){
   const total=allNucs.length;
   if(total>0){
     const statRow=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:'6px',marginBottom:'14px'}});
-    [{l:'Total',v:total,c:'#555'},{l:'Mated',v:stats.mated,c:'#3d7a4f'},{l:'Waiting',v:stats.waiting+stats.cell+stats.virgin+stats.dl,c:'#ef9f27'},{l:'Failed',v:stats.failed,c:'#e24b4a'}].forEach(({l,v,c2=''})=>{
+    [{l:'Total',v:total,col:'#555'},{l:'Mated',v:stats.mated,col:'#3d7a4f'},{l:'Waiting',v:stats.waiting+stats.cell+stats.virgin+stats.dl,col:'#ef9f27'},{l:'Failed',v:stats.failed,col:'#e24b4a'}].forEach(({l,v,col})=>{
       const tile=h('div',{style:{background:'#f8f8f6',borderRadius:'8px',padding:'8px',textAlign:'center'}});
-      tile.appendChild(h('div',{style:{fontSize:'18px',fontWeight:'800',color:v>0&&l!=='Total'?c:'#1a1a1a',lineHeight:'1'}},v));
+      tile.appendChild(h('div',{style:{fontSize:'18px',fontWeight:'800',color:v>0&&l!=='Total'?col:'#1a1a1a',lineHeight:'1'}},v));
       tile.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',marginTop:'2px'}},l));
       statRow.appendChild(tile);
     });
