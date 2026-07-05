@@ -1127,6 +1127,17 @@ function renderReportsScreen(){
     return Object.values(siteMap).filter(s=>s.hives>0).map(s=>s.dead/s.hives*100);
   }
 
+  function getDeadAlive(entries){
+    const siteMap={};
+    entries.forEach(e=>{
+      const k=e._op+'__'+e._site;
+      if(!siteMap[k]) siteMap[k]={hives:0,dead:0};
+      if(parseInt(e.hives)>0) siteMap[k].hives=parseInt(e.hives);
+      if(parseInt(e.dead)>0) siteMap[k].dead=parseInt(e.dead);
+    });
+    return Object.values(siteMap).filter(s=>s.hives>0);
+  }
+
   function calcBoxStats(vals){
     if(!vals.length) return null;
     const sorted=[...vals].sort((a,b)=>a-b);
@@ -1290,6 +1301,70 @@ function renderReportsScreen(){
     const COLORS={'strength':'#3d7a4f','mite':'#c0392b','yield':'#b05a1a','dead':'#e24b4a'};
     const YLABELS={'strength':'Score','mite':'Mites/hive','yield':'Boxes','dead':'Dead %'};
 
+    function drawStackedBar(canvas, groups){
+      const ctx=canvas.getContext('2d');
+      const W=canvas.width,H=canvas.height;
+      const pad={top:20,bottom:50,left:45,right:10};
+      const chartW=W-pad.left-pad.right;
+      const chartH=H-pad.top-pad.bottom;
+      ctx.clearRect(0,0,W,H);
+      if(!groups.length) return;
+      const maxHives=Math.max(...groups.map(g=>g.totalHives||1));
+      const step=chartW/groups.length;
+      const barW=Math.min(step*0.6,60);
+      // Y axis ticks
+      ctx.strokeStyle='#e0e0de';ctx.lineWidth=1;
+      for(let i=0;i<=5;i++){
+        const v=Math.round(maxHives*i/5);
+        const y=pad.top+chartH-(chartH*i/5);
+        ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+chartW,y);ctx.stroke();
+        ctx.fillStyle='#aaa';ctx.font='10px system-ui';ctx.textAlign='right';
+        ctx.fillText(v,pad.left-4,y+3);
+      }
+      groups.forEach((g,i)=>{
+        const x=pad.left+step*i+step/2;
+        const total=g.totalHives||1;
+        const dead=g.totalDead||0;
+        const alive=total-dead;
+        const totalH=chartH*(total/maxHives);
+        const deadH=chartH*(dead/maxHives);
+        const aliveH=totalH-deadH;
+        const barX=x-barW/2;
+        const baseY=pad.top+chartH;
+        // Alive (green)
+        ctx.fillStyle='#3d7a4f88';
+        ctx.fillRect(barX,baseY-totalH,barW,aliveH);
+        ctx.strokeStyle='#3d7a4f';ctx.lineWidth=1;
+        ctx.strokeRect(barX,baseY-totalH,barW,aliveH);
+        // Dead (red) on top
+        if(dead>0){
+          ctx.fillStyle='#e24b4a88';
+          ctx.fillRect(barX,baseY-totalH,barW,-deadH); // draws upward from alive top
+          // Recalc: dead sits on top of alive
+          const aliveTop=baseY-aliveH;
+          ctx.fillStyle='#e24b4a88';
+          ctx.fillRect(barX,aliveTop-deadH,barW,deadH);
+          ctx.strokeStyle='#e24b4a';ctx.lineWidth=1;
+          ctx.strokeRect(barX,aliveTop-deadH,barW,deadH);
+          // % label
+          const pct=Math.round(dead/total*100);
+          ctx.fillStyle='#c0392b';ctx.font='bold 10px system-ui';ctx.textAlign='center';
+          ctx.fillText(pct+'%',x,aliveTop-deadH-3);
+        }
+        // X label
+        ctx.fillStyle='#555';ctx.font='10px system-ui';ctx.textAlign='center';
+        const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
+        ctx.fillText(lbl,x,H-pad.bottom+14);
+        ctx.fillStyle='#aaa';ctx.font='9px system-ui';
+        ctx.fillText(total+'h',x,H-pad.bottom+26);
+      });
+      // Legend
+      ctx.fillStyle='#3d7a4f88';ctx.fillRect(pad.left,8,12,10);
+      ctx.fillStyle='#555';ctx.font='10px system-ui';ctx.textAlign='left';ctx.fillText('Alive',pad.left+15,17);
+      ctx.fillStyle='#e24b4a88';ctx.fillRect(pad.left+55,8,12,10);
+      ctx.fillStyle='#555';ctx.fillText('Dead',pad.left+70,17);
+    }
+
     function updateChart(){
       const color=COLORS[ySel.value]||'#555';
       const yLabel=YLABELS[ySel.value]||'';
@@ -1297,17 +1372,15 @@ function renderReportsScreen(){
 
       if(xSel.value==='seasons'){
         seasonFilterWrap.style.display='none';opFilterWrap.style.display='none';
-        groups=seasons.map(s=>({
-          label:s.name,
-          vals:getValsFn(getSeasonEntries(s))
-        }));
+        groups=seasons.map(s=>{const se=getSeasonEntries(s);return{label:s.name,vals:getValsFn(se),deadAlive:getDeadAlive(se)};});
       } else if(xSel.value==='operations'){
         seasonFilterWrap.style.display='block';opFilterWrap.style.display='none';
         const season=seasons.find(s=>s.name===seasonFilter.value)||seasons[0];
         const entries=getSeasonEntries(season);
         groups=Object.keys(OPERATIONS).map(op=>({
           label:op,
-          vals:getValsFn(entries.filter(e=>e._op===op))
+          vals:getValsFn(entries.filter(e=>e._op===op)),
+          deadAlive:getDeadAlive(entries.filter(e=>e._op===op))
         }));
       } else {
         seasonFilterWrap.style.display='block';opFilterWrap.style.display='block';
@@ -1315,30 +1388,50 @@ function renderReportsScreen(){
         const op=opFilter.value;
         const entries=getSeasonEntries(season).filter(e=>e._op===op);
         const batches=Object.keys(getYards(op));
-        groups=batches.map(batch=>({
-          label:batch,
-          vals:getValsFn(entries.filter(e=>e._batch===batch))
-        })).filter(g=>g.vals.length>0);
+        groups=batches.map(batch=>{const be=entries.filter(e=>e._batch===batch);return{label:batch,vals:getValsFn(be),deadAlive:getDeadAlive(be)};}).filter(g=>g.vals.length>0||g.deadAlive?.length>0);
       }
 
-      drawBoxWhisker(canvas,groups,color,yLabel);
-
-      // Stats table
-      statsArea.innerHTML='';
-      statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Summary statistics'));
-      groups.forEach(g=>{
-        const stats=calcBoxStats(g.vals);
-        if(!stats) return;
-        const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
-        row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333',flex:'1'}},g.label));
-        const vals=h('div',{style:{display:'flex',gap:'10px',fontSize:'12px',color:'#666'}});
-        vals.appendChild(h('span',null,'n='+stats.n));
-        vals.appendChild(h('span',null,'avg '+stats.mean.toFixed(1)));
-        vals.appendChild(h('span',null,'med '+stats.median.toFixed(1)));
-        vals.appendChild(h('span',null,'Q1-Q3 '+stats.q1.toFixed(1)+'-'+stats.q3.toFixed(1)));
-        row.appendChild(vals);
-        statsArea.appendChild(row);
-      });
+      if(ySel.value==='dead'){
+        // Stacked bar for dead vs alive
+        const deadGroups=groups.map(g=>({
+          label:g.label,
+          totalHives:g.deadAlive?g.deadAlive.reduce((a,s)=>a+s.hives,0):0,
+          totalDead:g.deadAlive?g.deadAlive.reduce((a,s)=>a+s.dead,0):0
+        }));
+        drawStackedBar(canvas,deadGroups);
+        statsArea.innerHTML='';
+        statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Dead vs Alive'));
+        deadGroups.forEach(g=>{
+          if(!g.totalHives) return;
+          const pct=Math.round(g.totalDead/g.totalHives*100);
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
+          row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333',flex:'1'}},g.label));
+          const info=h('div',{style:{display:'flex',gap:'10px',fontSize:'12px'}});
+          info.appendChild(h('span',{style:{color:'#3d7a4f',fontWeight:'600'}},(g.totalHives-g.totalDead)+' alive'));
+          info.appendChild(h('span',{style:{color:'#e24b4a',fontWeight:'600'}},g.totalDead+' dead'));
+          info.appendChild(h('span',{style:{color:'#888'}},pct+'%'));
+          row.appendChild(info);
+          statsArea.appendChild(row);
+        });
+      } else {
+        drawBoxWhisker(canvas,groups,color,yLabel);
+        // Stats table
+        statsArea.innerHTML='';
+        statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Summary statistics'));
+        groups.forEach(g=>{
+          const stats=calcBoxStats(g.vals);
+          if(!stats) return;
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
+          row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333',flex:'1'}},g.label));
+          const vals=h('div',{style:{display:'flex',gap:'10px',fontSize:'12px',color:'#666'}});
+          vals.appendChild(h('span',null,'n='+stats.n));
+          vals.appendChild(h('span',null,'avg '+stats.mean.toFixed(1)));
+          vals.appendChild(h('span',null,'med '+stats.median.toFixed(1)));
+          vals.appendChild(h('span',null,'Q1-Q3 '+stats.q1.toFixed(1)+'-'+stats.q3.toFixed(1)));
+          row.appendChild(vals);
+          statsArea.appendChild(row);
+        });
+      }
     }
 
     xSel.addEventListener('change',updateChart);
