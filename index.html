@@ -199,19 +199,36 @@ async function addMovement(mov){
     if(!siteKey||!opName) return;
     const k = eKey(opName, siteKey, 'spring');
     const existing = STATE.entries[k]||[];
+    // Get last real entry for current doubles/singles
+    const lastReal=existing.filter(e=>!e._movement)[0]||null;
     const lastHives = parseInt(existing[0]?.hives)||0;
     const newHives = isDeduction ? Math.max(0,lastHives-hiveChange) : lastHives+hiveChange;
+    // Carry doubles and singles
+    const movDoubles=parseInt(mov.doubles)||0;
+    const movSingles=parseInt(mov.singles_boxes)||0; // singles hive boxes (not pallet singles)
+    const lastDoubles=parseInt(lastReal?.doubles)||0;
+    const lastSingles=parseInt(lastReal?.singles)||0;
+    let newDoubles, newSingles;
+    if(isDeduction){
+      newDoubles=Math.max(0,lastDoubles-movDoubles);
+      newSingles=Math.max(0,lastSingles-movSingles);
+    } else {
+      newDoubles=lastDoubles+movDoubles;
+      newSingles=lastSingles+movSingles;
+    }
     let desc;
     const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'s':'');
-  const hiveStr=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)>0?` alive, ${mov.dead_hives} dead`+' hives':' alive hives');
-  const hiveDetail=parseInt(mov.alive_hives)>0?' ('+hiveStr+')':'';
-  if(mov.direction==='to_orchard') desc=`MOVEMENT OUT: ${truckStr}${hiveDetail} → ${mov.to_orchard}`;
+    const hiveStr=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)>0?` alive, ${mov.dead_hives} dead`+' hives':' alive hives');
+    const hiveDetail=parseInt(mov.alive_hives)>0?' ('+hiveStr+')':'';
+    if(mov.direction==='to_orchard') desc=`MOVEMENT OUT: ${truckStr}${hiveDetail} → ${mov.to_orchard}`;
     else if(mov.direction==='from_orchard') desc=`MOVEMENT IN: ${truckStr}${hiveDetail} ← ${mov.from_orchard}`;
     else if(isDeduction) desc=`MOVED OUT: ${truckStr}${hiveDetail} → ${mov.to_site}`;
     else desc=`MOVED IN: ${truckStr}${hiveDetail} ← ${mov.from_site}`;
     const movEntry = {
       date: mov.date,
       hives: String(newHives),
+      doubles: newDoubles>0?String(newDoubles):'',
+      singles: newSingles>0?String(newSingles):'',
       comments: desc,
       logged_by: mov.logged_by,
       saved_at: new Date().toISOString(),
@@ -1066,203 +1083,304 @@ function renderReportsScreen(){
     return entries;
   }
 
-  // ── Season selector ──
-  let selectedSeason=seasons[0];
-  let compareSeason=null;
-  const seasonPicker=h('div',{style:{marginBottom:'16px'}});
-  seasonPicker.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.07em',color:'#888',marginBottom:'6px'}},'View season'));
-  const seasonSel=h('select',{style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fff',marginBottom:'8px',boxSizing:'border-box'}});
-  seasons.forEach(s=>seasonSel.appendChild(h('option',{value:s.name},s.name)));
-  seasonSel.addEventListener('change',e=>{selectedSeason=seasons.find(s=>s.name===e.target.value)||seasons[0];renderMetrics();});
-  seasonPicker.appendChild(seasonSel);
-
-  // Compare toggle
-  const cmpRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'}});
-  cmpRow.appendChild(h('label',{style:{fontSize:'13px',color:'#555',fontWeight:'600'}},'Compare with:'));
-  const cmpSel=h('select',{style:{flex:'1',padding:'7px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fff'}});
-  cmpSel.appendChild(h('option',{value:''},'— None —'));
-  seasons.forEach(s=>cmpSel.appendChild(h('option',{value:s.name},s.name)));
-  cmpSel.addEventListener('change',e=>{compareSeason=seasons.find(s=>s.name===e.target.value)||null;renderMetrics();});
-  cmpRow.appendChild(cmpSel);
-  seasonPicker.appendChild(cmpRow);
-  screen.appendChild(seasonPicker);
-
-  // ── Metrics area ──
+  // ── Chart controls ──
   const metricsArea=h('div',null);
   screen.appendChild(metricsArea);
 
-  function calcSpringScore(entries){
-    let tot=0,cnt=0;
+  // Metric calculations
+  function getScoreValues(entries){
+    const vals=[];
     entries.forEach(e=>{
       const bd=e.score_breakdown||{};
       let at=0,ac=0;
       [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
-      if(ac>0){tot+=at/ac;cnt++;}
+      if(ac>0) vals.push(at/ac);
     });
-    return cnt>0?(tot/cnt).toFixed(2):null;
+    return vals;
   }
-
-  function calcPolScore(entries, type){
-    // type: 'spring' = score_breakdown, 'carrot' = carrot_score
-    let tot=0,cnt=0;
+  function getMiteValues(entries){
+    return entries.filter(e=>parseInt(e.mites_found)>0&&parseInt(e.mites_tested)>0)
+      .map(e=>(parseInt(e.mites_found)/parseInt(e.mites_tested)));
+  }
+  function getYieldValues(entries){
+    const siteMap={};
     entries.forEach(e=>{
-      const bd=type==='carrot'?(e.carrot_score||{}):(e.score_breakdown||{});
-      let at=0,ac=0;
-      const max=type==='carrot'?10:6;
-      [...Array(max+1).keys()].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
-      if(ac>0){tot+=at/ac;cnt++;}
+      const k=e._op+'__'+e._site;
+      if(!siteMap[k]) siteMap[k]=0;
+      siteMap[k]+=(parseInt(e.fd_harv)||0)+(parseInt(e.harv_34)||0)+(parseInt(e.honeycomb_fd)||0)+(parseInt(e.honeycomb_hd)||0);
     });
-    return cnt>0?(tot/cnt).toFixed(2):null;
+    return Object.values(siteMap).filter(v=>v>0);
   }
-
-  function calcYield(entries){
-    let fdHarv=0,harv34=0,hcFd=0,hcHd=0,hives=0,sites=new Set();
+  function getDeadPct(entries){
+    const siteMap={};
     entries.forEach(e=>{
-      fdHarv+=parseInt(e.fd_harv)||0;
-      harv34+=parseInt(e.harv_34)||0;
-      hcFd+=parseInt(e.honeycomb_fd)||0;
-      hcHd+=parseInt(e.honeycomb_hd)||0;
-      hives+=parseInt(e.hives)||0;
-      sites.add(e._op+'__'+e._site);
+      const k=e._op+'__'+e._site;
+      if(!siteMap[k]) siteMap[k]={hives:0,dead:0};
+      if(parseInt(e.hives)>0) siteMap[k].hives=parseInt(e.hives);
+      if(parseInt(e.dead)>0) siteMap[k].dead=parseInt(e.dead);
     });
-    const total=fdHarv+harv34+hcFd+hcHd;
-    const mean=sites.size>0?(total/sites.size).toFixed(1):null;
-    return{fdHarv,harv34,hcFd,hcHd,total,mean};
+    return Object.values(siteMap).filter(s=>s.hives>0).map(s=>s.dead/s.hives*100);
   }
 
-  function renderMetricCard(title, color, content){
-    const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'12px',overflow:'hidden',border:`.5px solid ${color}33`}});
-    card.appendChild(h('div',{style:{background:color,padding:'10px 14px',display:'flex',alignItems:'center'}},
-      h('div',{style:{fontWeight:'700',fontSize:'14px',color:'#fff'}},title)
-    ));
-    card.appendChild(content);
-    return card;
+  function calcBoxStats(vals){
+    if(!vals.length) return null;
+    const sorted=[...vals].sort((a,b)=>a-b);
+    const n=sorted.length;
+    const q1=sorted[Math.floor(n*0.25)];
+    const median=n%2===0?(sorted[n/2-1]+sorted[n/2])/2:sorted[Math.floor(n/2)];
+    const q3=sorted[Math.floor(n*0.75)];
+    const iqr=q3-q1;
+    const min=Math.max(sorted[0],q1-1.5*iqr);
+    const max=Math.min(sorted[n-1],q3+1.5*iqr);
+    const outliers=sorted.filter(v=>v<min||v>max);
+    const mean=vals.reduce((a,b)=>a+b,0)/n;
+    return{q1,median,q3,min,max,mean,outliers,n};
   }
 
-  function renderDrilldown(rows, getValue, getLabel){
-    const body=h('div',{style:{padding:'10px 14px'}});
-    // Operation level
-    const opGroups={};
-    rows.forEach(r=>{if(!opGroups[r._op])opGroups[r._op]=[];opGroups[r._op].push(r);});
-    Object.entries(opGroups).forEach(([opName,opRows])=>{
-      const opVal=getValue(opRows);
-      if(!opVal) return;
-      const opRow=h('div',{style:{marginBottom:'8px'}});
-      const opHdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',padding:'6px 8px',background:'#f0f0ee',borderRadius:'7px',marginBottom:'4px'}});
-      opHdr.appendChild(h('span',{style:{fontWeight:'700',fontSize:'13px',color:'#1a1a1a'}},opName));
-      opHdr.appendChild(h('span',{style:{fontWeight:'700',fontSize:'14px',color:'#3d7a4f'}},getLabel(opVal)));
-      const batchArea=h('div',{style:{display:'none',paddingLeft:'10px'}});
-      opHdr.addEventListener('click',()=>{batchArea.style.display=batchArea.style.display==='none'?'block':'none';});
-      opRow.appendChild(opHdr);
-      // Batch level
-      const batchGroups={};
-      opRows.forEach(r=>{if(!batchGroups[r._batch])batchGroups[r._batch]=[];batchGroups[r._batch].push(r);});
-      Object.entries(batchGroups).forEach(([batchName,bRows])=>{
-        const bVal=getValue(bRows);
-        if(!bVal) return;
-        const bHdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',padding:'5px 8px',background:'#f8f8f6',borderRadius:'6px',marginBottom:'3px'}});
-        bHdr.appendChild(h('span',{style:{fontWeight:'600',fontSize:'12px',color:'#555'}},batchName));
-        bHdr.appendChild(h('span',{style:{fontWeight:'700',fontSize:'12px',color:'#3d7a4f'}},getLabel(bVal)));
-        const siteArea=h('div',{style:{display:'none',paddingLeft:'10px'}});
-        bHdr.addEventListener('click',()=>{siteArea.style.display=siteArea.style.display==='none'?'block':'none';});
-        // Site level
-        const siteGroups={};
-        bRows.forEach(r=>{if(!siteGroups[r._site])siteGroups[r._site]=[];siteGroups[r._site].push(r);});
-        Object.entries(siteGroups).forEach(([siteName,sRows])=>{
-          const sVal=getValue(sRows);
-          if(!sVal) return;
-          const sRow=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'4px 8px',marginBottom:'2px'}});
-          sRow.appendChild(h('span',{style:{fontSize:'12px',color:'#777'}},siteName));
-          sRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#555'}},getLabel(sVal)));
-          siteArea.appendChild(sRow);
-        });
-        batchArea.appendChild(bHdr);
-        batchArea.appendChild(siteArea);
-      });
-      opRow.appendChild(batchArea);
-      body.appendChild(opRow);
+  function drawBoxWhisker(canvas,groups,color,yLabel){
+    const ctx=canvas.getContext('2d');
+    const W=canvas.width,H=canvas.height;
+    const pad={top:20,bottom:50,left:40,right:10};
+    const chartW=W-pad.left-pad.right;
+    const chartH=H-pad.top-pad.bottom;
+    ctx.clearRect(0,0,W,H);
+
+    // Find global min/max
+    const allVals=groups.flatMap(g=>g.vals);
+    if(!allVals.length) return;
+    const globalMin=Math.min(...allVals);
+    const globalMax=Math.max(...allVals);
+    const range=globalMax-globalMin||1;
+    const yMin=Math.max(0,globalMin-range*0.1);
+    const yMax=globalMax+range*0.1;
+
+    const toY=v=>pad.top+chartH-(((v-yMin)/(yMax-yMin))*chartH);
+    const boxW=Math.min(40,chartW/groups.length*0.5);
+    const step=chartW/groups.length;
+
+    // Y axis
+    ctx.strokeStyle='#e0e0de';ctx.lineWidth=1;
+    const ticks=5;
+    for(let i=0;i<=ticks;i++){
+      const v=yMin+(yMax-yMin)*i/ticks;
+      const y=toY(v);
+      ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+chartW,y);ctx.stroke();
+      ctx.fillStyle='#aaa';ctx.font='10px system-ui';ctx.textAlign='right';
+      ctx.fillText(v.toFixed(1),pad.left-4,y+3);
+    }
+
+    // Draw each box
+    groups.forEach((g,i)=>{
+      const x=pad.left+step*i+step/2;
+      const stats=calcBoxStats(g.vals);
+      if(!stats){
+        ctx.fillStyle='#ddd';ctx.font='10px system-ui';ctx.textAlign='center';
+        ctx.fillText('—',x,pad.top+chartH/2);
+      } else {
+        // Whiskers
+        ctx.strokeStyle=color;ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.moveTo(x,toY(stats.min));ctx.lineTo(x,toY(stats.max));ctx.stroke();
+        ctx.beginPath();ctx.moveTo(x-boxW/3,toY(stats.min));ctx.lineTo(x+boxW/3,toY(stats.min));ctx.stroke();
+        ctx.beginPath();ctx.moveTo(x-boxW/3,toY(stats.max));ctx.lineTo(x+boxW/3,toY(stats.max));ctx.stroke();
+        // Box
+        const boxTop=toY(stats.q3);const boxBot=toY(stats.q1);
+        ctx.fillStyle=color+'33';ctx.strokeStyle=color;ctx.lineWidth=2;
+        ctx.fillRect(x-boxW/2,boxTop,boxW,boxBot-boxTop);
+        ctx.strokeRect(x-boxW/2,boxTop,boxW,boxBot-boxTop);
+        // Median
+        ctx.strokeStyle=color;ctx.lineWidth=3;
+        ctx.beginPath();ctx.moveTo(x-boxW/2,toY(stats.median));ctx.lineTo(x+boxW/2,toY(stats.median));ctx.stroke();
+        // Mean dot
+        ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,toY(stats.mean),3,0,Math.PI*2);ctx.fill();
+        // Outliers
+        ctx.fillStyle=color+'99';
+        stats.outliers.forEach(v=>{ctx.beginPath();ctx.arc(x,toY(v),3,0,Math.PI*2);ctx.fill();});
+      }
+      // X label
+      ctx.fillStyle='#555';ctx.font='10px system-ui';ctx.textAlign='center';
+      const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
+      ctx.fillText(lbl,x,H-pad.bottom+14);
+      // n count
+      ctx.fillStyle='#aaa';ctx.font='9px system-ui';
+      ctx.fillText('n='+g.vals.length,x,H-pad.bottom+26);
     });
-    return body;
+
+    // Y axis label
+    ctx.save();ctx.translate(12,pad.top+chartH/2);ctx.rotate(-Math.PI/2);
+    ctx.fillStyle='#888';ctx.font='10px system-ui';ctx.textAlign='center';
+    ctx.fillText(yLabel,0,0);ctx.restore();
   }
 
-  function renderMetrics(){
+  function renderChart(){
     metricsArea.innerHTML='';
-    const entries=getSeasonEntries(selectedSeason);
-    const cmpEntries=compareSeason?getSeasonEntries(compareSeason):null;
-
-    if(!entries.length){
-      metricsArea.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No entries found for '+selectedSeason.name));
+    if(!seasons.length){
+      metricsArea.appendChild(h('div',{style:{textAlign:'center',padding:'20px',color:'#bbb'}},'Add seasons above to see charts'));
       return;
     }
 
-    metricsArea.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'700',color:'#1a1a1a',marginBottom:'12px'}},selectedSeason.name+(compareSeason?' vs '+compareSeason.name:'')));
+    // Controls
+    const ctrl=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+    const selRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}});
 
-    // ── Spring Score ──
-    const springEntries=entries.filter(e=>e.score_breakdown&&Object.values(e.score_breakdown).some(v=>parseInt(v)>0));
-    if(springEntries.length){
-      const overall=calcSpringScore(springEntries);
-      const cmpOverall=cmpEntries?calcSpringScore(cmpEntries.filter(e=>e.score_breakdown&&Object.values(e.score_breakdown||{}).some(v=>parseInt(v)>0))):null;
-      const body=h('div',{style:{padding:'12px 14px 6px'}});
-      const topRow2=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'10px'}});
-      topRow2.appendChild(h('div',null,h('div',{style:{fontSize:'28px',fontWeight:'800',color:'#3d7a4f'}},overall),h('div',{style:{fontSize:'11px',color:'#aaa'}},'Overall average')));
-      if(cmpOverall) topRow2.appendChild(h('div',{style:{textAlign:'right'}},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#aaa'}},cmpOverall),h('div',{style:{fontSize:'11px',color:'#bbb'}},compareSeason.name)));
-      body.appendChild(topRow2);
-      body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'8px'}},'Tap operation to drill down to batch → yard'));
-      body.appendChild(renderDrilldown(springEntries,calcSpringScore,v=>'⌀ '+v));
-      metricsArea.appendChild(renderMetricCard('Spring Score','#3d7a4f',body));
-    }
+    const ySel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+    [['strength','Hive Strength'],['mite','Mite Rate'],['yield','Yield (boxes/yard)'],['dead','Dead %']].forEach(([v,l])=>ySel.appendChild(h('option',{value:v},l)));
+    const yWrap=h('div',null);
+    yWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Y Axis'));
+    yWrap.appendChild(ySel);
+    selRow.appendChild(yWrap);
 
-    // ── Pollination Score ──
-    const polEntries=entries.filter(e=>e.score_breakdown&&Object.values(e.score_breakdown||{}).some(v=>parseInt(v)>0));
-    const carrotEntries=entries.filter(e=>e.carrot_score&&Object.values(e.carrot_score||{}).some(v=>parseInt(v)>0));
-    if(polEntries.length||carrotEntries.length){
-      const body2=h('div',{style:{padding:'12px 14px 6px'}});
-      if(polEntries.length){
-        const polAvg=calcPolScore(polEntries,'spring');
-        body2.appendChild(h('div',{style:{marginBottom:'10px'}},
-          h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#aaa',textTransform:'uppercase',marginBottom:'4px'}},'Bee Pollination (Spring)'),
-          h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#b07800'}},polAvg),
-          renderDrilldown(polEntries,rows=>calcPolScore(rows,'spring'),v=>'⌀ '+v)
-        ));
+    const xSel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+    [['seasons','Seasons'],['operations','Operations'],['batches','Batches']].forEach(([v,l])=>xSel.appendChild(h('option',{value:v},l)));
+    const xWrap=h('div',null);
+    xWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'X Axis'));
+    xWrap.appendChild(xSel);
+    selRow.appendChild(xWrap);
+    ctrl.appendChild(selRow);
+
+    // Season filter (shown when x=operations or batches)
+    const seasonFilterWrap=h('div',{style:{display:'none'}});
+    const seasonFilter=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+    seasons.forEach(s=>seasonFilter.appendChild(h('option',{value:s.name},s.name)));
+    seasonFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Season'));
+    seasonFilterWrap.appendChild(seasonFilter);
+    ctrl.appendChild(seasonFilterWrap);
+
+    // Op filter (shown when x=batches)
+    const opFilterWrap=h('div',{style:{display:'none',marginTop:'8px'}});
+    const opFilter=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+    Object.keys(OPERATIONS).forEach(op=>opFilter.appendChild(h('option',{value:op},op)));
+    opFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Operation'));
+    opFilterWrap.appendChild(opFilter);
+    ctrl.appendChild(opFilterWrap);
+
+    metricsArea.appendChild(ctrl);
+
+    // Canvas chart
+    const chartCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+    const canvas=document.createElement('canvas');
+    canvas.style.width='100%';canvas.style.display='block';
+    const resizeCanvas=()=>{
+      const w=canvas.parentElement?.offsetWidth||300;
+      canvas.width=w*window.devicePixelRatio||w;
+      canvas.height=220*window.devicePixelRatio||220;
+      canvas.style.height='220px';
+      updateChart();
+    };
+    chartCard.appendChild(canvas);
+    metricsArea.appendChild(chartCard);
+
+    // Stats summary below chart
+    const statsArea=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
+    metricsArea.appendChild(statsArea);
+
+    function getValsFn(entries){
+      switch(ySel.value){
+        case 'strength': return getScoreValues(entries);
+        case 'mite': return getMiteValues(entries);
+        case 'yield': return getYieldValues(entries);
+        case 'dead': return getDeadPct(entries);
+        default: return [];
       }
-      if(carrotEntries.length){
-        const carAvg=calcPolScore(carrotEntries,'carrot');
-        body2.appendChild(h('div',null,
-          h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#aaa',textTransform:'uppercase',marginBottom:'4px'}},'Carrot Pollination'),
-          h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#b05a1a'}},carAvg),
-          renderDrilldown(carrotEntries,rows=>calcPolScore(rows,'carrot'),v=>'⌀ '+v)
-        ));
-      }
-      metricsArea.appendChild(renderMetricCard('Pollination Scores','#b07800',body2));
     }
+    const COLORS={'strength':'#3d7a4f','mite':'#c0392b','yield':'#b05a1a','dead':'#e24b4a'};
+    const YLABELS={'strength':'Score','mite':'Mites/hive','yield':'Boxes','dead':'Dead %'};
 
-    // ── Yield ──
-    const yieldEntries=entries.filter(e=>(parseInt(e.fd_harv)||0)+(parseInt(e.harv_34)||0)+(parseInt(e.honeycomb_fd)||0)+(parseInt(e.honeycomb_hd)||0)>0);
-    if(yieldEntries.length){
-      const y=calcYield(yieldEntries);
-      const body3=h('div',{style:{padding:'12px 14px 6px'}});
-      // Summary row
-      const yGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'12px'}});
-      [{l:'Total boxes',v:y.total,big:true},{l:'Mean per yard',v:y.mean},{l:'FD Harvested',v:y.fdHarv},{l:'3/4 Harvested',v:y.harv34},{l:'HC FD',v:y.hcFd},{l:'HC ½',v:y.hcHd}].forEach(({l,v,big})=>{
-        const tile=h('div',{style:{background:'#f8f4ee',borderRadius:'8px',padding:'8px 10px'}});
-        tile.appendChild(h('div',{style:{fontSize:big?'26px':'18px',fontWeight:'800',color:'#b05a1a',lineHeight:'1'}},v||'0'));
-        tile.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',marginTop:'2px',textTransform:'uppercase',letterSpacing:'.04em'}},l));
-        yGrid.appendChild(tile);
+    function updateChart(){
+      const color=COLORS[ySel.value]||'#555';
+      const yLabel=YLABELS[ySel.value]||'';
+      let groups=[];
+
+      if(xSel.value==='seasons'){
+        seasonFilterWrap.style.display='none';opFilterWrap.style.display='none';
+        groups=seasons.map(s=>({
+          label:s.name,
+          vals:getValsFn(getSeasonEntries(s))
+        }));
+      } else if(xSel.value==='operations'){
+        seasonFilterWrap.style.display='block';opFilterWrap.style.display='none';
+        const season=seasons.find(s=>s.name===seasonFilter.value)||seasons[0];
+        const entries=getSeasonEntries(season);
+        groups=Object.keys(OPERATIONS).map(op=>({
+          label:op,
+          vals:getValsFn(entries.filter(e=>e._op===op))
+        }));
+      } else {
+        seasonFilterWrap.style.display='block';opFilterWrap.style.display='block';
+        const season=seasons.find(s=>s.name===seasonFilter.value)||seasons[0];
+        const op=opFilter.value;
+        const entries=getSeasonEntries(season).filter(e=>e._op===op);
+        const batches=Object.keys(getYards(op));
+        groups=batches.map(batch=>({
+          label:batch,
+          vals:getValsFn(entries.filter(e=>e._batch===batch))
+        })).filter(g=>g.vals.length>0);
+      }
+
+      drawBoxWhisker(canvas,groups,color,yLabel);
+
+      // Stats table
+      statsArea.innerHTML='';
+      statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Summary statistics'));
+      groups.forEach(g=>{
+        const stats=calcBoxStats(g.vals);
+        if(!stats) return;
+        const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
+        row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333',flex:'1'}},g.label));
+        const vals=h('div',{style:{display:'flex',gap:'10px',fontSize:'12px',color:'#666'}});
+        vals.appendChild(h('span',null,'n='+stats.n));
+        vals.appendChild(h('span',null,'avg '+stats.mean.toFixed(1)));
+        vals.appendChild(h('span',null,'med '+stats.median.toFixed(1)));
+        vals.appendChild(h('span',null,'Q1-Q3 '+stats.q1.toFixed(1)+'-'+stats.q3.toFixed(1)));
+        row.appendChild(vals);
+        statsArea.appendChild(row);
       });
-      body3.appendChild(yGrid);
-      body3.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'8px'}},'Tap to drill down'));
-      body3.appendChild(renderDrilldown(yieldEntries,rows=>{const y2=calcYield(rows);return y2.total>0?String(y2.total):null;},v=>v+' boxes'));
-      const cmpY=cmpEntries?calcYield(cmpEntries.filter(e=>(parseInt(e.fd_harv)||0)+(parseInt(e.harv_34)||0)+(parseInt(e.honeycomb_fd)||0)+(parseInt(e.honeycomb_hd)||0)>0)):null;
-      if(cmpY&&cmpY.total>0) body3.appendChild(h('div',{style:{marginTop:'10px',padding:'8px',background:'#f0f0ee',borderRadius:'8px',fontSize:'13px',color:'#555'}},compareSeason.name+': '+cmpY.total+' boxes total, '+cmpY.mean+' per yard'));
-      metricsArea.appendChild(renderMetricCard('Yield','#b05a1a',body3));
     }
 
-    if(!springEntries.length&&!polEntries.length&&!carrotEntries.length&&!yieldEntries.length){
-      metricsArea.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No score or yield data found for this season'));
+    xSel.addEventListener('change',updateChart);
+    ySel.addEventListener('change',updateChart);
+    seasonFilter.addEventListener('change',updateChart);
+    opFilter.addEventListener('change',updateChart);
+
+    // Draw after layout
+    setTimeout(resizeCanvas,50);
+
+    // ── Disease summary ──
+    const diseaseSec=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginTop:'12px',border:'.5px solid #e24b4a33'}});
+    diseaseSec.appendChild(h('div',{style:{fontWeight:'700',fontSize:'13px',color:'#e24b4a',marginBottom:'10px',textTransform:'uppercase',letterSpacing:'.05em'}},'Disease Prevalence'));
+    const diseaseSeasonSel=h('select',{style:{width:'100%',padding:'7px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',marginBottom:'10px'}});
+    seasons.forEach(s=>diseaseSeasonSel.appendChild(h('option',{value:s.name},s.name)));
+    diseaseSec.appendChild(diseaseSeasonSel);
+    const diseaseArea=h('div',null);
+    diseaseSec.appendChild(diseaseArea);
+    metricsArea.appendChild(diseaseSec);
+
+    function renderDiseaseStats(){
+      diseaseArea.innerHTML='';
+      const season=seasons.find(s=>s.name===diseaseSeasonSel.value)||seasons[0];
+      const entries=getSeasonEntries(season).filter(e=>e.diseases);
+      if(!entries.length){diseaseArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px'}},'No disease data for this season'));return;}
+      const DISEASES=['AFB','Varroa','Sacbrood','Chalkbrood','HMS','Nosema'];
+      const totalSites=new Set(entries.map(e=>e._op+'__'+e._site)).size;
+      DISEASES.forEach(d=>{
+        const found=entries.filter(e=>(e.diseases||'').includes(d));
+        if(!found.length) return;
+        const sites=new Set(found.map(e=>e._op+'__'+e._site)).size;
+        const pct=Math.round(sites/totalSites*100);
+        const row=h('div',{style:{marginBottom:'8px'}});
+        const rowHdr=h('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:'3px'}});
+        rowHdr.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:d==='AFB'?'#c0392b':'#555'}},d));
+        rowHdr.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},sites+' site'+(sites!==1?'s':'')+' ('+pct+'%)'));
+        const bar=h('div',{style:{width:'100%',height:'6px',background:'#f0f0ee',borderRadius:'3px',overflow:'hidden'}});
+        bar.appendChild(h('div',{style:{width:pct+'%',height:'100%',background:d==='AFB'?'#c0392b':'#ef9f27',borderRadius:'3px'}}));
+        row.appendChild(rowHdr);row.appendChild(bar);
+        diseaseArea.appendChild(row);
+      });
     }
+    diseaseSeasonSel.addEventListener('change',renderDiseaseStats);
+    renderDiseaseStats();
   }
 
-  renderMetrics();
+  renderChart();
   wrap.appendChild(screen);
   return wrap;
 }
@@ -1866,7 +1984,7 @@ function showAddNucBatchModal(op,nucYardKey,onSave){
   srcWrap.appendChild(h('label',{style:{fontSize:'11px',color:'#aaa',display:'block',marginBottom:'4px'}},'From yard'));
   const srcSearch=h('div',null);
   let selectedSrc='',selectedSrcOp='';
-  const srcDisplay=h('div',{style:{display:'none',background:'#f3e8ff',border:'1.5px solid #9b59b6',borderRadius:'8px',padding:'8px 12px',display:'none',justifyContent:'space-between',alignItems:'center'}});
+  const srcDisplay=h('div',{style:{display:'none',background:'#f3e8ff',border:'1.5px solid #9b59b6',borderRadius:'8px',padding:'8px 12px',justifyContent:'space-between',alignItems:'center'}});
   makeYardSearchGlobal(srcSearch,(site,opName)=>{
     selectedSrc=site;selectedSrcOp=opName;
     srcDisplay.style.display='flex';srcSearch.style.display='none';
@@ -2490,11 +2608,14 @@ function renderEntriesList(){
     const hdr=h('div',{className:'entry-header'});
     const hl=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flex:'1',flexWrap:'wrap'}});
     hl.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px'}},fmtDate(entry.date)));
-    hl.appendChild(h('span',{style:{fontSize:'11px',background:rd.bg||'#eee',color:rd.color,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},rd.label));
+    const roundLabel=entry._movement?'Hive Movement':rd.label;
+    const roundBg=entry._movement?'#e8e0f0':rd.bg||'#eee';
+    const roundColor=entry._movement?'#6a4fa8':rd.color;
+    hl.appendChild(h('span',{style:{fontSize:'11px',background:roundBg,color:roundColor,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},roundLabel));
     if(entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
     if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
-    if(rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
+    if(!entry._movement&&rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
     // Carrot score avg in header
     const cbd2=entry.carrot_score||{};
     let cat2=0,cac2=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(cbd2[n]);if(!isNaN(v)&&v>0){cat2+=n*v;cac2+=v;}});
@@ -2768,9 +2889,9 @@ function renderForm(){
         const miteSection=h('div',{style:{background:'#f8f8f6',borderRadius:'8px',padding:'10px',border:'.5px solid #eee',marginBottom:'4px'}});
         miteSection.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#555',marginBottom:'8px'}},'Mite Test'));
         const miteGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
-        [{label:'Mites found',key:'mites_found'},{label:'Hives tested',key:'mites_tested'}].forEach(({label,key})=>{
+        [{label:'Hives tested',key:'mites_tested'},{label:'Mites found',key:'mites_found'}].forEach(({label,key})=>{
           const wrap=h('div',null);
-          wrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}}),label);
+          wrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}},label));
           const inp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box',textAlign:'center'}});
           inp.value=vals[key]||'';
           inp.addEventListener('input',e=>STATE.formVals[key]=e.target.value);
@@ -3153,11 +3274,14 @@ function renderEntriesList(){
     const hdr=h('div',{className:'entry-header'});
     const hl=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flex:'1',flexWrap:'wrap'}});
     hl.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px'}},fmtDate(entry.date)));
-    hl.appendChild(h('span',{style:{fontSize:'11px',background:rd.bg||'#eee',color:rd.color,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},rd.label));
+    const roundLabel=entry._movement?'Hive Movement':rd.label;
+    const roundBg=entry._movement?'#e8e0f0':rd.bg||'#eee';
+    const roundColor=entry._movement?'#6a4fa8':rd.color;
+    hl.appendChild(h('span',{style:{fontSize:'11px',background:roundBg,color:roundColor,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},roundLabel));
     if(entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
     if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
-    if(rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
+    if(!entry._movement&&rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
     // Carrot score avg in header
     const cbd2=entry.carrot_score||{};
     let cat2=0,cac2=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(cbd2[n]);if(!isNaN(v)&&v>0){cat2+=n*v;cac2+=v;}});
@@ -3977,6 +4101,8 @@ function renderMovementsScreen(){
                     pallets:p.pallets,
                     singles:p.singles,
                     half_pallet:p.half_pallet||false,
+                    doubles:p.doubles||'',
+                    singles_boxes:p.singles_boxes||'',
                     alive_hives:p.alive_hives||'',
                     dead_hives:p.dead_hives||'',
                     hives:s.hives,
@@ -4093,7 +4219,8 @@ function renderMovementsScreen(){
       const pre=editingPickup||{};
       editingPickup=null;
       const pickupData={site:pre.site||'',op:pre.op||'',pallets:pre.pallets||'',singles:pre.singles||'',
-        half_pallet:pre.half_pallet||false,alive_hives:pre.alive_hives||'',dead_hives:pre.dead_hives||''};
+        half_pallet:pre.half_pallet||false,alive_hives:pre.alive_hives||'',dead_hives:pre.dead_hives||'',
+        doubles:pre.doubles||'',singles_boxes:pre.singles_boxes||''};
       const isYY=loadDirection.val==='yard_yard';
       const isOut=loadDirection.val==='to_orchard';
       const isEditing=!!(pre.site);
@@ -4336,6 +4463,21 @@ function renderMovementsScreen(){
       updateHiveTotal();
       truckRow.appendChild(hiveTotal);
       addBody.appendChild(truckRow);
+
+      // Doubles and singles boxes in this load
+      const boxRow=h('div',{style:{marginBottom:'8px'}});
+      boxRow.appendChild(h('label',{className:'lbl',style:{display:'block',marginBottom:'4px'}},'Boxes in this load'));
+      const boxGrid2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+      [{label:'Doubles',key:'doubles'},{label:'Singles (box)',key:'singles_boxes'}].forEach(({label,key})=>{
+        const wrap2=h('div',null);
+        wrap2.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},label));
+        const bi=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
+        bi.value=pickupData[key]||'';
+        bi.addEventListener('input',e=>pickupData[key]=e.target.value);
+        wrap2.appendChild(bi);boxGrid2.appendChild(wrap2);
+      });
+      boxRow.appendChild(boxGrid2);
+      addBody.appendChild(boxRow);
 
       // Hive count row — alive + dead
       const hiveRow=h('div',{style:{marginBottom:'10px'}});
@@ -4764,7 +4906,7 @@ function renderMovementsScreen(){
           h('div',{style:{fontSize:'12px',color:'#aaa'}},fmtDate(m.date)),
           h('div',{style:{fontSize:'11px',color:'#bbb',marginTop:'2px'}},m.logged_by||'')
         ));
-        addBody.appendChild(mainRow);
+        card.appendChild(mainRow);
         // Edit + Delete buttons
         const btnBar=h('div',{style:{display:'flex',justifyContent:'flex-end',gap:'8px',marginTop:'8px'}});
         // Edit button
