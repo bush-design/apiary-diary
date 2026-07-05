@@ -1302,67 +1302,66 @@ function renderReportsScreen(){
     const YLABELS={'strength':'Score','mite':'Mites/hive','yield':'Boxes','dead':'Dead %'};
 
     function drawStackedBar(canvas, groups){
-      const ctx=canvas.getContext('2d');
+      const ctx2=canvas.getContext('2d');
       const W=canvas.width,H=canvas.height;
       const pad={top:20,bottom:50,left:45,right:10};
       const chartW=W-pad.left-pad.right;
       const chartH=H-pad.top-pad.bottom;
-      ctx.clearRect(0,0,W,H);
+      ctx2.clearRect(0,0,W,H);
       if(!groups.length) return;
       const maxHives=Math.max(...groups.map(g=>g.totalHives||1));
       const step=chartW/groups.length;
       const barW=Math.min(step*0.6,60);
       // Y axis ticks
-      ctx.strokeStyle='#e0e0de';ctx.lineWidth=1;
+      ctx2.strokeStyle='#e0e0de';ctx2.lineWidth=1;
       for(let i=0;i<=5;i++){
         const v=Math.round(maxHives*i/5);
         const y=pad.top+chartH-(chartH*i/5);
-        ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+chartW,y);ctx.stroke();
-        ctx.fillStyle='#aaa';ctx.font='10px system-ui';ctx.textAlign='right';
-        ctx.fillText(v,pad.left-4,y+3);
+        ctx2.beginPath();ctx2.moveTo(pad.left,y);ctx2.lineTo(pad.left+chartW,y);ctx2.stroke();
+        ctx2.fillStyle='#aaa';ctx2.font='10px system-ui';ctx2.textAlign='right';
+        ctx2.fillText(v,pad.left-4,y+3);
       }
       groups.forEach((g,i)=>{
         const x=pad.left+step*i+step/2;
         const total=g.totalHives||1;
         const dead=g.totalDead||0;
         const alive=total-dead;
-        const totalH=chartH*(total/maxHives);
-        const deadH=chartH*(dead/maxHives);
-        const aliveH=totalH-deadH;
-        const barX=x-barW/2;
+        const halfW=barW/2-1;
         const baseY=pad.top+chartH;
-        // Alive (green)
-        ctx.fillStyle='#3d7a4f88';
-        ctx.fillRect(barX,baseY-totalH,barW,aliveH);
-        ctx.strokeStyle='#3d7a4f';ctx.lineWidth=1;
-        ctx.strokeRect(barX,baseY-totalH,barW,aliveH);
-        // Dead (red) on top
+        // Alive bar (left, green)
+        const aliveH=chartH*(alive/maxHives);
+        ctx2.fillStyle='#3d7a4f99';
+        ctx2.fillRect(x-halfW-1,baseY-aliveH,halfW,aliveH);
+        ctx2.strokeStyle='#3d7a4f';ctx2.lineWidth=1;
+        ctx2.strokeRect(x-halfW-1,baseY-aliveH,halfW,aliveH);
+        // Alive count label
+        ctx2.fillStyle='#3d7a4f';ctx2.font='bold 9px system-ui';ctx2.textAlign='center';
+        if(aliveH>14) ctx2.fillText(alive,x-halfW/2-1,baseY-aliveH-3);
+        // Dead bar (right, red)
         if(dead>0){
-          ctx.fillStyle='#e24b4a88';
-          ctx.fillRect(barX,baseY-totalH,barW,-deadH); // draws upward from alive top
-          // Recalc: dead sits on top of alive
-          const aliveTop=baseY-aliveH;
-          ctx.fillStyle='#e24b4a88';
-          ctx.fillRect(barX,aliveTop-deadH,barW,deadH);
-          ctx.strokeStyle='#e24b4a';ctx.lineWidth=1;
-          ctx.strokeRect(barX,aliveTop-deadH,barW,deadH);
-          // % label
+          const deadH=chartH*(dead/maxHives);
+          ctx2.fillStyle='#e24b4a99';
+          ctx2.fillRect(x+1,baseY-deadH,halfW,deadH);
+          ctx2.strokeStyle='#e24b4a';ctx2.lineWidth=1;
+          ctx2.strokeRect(x+1,baseY-deadH,halfW,deadH);
+          ctx2.fillStyle='#c0392b';ctx2.font='bold 9px system-ui';ctx2.textAlign='center';
+          if(deadH>14) ctx2.fillText(dead,x+halfW/2+1,baseY-deadH-3);
           const pct=Math.round(dead/total*100);
-          ctx.fillStyle='#c0392b';ctx.font='bold 10px system-ui';ctx.textAlign='center';
-          ctx.fillText(pct+'%',x,aliveTop-deadH-3);
+          ctx2.fillStyle='#888';ctx2.font='9px system-ui';
+          ctx2.fillText(pct+'%',x,baseY+12);
         }
         // X label
-        ctx.fillStyle='#555';ctx.font='10px system-ui';ctx.textAlign='center';
+        ctx2.fillStyle='#555';ctx2.font='10px system-ui';ctx2.textAlign='center';
         const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
-        ctx.fillText(lbl,x,H-pad.bottom+14);
-        ctx.fillStyle='#aaa';ctx.font='9px system-ui';
-        ctx.fillText(total+'h',x,H-pad.bottom+26);
+        ctx2.fillText(lbl,x,H-pad.bottom+14);
+        ctx2.fillStyle='#aaa';ctx2.font='9px system-ui';
+        ctx2.fillText(total+'h',x,H-pad.bottom+26);
       });
       // Legend
-      ctx.fillStyle='#3d7a4f88';ctx.fillRect(pad.left,8,12,10);
-      ctx.fillStyle='#555';ctx.font='10px system-ui';ctx.textAlign='left';ctx.fillText('Alive',pad.left+15,17);
-      ctx.fillStyle='#e24b4a88';ctx.fillRect(pad.left+55,8,12,10);
-      ctx.fillStyle='#555';ctx.fillText('Dead',pad.left+70,17);
+      ctx2.fillStyle='#3d7a4f88';ctx2.fillRect(pad.left,8,12,10);
+      ctx2.fillStyle='#555';ctx2.font='10px system-ui';ctx2.textAlign='left';ctx2.fillText('Alive',pad.left+15,17);
+      ctx2.fillStyle='#e24b4a88';ctx2.fillRect(pad.left+55,8,12,10);
+      ctx2.fillStyle='#555';ctx2.fillText('Dead',pad.left+70,17);
     }
 
     function updateChart(){
@@ -3198,6 +3197,7 @@ function renderEntriesList(){
     // Tiebreaker 2: array index ASC (lower index = newer in storage)
     return a._arrIdx-b._arrIdx;
   });
+  const allSiteEntriesWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map((e,i)=>({...e,_arrIdx:i}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
   const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
   const lv=k=>{
