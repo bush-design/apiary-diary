@@ -141,7 +141,7 @@ const OPERATIONS = {
     "Nethorn":{type:"run",sites:["The Pines","Race Course","Unknown Creek","Georgie McGregors","Sub Station"]},
     "South East":{type:"run",sites:["Elliot Quarry","Elliot Stone","Leslie","Campsite"]},
     "West":{type:"run",sites:["Gladbrook","Stevenson","Settlement East","Settlement West","Foote South","Callums","Gorse","Duck Pond","Wilson's Woolshed","Rock Road","Bales Elliot","Sugarloaf"]},
-    "North":{type:"run",sites:["Carruthers","Jason","Gullie","Hut"]},
+    "North":{type:"run",sites:["Carruthers","Jason","Gully","Hut"]},
     "Grant's":{type:"run",sites:["Grants Mums","Farm"]}
   }}
 };
@@ -1454,23 +1454,77 @@ function renderReportsScreen(){
     function renderDiseaseStats(){
       diseaseArea.innerHTML='';
       const season=seasons.find(s=>s.name===diseaseSeasonSel.value)||seasons[0];
-      const entries=getSeasonEntries(season).filter(e=>e.diseases);
+      const allEntries=getSeasonEntries(season);
+      const entries=allEntries.filter(e=>e.diseases&&e.diseases.trim());
       if(!entries.length){diseaseArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px'}},'No disease data for this season'));return;}
       const DISEASES=['AFB','Varroa','Sacbrood','Chalkbrood','HMS','Nosema'];
-      const totalSites=new Set(entries.map(e=>e._op+'__'+e._site)).size;
+      const totalSites=new Set(allEntries.map(e=>e._op+'__'+e._site)).size;
+
       DISEASES.forEach(d=>{
         const found=entries.filter(e=>(e.diseases||'').includes(d));
         if(!found.length) return;
-        const sites=new Set(found.map(e=>e._op+'__'+e._site)).size;
-        const pct=Math.round(sites/totalSites*100);
-        const row=h('div',{style:{marginBottom:'8px'}});
-        const rowHdr=h('div',{style:{display:'flex',justifyContent:'space-between',marginBottom:'3px'}});
-        rowHdr.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:d==='AFB'?'#c0392b':'#555'}},d));
-        rowHdr.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},sites+' site'+(sites!==1?'s':'')+' ('+pct+'%)'));
-        const bar=h('div',{style:{width:'100%',height:'6px',background:'#f0f0ee',borderRadius:'3px',overflow:'hidden'}});
+
+        // Unique sites and how many times recorded
+        const sitesMap={};
+        found.forEach(e=>{
+          const k=e._op+'__'+e._site;
+          if(!sitesMap[k])sitesMap[k]={site:e._site,op:e._op,batch:e._batch,count:0,hiveCount:0};
+          sitesMap[k].count++;
+          // Add hive count if recorded
+          const countKey='disease_count_'+d.toLowerCase().replace(/ /g,'_');
+          const hc=parseInt(e[countKey])||0;
+          sitesMap[k].hiveCount+=hc;
+        });
+        const sitesList=Object.values(sitesMap).sort((a,b)=>b.count-a.count);
+        const uniqueSites=sitesList.length;
+        const pct=Math.round(uniqueSites/totalSites*100);
+        const totalRecordings=found.length;
+
+        // Group by operation
+        const opGroups={};
+        sitesList.forEach(s=>{
+          if(!opGroups[s.op])opGroups[s.op]=[];
+          opGroups[s.op].push(s);
+        });
+
+        const card=h('div',{style:{marginBottom:'12px',border:`.5px solid ${d==='AFB'?'#c0392b33':'#ef9f2733'}`,borderRadius:'10px',overflow:'hidden'}});
+
+        // Header
+        const hdr=h('div',{style:{padding:'8px 12px',background:d==='AFB'?'#fde8e8':'#fff8e6',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}});
+        const hdrLeft=h('div',null);
+        hdrLeft.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'700',color:d==='AFB'?'#c0392b':'#b07800'}},d));
+        hdrLeft.appendChild(h('span',{style:{fontSize:'11px',color:'#888',marginLeft:'8px'}},uniqueSites+' site'+(uniqueSites!==1?'s':'')+' · '+totalRecordings+' recording'+(totalRecordings!==1?'s':'')+' · '+pct+'% of yards'));
+        hdr.appendChild(hdrLeft);
+        const chev=h('span',{style:{color:'#aaa',fontSize:'13px'}},'▼');
+        hdr.appendChild(chev);
+
+        // Bar
+        const barWrap=h('div',{style:{padding:'6px 12px',background:'#fff'}});
+        const bar=h('div',{style:{width:'100%',height:'5px',background:'#f0f0ee',borderRadius:'3px',overflow:'hidden'}});
         bar.appendChild(h('div',{style:{width:pct+'%',height:'100%',background:d==='AFB'?'#c0392b':'#ef9f27',borderRadius:'3px'}}));
-        row.appendChild(rowHdr);row.appendChild(bar);
-        diseaseArea.appendChild(row);
+        barWrap.appendChild(bar);
+        card.appendChild(hdr);
+        card.appendChild(barWrap);
+
+        // Expandable site list
+        const body=h('div',{style:{display:'none',padding:'8px 12px',borderTop:'.5px solid #f0f0ee'}});
+        Object.entries(opGroups).forEach(([op,sites])=>{
+          body.appendChild(h('div',{style:{fontSize:'10px',fontWeight:'700',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',margin:'6px 0 4px'}},op));
+          sites.forEach(s=>{
+            const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'3px 0',borderBottom:'.5px solid #f8f8f6'}});
+            row.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},s.site+' · '+s.batch));
+            const tag=s.hiveCount>0?s.hiveCount+' hive'+(s.hiveCount!==1?'s':''):s.count+'×';
+            row.appendChild(h('span',{style:{fontSize:'11px',color:'#888',background:'#f0f0ee',borderRadius:'8px',padding:'2px 7px'}},tag));
+            body.appendChild(row);
+          });
+        });
+        hdr.addEventListener('click',()=>{
+          const open=body.style.display!=='none';
+          body.style.display=open?'none':'block';
+          chev.textContent=open?'▼':'▲';
+        });
+        card.appendChild(body);
+        diseaseArea.appendChild(card);
       });
     }
     diseaseSeasonSel.addEventListener('change',renderDiseaseStats);
