@@ -1585,10 +1585,10 @@ function renderReportsScreen(){
     const ctrl=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
 
     // Mode selector — Season, Snapshot, Compare
-    const modeRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'5px',marginBottom:'12px'}});
+    const modeRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr',gap:'4px',marginBottom:'12px'}});
     let chartMode='year'; // 'year' | 'season' | 'daterange' | 'snapshot'
     const modeBtns={};
-    [['year','Year'],['season','Season'],['daterange','Date Range'],['snapshot','Snapshot']].forEach(([mode,label])=>{
+    [['year','Year'],['season','Season'],['daterange','Date Range'],['snapshot','Snapshot'],['trend','Trend']].forEach(([mode,label])=>{
       const btn=h('button',{type:'button',style:{padding:'7px',borderRadius:'8px',border:mode==='season'?'1.5px solid #3d7a4f':'1px solid #ddd',background:mode==='season'?'#e6f2eb':'#fff',color:mode==='season'?'#3d7a4f':'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},label);
       btn.addEventListener('click',()=>{
         chartMode=mode;
@@ -1704,7 +1704,7 @@ function renderReportsScreen(){
       cmp2Wrap.style.display='none';
       seasonFilterWrap.style.display=(isSeason||isYear)&&(xVal==='operations'||xVal==='batches')?'block':'none';
       cmpSeason2Wrap.style.display='none';
-      opFilterWrap.style.display=xVal==='batches'?'block':'none';
+      opFilterWrap.style.display=(xVal==='batches')||chartMode==='trend'&&xVal==='batches'?'block':'none';
     }
 
     metricsArea.appendChild(ctrl);
@@ -1839,6 +1839,68 @@ function renderReportsScreen(){
       let groups=[];
       const xVal=xSel.value;
 
+      if(chartMode==='trend'){
+        // Line graph: x=seasons across years, one line per operation or batch
+        const allYrsSorted=[...years].sort((a,b)=>a.startYear-b.startYear);
+        const xLabels=allYrsSorted.flatMap(yr=>Object.values(getSeasonRanges(yr)).map(sr=>sr.label));
+        let lineSeries=[];
+        const OPCOLORS=Object.fromEntries(Object.entries(OPERATIONS).map(([op,d],i)=>[op,['#3d7a4f','#1a6fb0','#9b59b6'][i]||'#555']));
+        if(xVal==='operations'||xVal==='seasons'){
+          // One line per operation
+          lineSeries=Object.keys(OPERATIONS).map(op=>{
+            const points=allYrsSorted.flatMap(yr=>{
+              return Object.entries(getSeasonRanges(yr)).map(([rk,sr])=>{
+                const se=getSeasonEntries(sr).filter(e=>e._op===op);
+                const vals=getValsFn(se);
+                if(!vals.length) return null;
+                const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+                return{x:sr.label,y:parseFloat(avg.toFixed(2))};
+              }).filter(Boolean);
+            });
+            return{label:op,color:OPCOLORS[op]||'#555',points};
+          }).filter(s=>s.points.length>0);
+        } else {
+          // One line per batch for selected op
+          const op=opFilter.value;
+          const batches=Object.keys(getYards(op));
+          const palette=['#3d7a4f','#1a6fb0','#9b59b6','#b05a1a','#e24b4a','#ef9f27'];
+          lineSeries=batches.map((batch,bi)=>{
+            const points=allYrsSorted.flatMap(yr=>{
+              return Object.entries(getSeasonRanges(yr)).map(([rk,sr])=>{
+                const se=getSeasonEntries(sr).filter(e=>e._op===op&&e._batch===batch);
+                const vals=getValsFn(se);
+                if(!vals.length) return null;
+                const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+                return{x:sr.label,y:parseFloat(avg.toFixed(2))};
+              }).filter(Boolean);
+            });
+            return{label:batch,color:palette[bi%palette.length],points};
+          }).filter(s=>s.points.length>0);
+        }
+        // Draw line graph
+        const yLabel2=YLABELS[ySel.value]||'';
+        const resizeTrend=()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=canvas.parentElement?.offsetWidth||300;
+          canvas.width=w*dpr;canvas.height=300*dpr;
+          canvas.style.height='300px';
+          drawLineGraph(canvas,lineSeries,yLabel2);
+        };
+        setTimeout(resizeTrend,50);
+        statsArea.innerHTML='';
+        lineSeries.forEach(s=>{
+          if(!s.points.length) return;
+          const avg=s.points.reduce((a,p)=>a+p.y,0)/s.points.length;
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
+          const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'50%',background:s.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
+          const left=h('div',{style:{display:'flex',alignItems:'center',flex:'1'}});
+          left.appendChild(dot);left.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},s.label));
+          row.appendChild(left);
+          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+avg.toFixed(2)+' · '+s.points.length+' seasons'));
+          statsArea.appendChild(row);
+        });
+        return;
+      }
       if(chartMode==='year'&&xVal==='seasons'){
         // Show all 4 seasons as bars on x-axis
         const yr=years.find(y=>String(y.startYear)===String(yearSel2.value))||years[0];
