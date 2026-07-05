@@ -1115,6 +1115,29 @@ function renderReportsScreen(){
     return entries;
   }
 
+  // ── Helper: get most recent entry per site up to a snapshot date ──
+  function getSnapshotEntries(snapshotDate){
+    const entries=[];
+    Object.entries(OPERATIONS).forEach(([opName,op])=>{
+      Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+        batch.sites.forEach(site=>{
+          // Get all real entries up to snapshot date, sorted newest first
+          const siteEntries=Object.keys(ROUNDS).flatMap(rk=>
+            (STATE.entries[eKey(opName,site,rk)]||[])
+              .filter(e=>!e._movement&&e.date<=snapshotDate)
+              .map(e=>({...e,_op:opName,_batch:batchName,_site:site,_rk:rk}))
+          ).sort((a,b)=>{
+            const dc=(b.date||'').localeCompare(a.date||'');
+            return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
+          });
+          // Only take the most recent entry per site
+          if(siteEntries.length>0) entries.push(siteEntries[0]);
+        });
+      });
+    });
+    return entries;
+  }
+
   // ── Chart controls ──
   const metricsArea=h('div',null);
   screen.appendChild(metricsArea);
@@ -1144,25 +1167,38 @@ function renderReportsScreen(){
     return Object.values(siteMap).filter(v=>v>0);
   }
   function getDeadPct(entries){
+    // Use most recent entry per site only
     const siteMap={};
-    entries.forEach(e=>{
-      const k=e._op+'__'+e._site;
-      if(!siteMap[k]) siteMap[k]={hives:0,dead:0};
-      if(parseInt(e.hives)>0) siteMap[k].hives=parseInt(e.hives);
-      if(parseInt(e.dead)>0) siteMap[k].dead=parseInt(e.dead);
+    const sorted=[...entries].filter(e=>!e._movement).sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||'');
+      return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
     });
-    return Object.values(siteMap).filter(s=>s.hives>0).map(s=>s.dead/s.hives*100);
+    sorted.forEach(e=>{
+      const k=e._op+'__'+e._site;
+      if(siteMap[k]) return;
+      const hives=parseInt(e.hives)||0;
+      const dead=parseInt(e.dead)||0;
+      if(hives>0) siteMap[k]={hives,dead};
+    });
+    return Object.values(siteMap).map(s=>s.dead/s.hives*100);
   }
 
   function getDeadAlive(entries){
+    // Use most recent entry per site — never sum across multiple visits
     const siteMap={};
-    entries.forEach(e=>{
-      const k=e._op+'__'+e._site;
-      if(!siteMap[k]) siteMap[k]={hives:0,dead:0};
-      if(parseInt(e.hives)>0) siteMap[k].hives=parseInt(e.hives);
-      if(parseInt(e.dead)>0) siteMap[k].dead=parseInt(e.dead);
+    // Sort newest first so first entry per site = most recent
+    const sorted=[...entries].filter(e=>!e._movement).sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||'');
+      return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
     });
-    return Object.values(siteMap).filter(s=>s.hives>0);
+    sorted.forEach(e=>{
+      const k=e._op+'__'+e._site;
+      if(siteMap[k]) return; // already have most recent
+      const hives=parseInt(e.hives)||0;
+      const dead=parseInt(e.dead)||0;
+      if(hives>0) siteMap[k]={hives,dead};
+    });
+    return Object.values(siteMap);
   }
 
   function calcBoxStats(vals){
@@ -1263,10 +1299,29 @@ function renderReportsScreen(){
 
     // Controls
     const ctrl=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
-    const selRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}});
 
+    // Mode selector — Season, Snapshot, Compare
+    const modeRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:'12px'}});
+    let chartMode='season'; // 'season' | 'snapshot' | 'compare'
+    const modeBtns={};
+    [['season','Season'],['snapshot','Snapshot'],['compare','Compare']].forEach(([mode,label])=>{
+      const btn=h('button',{type:'button',style:{padding:'7px',borderRadius:'8px',border:mode==='season'?'1.5px solid #3d7a4f':'1px solid #ddd',background:mode==='season'?'#e6f2eb':'#fff',color:mode==='season'?'#3d7a4f':'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},label);
+      btn.addEventListener('click',()=>{
+        chartMode=mode;
+        Object.entries(modeBtns).forEach(([m,b])=>{
+          b.style.border=m===mode?'1.5px solid #3d7a4f':'1px solid #ddd';
+          b.style.background=m===mode?'#e6f2eb':'#fff';
+          b.style.color=m===mode?'#3d7a4f':'#888';
+        });
+        updateFilterVisibility();updateChart();
+      });
+      modeBtns[mode]=btn;modeRow.appendChild(btn);
+    });
+    ctrl.appendChild(modeRow);
+
+    const selRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}});
     const ySel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
-    [['strength','Hive Strength'],['mite','Mite Rate'],['yield','Yield (boxes/yard)'],['dead','Dead %']].forEach(([v,l])=>ySel.appendChild(h('option',{value:v},l)));
+    [['strength','Hive Strength'],['mite','Mite Rate'],['yield','Yield (boxes/yard)'],['dead','Dead/Alive']].forEach(([v,l])=>ySel.appendChild(h('option',{value:v},l)));
     const yWrap=h('div',null);
     yWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Y Axis'));
     yWrap.appendChild(ySel);
@@ -1280,21 +1335,58 @@ function renderReportsScreen(){
     selRow.appendChild(xWrap);
     ctrl.appendChild(selRow);
 
-    // Season filter (shown when x=operations or batches)
-    const seasonFilterWrap=h('div',{style:{display:'none'}});
+    // Snapshot date picker
+    const snapWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
+    snapWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Snapshot date'));
+    const snapDate=h('input',{type:'date',value:todayStr(),style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fafafa',boxSizing:'border-box'}});
+    snapDate.addEventListener('change',updateChart);
+    snapWrap.appendChild(snapDate);
+    ctrl.appendChild(snapWrap);
+
+    // Compare: second snapshot or season
+    const cmp2Wrap=h('div',{style:{display:'none',marginBottom:'8px'}});
+    cmp2Wrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Compare with date'));
+    const snapDate2=h('input',{type:'date',value:todayStr(),style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',background:'#fafafa',boxSizing:'border-box'}});
+    snapDate2.addEventListener('change',updateChart);
+    cmp2Wrap.appendChild(snapDate2);
+    ctrl.appendChild(cmp2Wrap);
+
+    // Season filter (shown when mode=season and x=operations or batches)
+    const seasonFilterWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
     const seasonFilter=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
     seasons.forEach(s=>seasonFilter.appendChild(h('option',{value:s.name},s.name)));
     seasonFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Season'));
     seasonFilterWrap.appendChild(seasonFilter);
     ctrl.appendChild(seasonFilterWrap);
 
+    // Compare season 2
+    const cmpSeason2Wrap=h('div',{style:{display:'none',marginBottom:'8px'}});
+    const cmpSeason2Sel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+    seasons.forEach(s=>cmpSeason2Sel.appendChild(h('option',{value:s.name},s.name)));
+    if(seasons.length>1) cmpSeason2Sel.value=seasons[1]?.name||seasons[0].name;
+    cmpSeason2Wrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Compare season'));
+    cmpSeason2Wrap.appendChild(cmpSeason2Sel);
+    ctrl.appendChild(cmpSeason2Wrap);
+
     // Op filter (shown when x=batches)
-    const opFilterWrap=h('div',{style:{display:'none',marginTop:'8px'}});
+    const opFilterWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
     const opFilter=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
     Object.keys(OPERATIONS).forEach(op=>opFilter.appendChild(h('option',{value:op},op)));
     opFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Operation'));
     opFilterWrap.appendChild(opFilter);
     ctrl.appendChild(opFilterWrap);
+
+    function updateFilterVisibility(){
+      const isSeason=chartMode==='season';
+      const isSnap=chartMode==='snapshot';
+      const isCmp=chartMode==='compare';
+      const xVal=xSel.value;
+      snapWrap.style.display=isSnap||isCmp?'block':'none';
+      cmp2Wrap.style.display=isCmp?'block':'none';
+      seasonFilterWrap.style.display=isSeason&&(xVal==='operations'||xVal==='batches')?'block':'none';
+      cmpSeason2Wrap.style.display=isCmp&&xVal==='seasons'?'block':'none';
+      opFilterWrap.style.display=xVal==='batches'?'block':'none';
+    }
 
     metricsArea.appendChild(ctrl);
 
@@ -1393,30 +1485,76 @@ function renderReportsScreen(){
       ctx2.fillStyle='#555';ctx2.fillText('Dead',pad.left+70,17);
     }
 
+    function getEntries(dateOrSeason){
+      // dateOrSeason is either a season object {start,end} or a date string for snapshot
+      if(typeof dateOrSeason==='string') return getSnapshotEntries(dateOrSeason);
+      return getSeasonEntries(dateOrSeason);
+    }
+
     function updateChart(){
+      updateFilterVisibility();
       const color=COLORS[ySel.value]||'#555';
       const yLabel=YLABELS[ySel.value]||'';
       let groups=[];
 
-      if(xSel.value==='seasons'){
-        seasonFilterWrap.style.display='none';opFilterWrap.style.display='none';
-        groups=seasons.map(s=>{const se=getSeasonEntries(s);return{label:s.name,vals:getValsFn(se),deadAlive:getDeadAlive(se)};});
-      } else if(xSel.value==='operations'){
-        seasonFilterWrap.style.display='block';opFilterWrap.style.display='none';
-        const season=seasons.find(s=>s.name===seasonFilter.value)||seasons[0];
-        const entries=getSeasonEntries(season);
-        groups=Object.keys(OPERATIONS).map(op=>({
-          label:op,
-          vals:getValsFn(entries.filter(e=>e._op===op)),
-          deadAlive:getDeadAlive(entries.filter(e=>e._op===op))
-        }));
+      const isSeason=chartMode==='season';
+      const isSnap=chartMode==='snapshot';
+      const isCmp=chartMode==='compare';
+      const xVal=xSel.value;
+
+      // Get primary data source
+      const getPrimary=()=>{
+        if(isSnap||isCmp) return snapDate.value||todayStr();
+        return seasons.find(s=>s.name===seasonFilter.value)||seasons[0];
+      };
+      const getSecondary=()=>{
+        if(isCmp) return snapDate2.value||todayStr();
+        return null;
+      };
+
+      if(xVal==='seasons'&&isSeason){
+        groups=seasons.map(s=>{const se=getEntries(s);return{label:s.name,vals:getValsFn(se),deadAlive:getDeadAlive(se)};});
+      } else if(xVal==='seasons'&&isCmp){
+        // Compare two snapshots side by side as two groups per season
+        const d1=snapDate.value||todayStr();
+        const d2=snapDate2.value||todayStr();
+        const e1=getSnapshotEntries(d1);
+        const e2=getSnapshotEntries(d2);
+        groups=[
+          {label:d1,vals:getValsFn(e1),deadAlive:getDeadAlive(e1)},
+          {label:d2,vals:getValsFn(e2),deadAlive:getDeadAlive(e2)}
+        ];
+      } else if(xVal==='operations'){
+        const primary=getPrimary();
+        const entries=getEntries(primary);
+        groups=Object.keys(OPERATIONS).map(op=>{
+          const oe=entries.filter(e=>e._op===op);
+          return{label:op,vals:getValsFn(oe),deadAlive:getDeadAlive(oe)};
+        });
+        if(isCmp){
+          const sec=getSecondary();
+          const entries2=getEntries(sec);
+          groups=Object.keys(OPERATIONS).flatMap(op=>{
+            const oe1=entries.filter(e=>e._op===op);
+            const oe2=entries2.filter(e=>e._op===op);
+            return[
+              {label:op+' ('+getPrimary()+')',vals:getValsFn(oe1),deadAlive:getDeadAlive(oe1)},
+              {label:op+' ('+sec+')',vals:getValsFn(oe2),deadAlive:getDeadAlive(oe2)}
+            ];
+          });
+        }
       } else {
-        seasonFilterWrap.style.display='block';opFilterWrap.style.display='block';
-        const season=seasons.find(s=>s.name===seasonFilter.value)||seasons[0];
+        const primary=getPrimary();
         const op=opFilter.value;
-        const entries=getSeasonEntries(season).filter(e=>e._op===op);
+        const entries=getEntries(primary).filter(e=>e._op===op);
         const batches=Object.keys(getYards(op));
         groups=batches.map(batch=>{const be=entries.filter(e=>e._batch===batch);return{label:batch,vals:getValsFn(be),deadAlive:getDeadAlive(be)};}).filter(g=>g.vals.length>0||g.deadAlive?.length>0);
+        if(isCmp){
+          const sec=getSecondary();
+          const entries2=getEntries(sec).filter(e=>e._op===op);
+          const cmpGroups=batches.map(batch=>{const be=entries2.filter(e=>e._batch===batch);return{label:batch+' ('+sec+')',vals:getValsFn(be),deadAlive:getDeadAlive(be)};}).filter(g=>g.vals.length>0||g.deadAlive?.length>0);
+          groups=[...groups,...cmpGroups];
+        }
       }
 
       if(ySel.value==='dead'){
@@ -1462,7 +1600,7 @@ function renderReportsScreen(){
       }
     }
 
-    xSel.addEventListener('change',updateChart);
+    xSel.addEventListener('change',()=>{updateFilterVisibility();updateChart();});
     ySel.addEventListener('change',updateChart);
     seasonFilter.addEventListener('change',updateChart);
     opFilter.addEventListener('change',updateChart);
