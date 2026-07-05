@@ -311,6 +311,7 @@ function getOrchardTotals(){
 }
 
 const ROUNDS = {
+  winter:{label:"Winter",short:"Winter",color:"#1a4a6a",bg:"#e0eaf5",fields:[]},
   spring:{label:"Spring",short:"Spring",color:"#3d7a4f",bg:"#e6f2eb",fields:[
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"light",label:"Light",type:"number"},
@@ -3128,19 +3129,9 @@ function renderForm(){
       pill.addEventListener('click',()=>{
         STATE.round=rk;
         // Re-render form with new round
-        const newRd=ROUNDS[rk];
-        seasonBar.style.background=newRd.bg||'#f8f8f6';
-        seasonBar.style.borderColor=newRd.color+'44';
-        seasonBar.querySelector('span').style.color=newRd.color;
-        seasonBar.querySelector('span').textContent=newRd.label+' round?';
-        [...seasonBar.querySelectorAll('button')].forEach(b=>{
-          const bRk=b.dataset.rk;
-          b.style.border='1.5px solid '+(STATE.round===bRk?newRd.color:'#ddd');
-          b.style.background=STATE.round===bRk?newRd.color:'#fff';
-          b.style.color=STATE.round===bRk?'#fff':'#888';
-        });
+        const parent=wrap.parentElement;
+        if(parent){parent.removeChild(wrap);parent.appendChild(renderForm());}
       });
-      pill.dataset.rk=rk;
       seasonBar.appendChild(pill);
     });
     wrap.appendChild(seasonBar);
