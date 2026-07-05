@@ -1010,6 +1010,20 @@ function renderOpSelector(){
   ));
   wrap.appendChild(repCard);
 
+  // Nucs card
+  const allNucData=loadNucYards();
+  const totalNucs=Object.values(allNucData).reduce((a,ny)=>a+ny.batches.reduce((b,bt)=>b+(bt.nucs||[]).length,0),0);
+  const totalMated=Object.values(allNucData).reduce((a,ny)=>a+ny.batches.reduce((b,bt)=>b+(bt.nucs||[]).filter(n=>n.status==='mated'||n.transferredTo).length,0),0);
+  const nucCard=h('button',{className:'op-card',style:{background:'#1f2e1a',border:'1.5px solid #3d7a4f33',marginTop:'10px'},onClick:()=>setState({op:'__nucs__'})});
+  nucCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    h('div',null,
+      h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Nucs'),
+      h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},totalNucs>0?totalNucs+' nucs · '+totalMated+' mated':'No nucs yet')
+    ),
+    h('div',{style:{fontSize:'22px',color:'#7ecb8f',opacity:'0.8'}},'›')
+  ));
+  wrap.appendChild(nucCard);
+
   wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'20px',color:'#fff',fontSize:'13px',fontWeight:'600',cursor:'pointer'},onClick:()=>{Object.keys(OPERATIONS).forEach(op=>exportCSV(op));}},'Export all data (CSV)'));
   return wrap;
 }
@@ -2122,10 +2136,12 @@ function renderOverviewTab(){
       else left.appendChild(h('div',{style:{fontSize:'12px',color:'#bbb'}},'No entries yet'));
       row.appendChild(left);
       const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center',flexShrink:'0'}});
-      // Find most recent entry with hives for display
-      const _allSiteE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
-      const entryWithHives=_allSiteE.find(e=>parseInt(e.hives)>0)||null;
-      const hivesToShow=entryWithHives?.hives||latest?.entry?.hives||null;
+      // Use movement-adjusted hive count (same as yard detail)
+      const _allSiteEWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
+      const _lastMov=_allSiteEWithMov[0]||null;
+      let hivesToShow=null;
+      if(_lastMov) hivesToShow=_lastMov.hives||null;
+      if(!hivesToShow){const _withH=_allSiteEWithMov.find(e=>parseInt(e.hives)>0);if(_withH)hivesToShow=_withH.hives;}
       if(hivesToShow)right.appendChild(h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'18px',fontWeight:'700',lineHeight:'1'}},hivesToShow),h('div',{style:{fontSize:'10px',color:'#999',textTransform:'uppercase'}},'hives')));
       if(avg!==null)right.appendChild(scoreCircle(avg,32,14));
       row.appendChild(right);card.appendChild(row);
@@ -2960,7 +2976,42 @@ function renderEntriesList(){
       });
       body.appendChild(csr);
     }
-    if(entry.comments)body.appendChild(h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}},entry.comments));
+    if(entry.comments){
+      if(entry._movement){
+        // Parse destination/source yard from movement comment and make it tappable
+        const commentDiv=h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}});
+        // Match "→ YardName" or "← YardName" at end of comment
+        const movMatch=entry.comments.match(/([→←])\s+(.+)$/);
+        if(movMatch){
+          const arrow=movMatch[1];
+          const targetYard=movMatch[2].trim();
+          const prefix=entry.comments.slice(0,entry.comments.lastIndexOf(movMatch[0]));
+          commentDiv.appendChild(document.createTextNode(prefix+arrow+' '));
+          // Find which op this yard belongs to
+          let targetOp=null,targetBatch=null;
+          Object.entries(OPERATIONS).forEach(([opName])=>{
+            Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+              if(batch.sites.includes(targetYard)){targetOp=opName;targetBatch=batchName;}
+            });
+          });
+          if(targetOp){
+            const link=h('span',{style:{color:'#1a6fb0',fontWeight:'600',cursor:'pointer',textDecoration:'underline'}},targetYard);
+            link.addEventListener('click',e=>{
+              e.stopPropagation();
+              setState({op:targetOp,tab:'diary',run:targetBatch,site:targetYard,diaryView:'entries'});
+            });
+            commentDiv.appendChild(link);
+          } else {
+            commentDiv.appendChild(document.createTextNode(targetYard));
+          }
+        } else {
+          commentDiv.appendChild(document.createTextNode(entry.comments));
+        }
+        body.appendChild(commentDiv);
+      } else {
+        body.appendChild(h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}},entry.comments));
+      }
+    }
     const btnRow=h('div',{style:{display:'flex',gap:'8px',marginTop:'10px'}});
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #bbb',borderRadius:'6px',fontSize:'13px',cursor:'pointer'},
       onClick:()=>setState({round:rk,diaryView:'form',editing:idx,formVals:{...entry}})},'Edit'));
@@ -3688,7 +3739,42 @@ function renderEntriesList(){
       });
       body.appendChild(csr);
     }
-    if(entry.comments)body.appendChild(h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}},entry.comments));
+    if(entry.comments){
+      if(entry._movement){
+        // Parse destination/source yard from movement comment and make it tappable
+        const commentDiv=h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}});
+        // Match "→ YardName" or "← YardName" at end of comment
+        const movMatch=entry.comments.match(/([→←])\s+(.+)$/);
+        if(movMatch){
+          const arrow=movMatch[1];
+          const targetYard=movMatch[2].trim();
+          const prefix=entry.comments.slice(0,entry.comments.lastIndexOf(movMatch[0]));
+          commentDiv.appendChild(document.createTextNode(prefix+arrow+' '));
+          // Find which op this yard belongs to
+          let targetOp=null,targetBatch=null;
+          Object.entries(OPERATIONS).forEach(([opName])=>{
+            Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+              if(batch.sites.includes(targetYard)){targetOp=opName;targetBatch=batchName;}
+            });
+          });
+          if(targetOp){
+            const link=h('span',{style:{color:'#1a6fb0',fontWeight:'600',cursor:'pointer',textDecoration:'underline'}},targetYard);
+            link.addEventListener('click',e=>{
+              e.stopPropagation();
+              setState({op:targetOp,tab:'diary',run:targetBatch,site:targetYard,diaryView:'entries'});
+            });
+            commentDiv.appendChild(link);
+          } else {
+            commentDiv.appendChild(document.createTextNode(targetYard));
+          }
+        } else {
+          commentDiv.appendChild(document.createTextNode(entry.comments));
+        }
+        body.appendChild(commentDiv);
+      } else {
+        body.appendChild(h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}},entry.comments));
+      }
+    }
     const btnRow=h('div',{style:{display:'flex',gap:'8px',marginTop:'10px'}});
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #bbb',borderRadius:'6px',fontSize:'13px',cursor:'pointer'},
       onClick:()=>setState({round:rk,diaryView:'form',editing:idx,formVals:{...entry}})},'Edit'));
@@ -5504,6 +5590,7 @@ function renderApp(){
   if(!op) return renderOpSelector();
   if(op==='__movements__') return renderMovementsScreen();
   if(op==='__reports__') return renderReportsScreen();
+  if(op==='__nucs__') return renderNucsScreen();
 
   const opData=OPERATIONS[op];
   document.documentElement.style.setProperty('--op-color',opData.color);
