@@ -2913,7 +2913,17 @@ function renderOverviewTab(){
       left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',marginBottom:'1px'}},site));
       left.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'2px'}},batchName));
       if(overdue)left.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#fff',background:'#e24b4a',borderRadius:'10px',padding:'2px 7px',display:'inline-block',marginBottom:'2px'}},!latest?'NOT VISITED':`${days}d ago`));
-      if(latest){left.appendChild(h('div',{style:{fontSize:'12px',color:'#777'}},latest.roundDef.short+' · '+fmtDate(latest.entry.date)+(!overdue&&days!==null?' · '+days+'d ago':'')));if(latest.entry.treatment)left.appendChild(h('div',{className:'tx-pill'},'Tx: '+latest.entry.treatment));}
+      if(latest){left.appendChild(h('div',{style:{fontSize:'12px',color:'#777'}},latest.roundDef.short+' · '+fmtDate(latest.entry.date)+(!overdue&&days!==null?' · '+days+'d ago':'')));if(latest.entry.treatment)left.appendChild(h('div',{className:'tx-pill'},'Tx: '+latest.entry.treatment));
+        const diseasesFound2=(latest.entry.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
+        if(diseasesFound2.length){
+          const dWrap=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'4px',marginTop:'3px'}});
+          diseasesFound2.forEach(d=>{
+            const col=DISEASE_COLORS[d]||'#c0392b';
+            dWrap.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:col,background:col+'18',border:'1px solid '+col+'44',borderRadius:'8px',padding:'1px 6px'}},DISEASE_LABELS[d]||d));
+          });
+          left.appendChild(dWrap);
+        }
+      }
       else left.appendChild(h('div',{style:{fontSize:'12px',color:'#bbb'}},'No entries yet'));
       row.appendChild(left);
       const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center',flexShrink:'0'}});
