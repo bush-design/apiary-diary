@@ -3353,9 +3353,43 @@ function renderEntriesList(){
     const chev=h('span',{style:{color:'#bbb',fontSize:'16px',flexShrink:'0'}},'▼');
     hdr.appendChild(chev);
     const body=h('div',{className:'entry-body'});
-    const skip=['date','comments','score_breakdown','treatment','logged_by'];
-    const fields=rd.fields.filter(f=>!skip.includes(f.key)&&entry[f.key]!==undefined&&entry[f.key]!=='');
-    if(fields.length){const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});fields.forEach(f=>grid.appendChild(h('div',null,h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),h('div',{style:{fontWeight:'600',fontSize:'14px'}},entry[f.key]))));body.appendChild(grid);}
+    // Show ALL non-empty fields from the entry
+    const ALL_FIELDS=[
+      {key:'hives',label:'Hives'},{key:'dead',label:'Dead'},{key:'singles',label:'Singles'},
+      {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
+      {key:'weak',label:'Weak'},{key:'check',label:'Check'},
+      // Requeening
+      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_needed',label:'Cell Needed'},
+      {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
+      {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
+      // Pollination
+      {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
+      {key:'pol_singles',label:'POL Singles'},
+      // Feed
+      {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
+      {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
+      // Harvest
+      {key:'fd_on',label:'FD on'},{key:'on_34',label:'3/4 on'},
+      {key:'fd_harv',label:'FD Harvested'},{key:'harv_34',label:'3/4 Harvested'},
+      {key:'harvest_pct',label:'% Full'},{key:'honeycomb_fd',label:'HC FD'},
+      {key:'honeycomb_hd',label:'HC ½'},{key:'best_hive_boxes',label:'Best Hive'},
+      // Disease/mites
+      {key:'mites_found',label:'Mites Found'},{key:'mites_tested',label:'Hives Tested'},
+      {key:'diseases',label:'Diseases'},
+    ];
+    const visFields=ALL_FIELDS.filter(f=>entry[f.key]!==undefined&&entry[f.key]!==null&&entry[f.key]!=='');
+    if(visFields.length){
+      const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});
+      visFields.forEach(f=>{
+        const val=String(entry[f.key]);
+        grid.appendChild(h('div',null,
+          h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
+          h('div',{style:{fontWeight:'600',fontSize:'14px',color:f.key==='dead'&&parseInt(val)>0?'#e24b4a':'#1a1a1a'}},
+            f.key==='harvest_pct'?val+'%':val)
+        ));
+      });
+      body.appendChild(grid);
+    }
     if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
     // Carrot score breakdown
     const cbd=entry.carrot_score||{};
@@ -4157,9 +4191,43 @@ function renderEntriesList(){
     const chev=h('span',{style:{color:'#bbb',fontSize:'16px',flexShrink:'0'}},'▼');
     hdr.appendChild(chev);
     const body=h('div',{className:'entry-body'});
-    const skip=['date','comments','score_breakdown','treatment','logged_by'];
-    const fields=rd.fields.filter(f=>!skip.includes(f.key)&&entry[f.key]!==undefined&&entry[f.key]!=='');
-    if(fields.length){const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});fields.forEach(f=>grid.appendChild(h('div',null,h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),h('div',{style:{fontWeight:'600',fontSize:'14px'}},entry[f.key]))));body.appendChild(grid);}
+    // Show ALL non-empty fields from the entry
+    const ALL_FIELDS=[
+      {key:'hives',label:'Hives'},{key:'dead',label:'Dead'},{key:'singles',label:'Singles'},
+      {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
+      {key:'weak',label:'Weak'},{key:'check',label:'Check'},
+      // Requeening
+      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_needed',label:'Cell Needed'},
+      {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
+      {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
+      // Pollination
+      {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
+      {key:'pol_singles',label:'POL Singles'},
+      // Feed
+      {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
+      {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
+      // Harvest
+      {key:'fd_on',label:'FD on'},{key:'on_34',label:'3/4 on'},
+      {key:'fd_harv',label:'FD Harvested'},{key:'harv_34',label:'3/4 Harvested'},
+      {key:'harvest_pct',label:'% Full'},{key:'honeycomb_fd',label:'HC FD'},
+      {key:'honeycomb_hd',label:'HC ½'},{key:'best_hive_boxes',label:'Best Hive'},
+      // Disease/mites
+      {key:'mites_found',label:'Mites Found'},{key:'mites_tested',label:'Hives Tested'},
+      {key:'diseases',label:'Diseases'},
+    ];
+    const visFields=ALL_FIELDS.filter(f=>entry[f.key]!==undefined&&entry[f.key]!==null&&entry[f.key]!=='');
+    if(visFields.length){
+      const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});
+      visFields.forEach(f=>{
+        const val=String(entry[f.key]);
+        grid.appendChild(h('div',null,
+          h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
+          h('div',{style:{fontWeight:'600',fontSize:'14px',color:f.key==='dead'&&parseInt(val)>0?'#e24b4a':'#1a1a1a'}},
+            f.key==='harvest_pct'?val+'%':val)
+        ));
+      });
+      body.appendChild(grid);
+    }
     if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
     // Carrot score breakdown
     const cbd=entry.carrot_score||{};
