@@ -4488,7 +4488,7 @@ function showFlagModal(op, site){
     const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
       onClick:()=>{setFlag(op,site,null).then(()=>setState({}));showToast('Flag removed');overlay.remove();}
-    },'Yes, remove'));
+    },'Yes, continue'));
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
       onClick:()=>overlay.remove()
     },'No, keep'));
@@ -4526,7 +4526,7 @@ function confirmAction(msg, onConfirm){
   box.appendChild(h('div',{style:{fontSize:'14px',color:'#555',marginBottom:'20px'}},msg));
   const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
   btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
-    onClick:()=>{overlay.remove();onConfirm();}},'Yes, remove'));
+    onClick:()=>{overlay.remove();onConfirm();}},'Yes, continue'));
   btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
     onClick:()=>overlay.remove()},'Cancel'));
   box.appendChild(btnRow);
@@ -5920,7 +5920,7 @@ function renderMovementsScreen(){
                 showToast(orchard+' removed');
                 setState({tab:'manage_orchards'});
               }
-            },'Yes, remove'));
+            },'Yes, continue'));
             btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
               onClick:()=>overlay.remove()},'Cancel'));
             box.appendChild(btnRow);
