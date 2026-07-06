@@ -2618,7 +2618,7 @@ function renderOverviewTab(){
       const avg=ac>0?Math.round(at/ac):null;
       const afbInq2=getAFBInquiry(op,site);
       const card=h('div',{className:'card'+(overdue?' overdue':''),style:{position:'relative',overflow:'hidden',flexDirection:'column',alignItems:'stretch',border:afbInq2?'2px solid #c0392b':''},onClick:()=>setState({tab:'diary',run:batchName,site,diaryView:'entries',round:STATE.round})});
-      if(afbInq2) card.appendChild(h('div',{style:{position:'absolute',top:'0',right:'0',background:'#c0392b',color:'#fff',fontSize:'9px',fontWeight:'800',padding:'2px 7px',borderRadius:'0 8px 0 5px',letterSpacing:'.05em'}},'⚠ AFB'));
+
       const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
       const left=h('div',{style:{flex:'1',paddingRight:'8px'}});
       left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',marginBottom:'1px'}},site));
@@ -3200,8 +3200,8 @@ function renderSitesList(){
     // Flag / check
     if(afb){
       body.appendChild(h('div',{style:{background:'#fde8e8',border:'1px solid #c0392b',borderRadius:'6px',padding:'6px 10px',fontSize:'12px',color:'#c0392b',fontWeight:'700',marginBottom:'6px',display:'flex',justifyContent:'space-between'}},
-        h('span',null,'⚠ AFB found'),
-        h('span',{style:{fontWeight:'400',color:'#e24b4a'}},fmtDate(afb.date))
+        h('span',null,'⚠ AFB Under Inquiry'),
+        h('span',{style:{fontWeight:'400',color:'#e24b4a'}},'since '+fmtDate(afb.date))
       ));
     }
     if(flag){
@@ -3228,6 +3228,7 @@ function renderSitesList(){
 
 function renderEntriesList(){
   const op=STATE.op,site=STATE.site;
+  const afb2=getAFBInquiry(op,site);
   const opData=OPERATIONS[op];
   // Gather ALL entries across all rounds, tag with round, sort newest first
   const allEntries=[];
@@ -3325,6 +3326,14 @@ function renderEntriesList(){
   // Last visited
   summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},
     latestReal?'Last visit: '+fmtDate(latestReal.date)+(days!==null?' · '+days+'d ago':''):(currentHives>0?'No diary entries yet':'Not yet visited')));
+
+  // AFB Under Inquiry banner in summary card
+  if(afb2){
+    summaryPanel.appendChild(h('div',{style:{background:'rgba(192,57,43,0.25)',border:'1px solid rgba(192,57,43,0.6)',borderRadius:'8px',padding:'7px 10px',marginBottom:'8px',fontSize:'12px',color:'#ff9090',fontWeight:'700',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+      h('span',null,'⚠ AFB Under Inquiry'),
+      h('span',{style:{fontWeight:'400',fontSize:'11px'}},'since '+fmtDate(afb2.date))
+    ));
+  }
 
   if(latestReal||currentHives>0){
     // Hive counts row — use movement-adjusted count for hives
@@ -4144,6 +4153,7 @@ function renderForm(){
 
 function renderEntriesList(){
   const op=STATE.op,site=STATE.site;
+  const afb2=getAFBInquiry(op,site);
   const opData=OPERATIONS[op];
   // Gather ALL entries across all rounds, tag with round, sort newest first
   const allEntries=[];
