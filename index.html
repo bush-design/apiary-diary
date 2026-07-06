@@ -880,6 +880,36 @@ function calcSummary(opName){
   return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
 }
 
+// ── Shared: carry-forward hive-state fields for a single site, as of an optional cutoff date ──
+// Mirrors calcSummary's per-field "last known value" logic so reports and the dashboard agree.
+const HIVE_STATE_FIELDS=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
+const HIVE_STATE_NONZERO_FIELDS=['singles','doubles','light','weak','lids_floors'];
+function getSiteHiveState(opName,site,cutoffDate){
+  const allSiteEntries=Object.keys(ROUNDS)
+    .flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]))
+    .filter(e=>!e._movement&&(!cutoffDate||e.date<=cutoffDate))
+    .sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||'');
+      return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
+    });
+  const lastVal=k=>{
+    for(const e of allSiteEntries){
+      const raw=e[k];
+      if(raw===undefined||raw===null||raw==='') continue;
+      const v=parseInt(raw);
+      if(!isNaN(v)){
+        if(HIVE_STATE_NONZERO_FIELDS.includes(k)){if(v>0) return v;}
+        else if(HIVE_STATE_FIELDS.includes(k)) return v;
+        else if(v>0) return v;
+      }
+    }
+    return 0;
+  };
+  const out={lids_floors:lastVal('lids_floors')};
+  HIVE_STATE_FIELDS.forEach(k=>{out[k]=lastVal(k);});
+  return out;
+}
+
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 function h(tag,attrs,...children){
   const el=document.createElement(tag);
@@ -1417,8 +1447,15 @@ function renderReportsScreen(){
             const dc=(b.date||'').localeCompare(a.date||'');
             return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
           });
-          // Only take the most recent entry per site
-          if(siteEntries.length>0) entries.push(siteEntries[0]);
+          if(siteEntries.length===0) return;
+          // Episodic fields (score, mites, diseases, treatment, date) come from the
+          // single most recent visit — but hive-state fields (hives, dead, singles,
+          // doubles, light, weak) are carried forward field-by-field, same as the
+          // dashboard's calcSummary(), so a follow-up visit that didn't re-log every
+          // field doesn't wrongly zero out counts that are still true.
+          const latest={...siteEntries[0]};
+          Object.assign(latest,getSiteHiveState(opName,site,snapshotDate));
+          entries.push(latest);
         });
       });
     });
