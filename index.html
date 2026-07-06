@@ -470,7 +470,7 @@ async function setFlag(op,site,comment){
 // ── State ─────────────────────────────────────────────────────────────────────
 let STATE={
   op:null,tab:'overview',round:'spring',
-  run:null,site:null,diaryView:'runs',editing:null,selectedOrchard:null,
+  run:null,site:null,diaryView:'runs',editing:null,editingOriginalRound:null,selectedOrchard:null,
   entries:loadLocal(),formVals:{},
   syncStatus:'online', // online|syncing|offline|error
   userName: localStorage.getItem('apiary_user')||null,
@@ -3835,7 +3835,7 @@ function renderEntriesList(){
     }
     const btnRow=h('div',{style:{display:'flex',gap:'8px',marginTop:'10px'}});
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #bbb',borderRadius:'6px',fontSize:'13px',cursor:'pointer'},
-      onClick:()=>setState({round:rk,diaryView:'form',editing:idx,formVals:{...entry}})},'Edit'));
+      onClick:()=>setState({round:rk,diaryView:'form',editing:idx,editingOriginalRound:rk,formVals:{...entry}})},'Edit'));
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',fontSize:'13px',color:'#c0392b',cursor:'pointer'},onClick:()=>{
       confirmAction('This will permanently delete this diary entry.',async()=>{
         const k=eKey(op,site,rk);
@@ -3935,12 +3935,12 @@ function renderForm(){
 
   // Header
   const topRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'12px'}});
-  topRow.appendChild(h('button',{style:{background:'none',border:'none',fontSize:'22px',cursor:'pointer',color:'#555',padding:'0'},onClick:()=>setState({diaryView:'entries',editing:null})},'←'));
+  topRow.appendChild(h('button',{style:{background:'none',border:'none',fontSize:'22px',cursor:'pointer',color:'#555',padding:'0'},onClick:()=>setState({diaryView:'entries',editing:null,editingOriginalRound:null})},'←'));
   topRow.appendChild(h('div',null,h('div',{style:{fontWeight:'600',fontSize:'16px'}},site),h('div',{style:{fontSize:'12px',color:rd.color,fontWeight:'600'}},rd.label)));
   wrap.appendChild(topRow);
 
-  // Season confirmation — quick tap to change if wrong
-  if(STATE.editing===null){
+  // Season confirmation — quick tap to change if wrong (also editable when editing an existing entry)
+  {
     const seasonBar=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',padding:'8px 12px',background:rd.bg||'#f8f8f6',borderRadius:'10px',border:'.5px solid '+rd.color+'44'}});
     seasonBar.appendChild(h('span',{style:{fontSize:'13px',color:rd.color,fontWeight:'700',flex:'1'}},rd.label+' round?'));
     // Round pills
@@ -4366,17 +4366,33 @@ function renderForm(){
         saved_at:new Date().toISOString(),
         logged_at:STATE.editing!==null?(formData.logged_at||new Date().toISOString()):new Date().toISOString()
       };
+      // If editing, the entry may currently live in a different round "bucket" than
+      // the one now selected (STATE.round), if the season pill was changed. Track the
+      // bucket it started in (editingOriginalRound) so we move it correctly instead of
+      // overwriting/corrupting whatever happens to sit at the same index in the new bucket.
+      const originalRound=STATE.editing!==null?(STATE.editingOriginalRound||STATE.round):STATE.round;
+      const roundChanged=STATE.editing!==null&&originalRound!==STATE.round;
       const k=eKey(op,site,STATE.round);
-      const existing=STATE.entries[k]||[];
+      const originalK=eKey(op,site,originalRound);
+      const existing=STATE.entries[originalK]||[];
       let updated;
-      if(STATE.editing!==null){updated={...STATE.entries,[k]:existing.map((e,i)=>i===STATE.editing?entry:e)};}
+      if(STATE.editing!==null){
+        if(roundChanged){
+          const remaining=existing.filter((e,i)=>i!==STATE.editing);
+          const destExisting=STATE.entries[k]||[];
+          updated={...STATE.entries,[originalK]:remaining,[k]:[entry,...destExisting]};
+        } else {
+          updated={...STATE.entries,[k]:existing.map((e,i)=>i===STATE.editing?entry:e)};
+        }
+      }
       else{updated={...STATE.entries,[k]:[entry,...existing]};}
       saveLocal(updated);
       STATE.entries=updated;
       maybeSendReport(op);
       showToast('Entry saved');
-      setState({entries:updated,diaryView:'entries',editing:null});
+      setState({entries:updated,diaryView:'entries',editing:null,editingOriginalRound:null});
       pushToSupabase(k,updated[k]).catch(e=>console.warn('Supabase push failed:',e));
+      if(roundChanged) pushToSupabase(originalK,updated[originalK]).catch(e=>console.warn('Supabase push failed:',e));
       if(_flag&&entry.comments){setFlag(op,site,entry.comments);}
       else if(STATE.editing!==null&&getFlag(op,site)&&entry.comments){setFlag(op,site,entry.comments);}
       // AFB inquiry — store date found, auto-expires after 2 years
@@ -4755,7 +4771,7 @@ function renderEntriesList(){
     }
     const btnRow=h('div',{style:{display:'flex',gap:'8px',marginTop:'10px'}});
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #bbb',borderRadius:'6px',fontSize:'13px',cursor:'pointer'},
-      onClick:()=>setState({round:rk,diaryView:'form',editing:idx,formVals:{...entry}})},'Edit'));
+      onClick:()=>setState({round:rk,diaryView:'form',editing:idx,editingOriginalRound:rk,formVals:{...entry}})},'Edit'));
     btnRow.appendChild(h('button',{style:{flex:'1',padding:'8px',background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',fontSize:'13px',color:'#c0392b',cursor:'pointer'},onClick:()=>{
       confirmAction('This will permanently delete this diary entry.',async()=>{
         const k=eKey(op,site,rk);
