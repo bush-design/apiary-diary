@@ -3684,7 +3684,20 @@ function renderForm(){
   // Date
   fc.appendChild(h('label',{className:'lbl'},'Date'));
   const di=h('input',{type:'date',value:vals.date||todayStr(),style:{display:'block',width:'100%',padding:'9px 10px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',background:'#fafafa',marginBottom:'14px'}});
-  di.addEventListener('change',e=>STATE.formVals.date=e.target.value);
+  di.addEventListener('change',e=>{
+    STATE.formVals.date=e.target.value;
+    // Auto-update round based on new date month
+    const mo=parseInt((e.target.value||'').split('-')[1]);
+    if(mo){
+      const newRound=mo>=6&&mo<=7?'winter':mo>=8&&mo<=11?'spring':mo>=12||mo<=3?'clover':'queen';
+      if(newRound!==STATE.round){
+        STATE.round=newRound;
+        // Re-render form with new round
+        const parent=wrap.parentElement;
+        if(parent){parent.removeChild(wrap);parent.appendChild(renderForm());}
+      }
+    }
+  });
   fc.appendChild(di);
 
   // ── Quick entry grid — 2 per row square tiles ──
