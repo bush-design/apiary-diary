@@ -4694,7 +4694,19 @@ function showFlagModal(op, site){
 
   if(flag){
     // Existing flag — ask to remove
-    card.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'6px'}},site));
+    // Site name — tappable to go to yard
+    const siteTitleRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}});
+    siteTitleRow.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px'}},site));
+    // Find which batch/op this site belongs to
+    let siteOp=op,siteBatch=null;
+    Object.entries(getYards(op)).forEach(([batch,data])=>{if(data.sites.includes(site)){siteBatch=batch;}});
+    if(siteBatch){
+      const goBtn=h('button',{style:{background:'none',border:'.5px solid #1a6fb0',borderRadius:'6px',padding:'4px 10px',fontSize:'12px',color:'#1a6fb0',fontWeight:'600',cursor:'pointer'},
+        onClick:()=>{overlay.remove();setState({op:siteOp,tab:'diary',run:siteBatch,site,diaryView:'entries'});}
+      },'Go to yard →');
+      siteTitleRow.appendChild(goBtn);
+    }
+    card.appendChild(siteTitleRow);
     card.appendChild(h('div',{style:{fontSize:'13px',color:'#b07800',background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'10px 12px',marginBottom:'6px'}},'! '+flag.comment));
     card.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'20px'}},fmtDate(flag.date)+(flag.by?' · '+flag.by:'')));
     card.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'600',marginBottom:'14px'}},'Remove this flag?'));
