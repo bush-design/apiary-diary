@@ -1470,17 +1470,34 @@ function renderReportsScreen(){
     return Object.values(siteMap).map(s=>s.dead/s.hives*100);
   }
 
-  function getDeadAlive(entries){
-    // Use most recent entry per site — never sum across multiple visits
+  function getDeadAlive(entries, useAllTime){
+    // Use most recent entry per site
     const siteMap={};
-    // Sort newest first so first entry per site = most recent
-    const sorted=[...entries].filter(e=>!e._movement).sort((a,b)=>{
+    // If useAllTime, get truly most recent across all entries not just season
+    let pool=entries;
+    if(useAllTime){
+      // Get all entries across all ops/sites up to today
+      const allE=[];
+      Object.entries(OPERATIONS).forEach(([opName])=>{
+        Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+          batch.sites.forEach(site=>{
+            Object.keys(ROUNDS).forEach(rk=>{
+              (STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement).forEach(e=>{
+                allE.push({...e,_op:opName,_batch:batchName,_site:site});
+              });
+            });
+          });
+        });
+      });
+      pool=allE;
+    }
+    const sorted=[...pool].filter(e=>!e._movement).sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||'');
       return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
     });
     sorted.forEach(e=>{
       const k=e._op+'__'+e._site;
-      if(siteMap[k]) return; // already have most recent
+      if(siteMap[k]) return;
       const hives=parseInt(e.hives)||0;
       const dead=parseInt(e.dead)||0;
       if(hives>0) siteMap[k]={hives,dead};
@@ -1501,6 +1518,87 @@ function renderReportsScreen(){
     const outliers=sorted.filter(v=>v<min||v>max);
     const mean=vals.reduce((a,b)=>a+b,0)/n;
     return{q1,median,q3,min,max,mean,outliers,n};
+  }
+
+  function drawLineGraph(canvas, series, yLabel){
+    const dpr=window.devicePixelRatio||1;
+    const ctx3=canvas.getContext('2d');
+    ctx3.setTransform(1,0,0,1,0,0);
+    ctx3.clearRect(0,0,canvas.width,canvas.height);
+    ctx3.scale(dpr,dpr);
+    const W=canvas.width/dpr, H=canvas.height/dpr;
+    const pad={top:30,bottom:60,left:50,right:20};
+    const chartW=W-pad.left-pad.right;
+    const chartH=H-pad.top-pad.bottom;
+    if(!series.length||!series.some(s=>s.points.length>0)){
+      ctx3.fillStyle='#bbb';ctx3.font='13px system-ui';ctx3.textAlign='center';
+      ctx3.fillText('No data',W/2,H/2);return;
+    }
+    const allX=[...new Set(series.flatMap(s=>s.points.map(p=>p.x)))];
+    const allY=series.flatMap(s=>s.points.map(p=>p.y));
+    if(!allY.length) return;
+    const yMin=0;
+    const yMax=Math.max(...allY)*1.15||1;
+    const toX=i=>pad.left+(allX.length>1?chartW*(i/(allX.length-1)):chartW/2);
+    const toY=v=>pad.top+chartH-(v/yMax*chartH);
+    // Grid lines
+    ctx3.strokeStyle='#e8e8e6';ctx3.lineWidth=1;
+    for(let i=0;i<=4;i++){
+      const v=yMax*i/4;
+      const y=toY(v);
+      ctx3.beginPath();ctx3.moveTo(pad.left,y);ctx3.lineTo(pad.left+chartW,y);ctx3.stroke();
+      ctx3.fillStyle='#888';ctx3.font='bold 11px system-ui';ctx3.textAlign='right';
+      ctx3.fillText(v.toFixed(1),pad.left-4,y+4);
+    }
+    // X labels
+    allX.forEach((lbl,i)=>{
+      const x=toX(i);
+      ctx3.fillStyle='#555';ctx3.font='bold 11px system-ui';ctx3.textAlign='center';
+      const short=lbl.length>9?lbl.substring(0,8)+'…':lbl;
+      ctx3.fillText(short,x,H-pad.bottom+16);
+      ctx3.strokeStyle='#f0f0ee';ctx3.lineWidth=1;
+      ctx3.beginPath();ctx3.moveTo(x,pad.top);ctx3.lineTo(x,pad.top+chartH);ctx3.stroke();
+    });
+    // Y label
+    ctx3.save();ctx3.translate(14,pad.top+chartH/2);ctx3.rotate(-Math.PI/2);
+    ctx3.fillStyle='#555';ctx3.font='bold 11px system-ui';ctx3.textAlign='center';
+    ctx3.fillText(yLabel,0,0);ctx3.restore();
+    // Draw series
+    series.forEach(s=>{
+      if(!s.points.length) return;
+      const pts=allX.map((x,i)=>({x,i,p:s.points.find(p=>p.x===x)||null}));
+      // Line
+      ctx3.strokeStyle=s.color;ctx3.lineWidth=2.5;ctx3.beginPath();
+      let started=false;
+      pts.forEach(({i,p})=>{
+        if(!p) return;
+        const px=toX(i),py=toY(p.y);
+        if(!started){ctx3.moveTo(px,py);started=true;}
+        else ctx3.lineTo(px,py);
+      });
+      ctx3.stroke();
+      // Average dashed line
+      const avg=s.points.reduce((a,p)=>a+p.y,0)/s.points.length;
+      ctx3.strokeStyle=s.color+'66';ctx3.lineWidth=1;ctx3.setLineDash([4,4]);
+      ctx3.beginPath();ctx3.moveTo(pad.left,toY(avg));ctx3.lineTo(pad.left+chartW,toY(avg));ctx3.stroke();
+      ctx3.setLineDash([]);
+      // Dots and labels
+      pts.forEach(({i,p})=>{
+        if(!p) return;
+        const px=toX(i),py=toY(p.y);
+        ctx3.fillStyle='#fff';ctx3.beginPath();ctx3.arc(px,py,5,0,Math.PI*2);ctx3.fill();
+        ctx3.fillStyle=s.color;ctx3.beginPath();ctx3.arc(px,py,3.5,0,Math.PI*2);ctx3.fill();
+        ctx3.fillStyle=s.color;ctx3.font='bold 10px system-ui';ctx3.textAlign='center';
+        ctx3.fillText(p.y.toFixed(1),px,py-10);
+      });
+    });
+    // Legend
+    series.forEach((s,i)=>{
+      const lx=pad.left+i*100;if(lx>W-60) return;
+      ctx3.fillStyle=s.color;ctx3.fillRect(lx,8,14,3);
+      ctx3.fillStyle='#333';ctx3.font='10px system-ui';ctx3.textAlign='left';
+      ctx3.fillText(s.label,lx+18,16);
+    });
   }
 
   function drawMiteBarChart(canvas, groups, yLabel){
@@ -2035,8 +2133,8 @@ function renderReportsScreen(){
           const ranges=getSeasonRanges(yr);
           groups=Object.entries(ranges).map(([rk,sr])=>{
             const se=getSeasonEntries(sr);
-            return{label:sr.label,vals:getValsFn(se),deadAlive:getDeadAlive(se)};
-          });
+            return{label:sr.label,vals:getValsFn(se),deadAlive:getDeadAlive(se,false)};
+          }).filter(g=>g.deadAlive.length>0||g.vals.length>0);
         }
       } else if(xVal==='seasons'){
         // Season mode: show selected season across all defined years
@@ -2052,13 +2150,19 @@ function renderReportsScreen(){
         const entries=getEntriesForMode();
         groups=Object.keys(OPERATIONS).map(op=>{
           const oe=entries.filter(e=>e._op===op);
-          return{label:op,vals:getValsFn(oe),deadAlive:getDeadAlive(oe)};
+          // For dead/alive: snapshot already has most recent per site, just sum directly
+          const da=oe.map(e=>({hives:(parseInt(e.hives)||0),dead:(parseInt(e.dead)||0)})).filter(s=>s.hives>0);
+          return{label:op,vals:getValsFn(oe),deadAlive:da};
         });
       } else {
         const op=opFilter.value;
         const entries=getEntriesForMode().filter(e=>e._op===op);
         const batches=Object.keys(getYards(op));
-        groups=batches.map(batch=>{const be=entries.filter(e=>e._batch===batch);return{label:batch,vals:getValsFn(be),deadAlive:getDeadAlive(be)};}).filter(g=>g.vals.length>0||g.deadAlive?.length>0);
+        groups=batches.map(batch=>{
+          const be=entries.filter(e=>e._batch===batch);
+          const da=be.map(e=>({hives:(parseInt(e.hives)||0),dead:(parseInt(e.dead)||0)})).filter(s=>s.hives>0);
+          return{label:batch,vals:getValsFn(be),deadAlive:da};
+        }).filter(g=>g.vals.length>0||g.deadAlive?.length>0);
       }
 
       // Disease mode for non-trend charts — bar chart showing % affected per group
@@ -2144,8 +2248,8 @@ function renderReportsScreen(){
         // Stacked bar for dead vs alive
         const deadGroups=groups.map(g=>({
           label:g.label,
-          totalHives:g.deadAlive?g.deadAlive.reduce((a,s)=>a+s.hives,0):0,
-          totalDead:g.deadAlive?g.deadAlive.reduce((a,s)=>a+s.dead,0):0
+          totalHives:g.deadAlive?g.deadAlive.reduce((a,s)=>a+(parseInt(s.hives)||0),0):0,
+          totalDead:g.deadAlive?g.deadAlive.reduce((a,s)=>a+(parseInt(s.dead)||0),0):0
         }));
         drawStackedBar(canvas,deadGroups);
         statsArea.innerHTML='';
