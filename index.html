@@ -325,6 +325,8 @@ function getOrchardTotals(){
   return totals;
 }
 
+// Display labels for disease codes — storage keys stay short (e.g. 'HMS') for compatibility with existing entries
+const DISEASE_LABELS={HMS:'Half Moon Syndrome'};
 const ROUNDS = {
   winter:{label:"Winter",short:"Winter",color:"#1a4a6a",bg:"#e0eaf5",fields:[]},
   spring:{label:"Spring",short:"Spring",color:"#3d7a4f",bg:"#e6f2eb",fields:[
@@ -1896,7 +1898,7 @@ function renderReportsScreen(){
     const diseasePills=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px'}});
     DISEASES_LIST.forEach(d=>{
       const col=DISEASE_COLORS[d]||'#555';
-      const pill=h('button',{type:'button',style:{padding:'5px 12px',borderRadius:'20px',border:'1.5px solid '+(selectedDiseases.has(d)?col:'#ddd'),background:selectedDiseases.has(d)?col+'18':'#fff',color:selectedDiseases.has(d)?col:'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},d);
+      const pill=h('button',{type:'button',style:{padding:'5px 12px',borderRadius:'20px',border:'1.5px solid '+(selectedDiseases.has(d)?col:'#ddd'),background:selectedDiseases.has(d)?col+'18':'#fff',color:selectedDiseases.has(d)?col:'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},DISEASE_LABELS[d]||d);
       pill.addEventListener('click',()=>{
         if(selectedDiseases.has(d))selectedDiseases.delete(d);else selectedDiseases.add(d);
         pill.style.border='1.5px solid '+(selectedDiseases.has(d)?col:'#ddd');
@@ -2397,7 +2399,7 @@ function renderReportsScreen(){
         // Header
         const hdr=h('div',{style:{padding:'8px 12px',background:d==='AFB'?'#fde8e8':'#fff8e6',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}});
         const hdrLeft=h('div',null);
-        hdrLeft.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'700',color:d==='AFB'?'#c0392b':'#b07800'}},d));
+        hdrLeft.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'700',color:d==='AFB'?'#c0392b':'#b07800'}},DISEASE_LABELS[d]||d));
         hdrLeft.appendChild(h('span',{style:{fontSize:'11px',color:'#888',marginLeft:'8px'}},uniqueSites+' site'+(uniqueSites!==1?'s':'')+' · '+totalRecordings+' recording'+(totalRecordings!==1?'s':'')+' · '+pct+'% of yards'));
         hdr.appendChild(hdrLeft);
         const chev=h('span',{style:{color:'#aaa',fontSize:'13px'}},'▼');
@@ -4171,7 +4173,7 @@ function renderForm(){
         });
         fw.appendChild(grid);
       } else if(f.type==='disease_checks'){
-        const DISEASES=['AFB','Varroa','Sacbrood','Chalkbrood','HMS','Nosema'];
+        const DISEASES=['Varroa','AFB','Sacbrood','Chalkbrood','HMS','Nosema'];
         const existing=(vals.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
         const found=new Set(existing);
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'8px'}},'Diseases found'));
@@ -4251,24 +4253,45 @@ function renderForm(){
 
 
         DISEASES.forEach(disease=>{
-          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',borderRadius:'8px',background:found.has(disease)?'#fde8e8':'#f8f8f6',border:found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee'},'data-disease':disease});
-          row.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'600',color:found.has(disease)?'#c0392b':'#444'}},disease+(disease==='AFB'?' ⚠':'')) );
+          const boxWrap=h('div',{style:{padding:'8px 10px',borderRadius:'8px',background:found.has(disease)?'#fde8e8':'#f8f8f6',border:found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee'},'data-disease':disease});
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}});
+          row.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'600',color:found.has(disease)?'#c0392b':'#444'}},(DISEASE_LABELS[disease]||disease)+(disease==='AFB'?' ⚠':'')) );
           const btn=h('button',{type:'button',style:{padding:'5px 14px',borderRadius:'20px',border:found.has(disease)?'1.5px solid #c0392b':'1.5px solid #ddd',background:found.has(disease)?'#c0392b':'#fff',color:found.has(disease)?'#fff':'#aaa',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},found.has(disease)?'Found':'Not found');
           // Hive count input — shown when disease is found
           const countKey='disease_count_'+disease.toLowerCase().replace(/\s/g,'_');
-          const countWrap=h('div',{style:{display:found.has(disease)?'flex':'none',alignItems:'center',gap:'6px',marginTop:'6px'}});
+          const countWrap=h('div',{style:{display:found.has(disease)?'flex':'none',alignItems:'center',gap:'6px',marginTop:'8px'}});
           const countInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'60px',padding:'5px 8px',border:'.5px solid #c0392b',borderRadius:'6px',fontSize:'14px',fontWeight:'700',background:'#fff',textAlign:'center'}});
           countInp.value=vals[countKey]||'';
           countInp.addEventListener('input',e=>STATE.formVals[countKey]=e.target.value);
           countWrap.appendChild(countInp);
-          countWrap.appendChild(h('span',{style:{fontSize:'12px',color:'#c0392b'}},'hives'));
+
+          if(disease==='Varroa'){
+            // Symptom tags in place of the plain "hives" label — DFW / PMS, multi-select toggle pills
+            const tagKey='disease_tags_varroa';
+            const activeTags=new Set((vals[tagKey]||'').split(',').map(s=>s.trim()).filter(Boolean));
+            const tagWrap=h('div',{style:{display:'flex',gap:'6px',marginLeft:'4px'}});
+            ['DFW','PMS'].forEach(tag=>{
+              const tagBtn=h('button',{type:'button',style:{padding:'5px 12px',borderRadius:'14px',border:activeTags.has(tag)?'1.5px solid #c0392b':'1.5px solid #ddd',background:activeTags.has(tag)?'#c0392b':'#fff',color:activeTags.has(tag)?'#fff':'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},tag);
+              tagBtn.addEventListener('click',()=>{
+                if(activeTags.has(tag)){activeTags.delete(tag);}else{activeTags.add(tag);}
+                STATE.formVals[tagKey]=[...activeTags].join(', ');
+                tagBtn.style.background=activeTags.has(tag)?'#c0392b':'#fff';
+                tagBtn.style.color=activeTags.has(tag)?'#fff':'#888';
+                tagBtn.style.border=activeTags.has(tag)?'1.5px solid #c0392b':'1.5px solid #ddd';
+              });
+              tagWrap.appendChild(tagBtn);
+            });
+            countWrap.appendChild(tagWrap);
+          } else {
+            countWrap.appendChild(h('span',{style:{fontSize:'12px',color:'#c0392b'}},'hives'));
+          }
 
           btn.addEventListener('click',()=>{
             if(found.has(disease)){found.delete(disease);}
             else{found.add(disease);}
             STATE.formVals.diseases=[...found].join(', ');
-            row.style.background=found.has(disease)?'#fde8e8':'#f8f8f6';
-            row.style.border=found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee';
+            boxWrap.style.background=found.has(disease)?'#fde8e8':'#f8f8f6';
+            boxWrap.style.border=found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee';
             row.querySelector('span').style.color=found.has(disease)?'#c0392b':'#444';
             btn.style.background=found.has(disease)?'#c0392b':'#fff';
             btn.style.color=found.has(disease)?'#fff':'#aaa';
@@ -4277,11 +4300,9 @@ function renderForm(){
             countWrap.style.display=found.has(disease)?'flex':'none';
           });
           row.appendChild(btn);
-          // Stack: top row has name+btn, bottom has count
-          const rowWrap=h('div',{style:{background:'inherit',borderRadius:'8px'}});
-          rowWrap.appendChild(row);
-          rowWrap.appendChild(countWrap);
-          diseaseList.appendChild(rowWrap);
+          boxWrap.appendChild(row);
+          boxWrap.appendChild(countWrap);
+          diseaseList.appendChild(boxWrap);
         });
         fw.appendChild(diseaseList);
       } else if(f.type==='percent'){
