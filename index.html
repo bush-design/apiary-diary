@@ -2520,6 +2520,37 @@ function renderSummaryPanel(opName){
     [0,1,2,3,4,5,6].forEach(i=>{const cnt=s.barCounts[i];const bh=cnt>0?Math.max(6,Math.round((cnt/maxBar)*28)):3;bars.appendChild(h('div',{style:{flex:'1',display:'flex',flexDirection:'column',alignItems:'center',gap:'3px'}},h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.5)',lineHeight:'1'}},cnt>0?cnt:''),h('div',{style:{width:'100%',height:bh+'px',background:scoreColor(i),borderRadius:'2px',opacity:cnt>0?'1':'0.18'}}),h('div',{style:{fontSize:'9px',color:'rgba(255,255,255,0.45)',lineHeight:'1'}},i===6?'6+':i)));});
     sr.appendChild(bars);sw.appendChild(sr);panel.appendChild(sw);
   }
+  // AFB Under Enquiry sites
+  const allSites2=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  const afbSites=allSites2.filter(site=>getAFBInquiry(opName,site));
+  if(afbSites.length>0){
+    const afbOpen={open:false};
+    const afbBtn=h('button',{style:{width:'100%',marginTop:'6px',padding:'8px 12px',background:'rgba(192,57,43,0.15)',border:'1.5px solid #c0392b',borderRadius:'8px',color:'#ff6b6b',fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',boxSizing:'border-box'}});
+    afbBtn.appendChild(h('span',null,'⚠ Under Enquiry — '+afbSites.length+' site'+(afbSites.length!==1?'s':'')));
+    const afbChev=h('span',null,'▼');
+    afbBtn.appendChild(afbChev);
+    const afbList=h('div',{style:{display:'none',marginTop:'6px'}});
+    afbSites.forEach(site=>{
+      const inq=getAFBInquiry(opName,site);
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',background:'rgba(192,57,43,0.1)',borderRadius:'6px',marginBottom:'4px',cursor:'pointer'},
+        onClick:()=>{
+          Object.entries(getYards(opName)).forEach(([batch,data])=>{
+            if(data.sites.includes(site))setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});
+          });
+        }});
+      row.appendChild(h('span',{style:{fontWeight:'600',fontSize:'13px',color:'#fff'}},site));
+      row.appendChild(h('span',{style:{fontSize:'11px',color:'#ff9a9a'}},'AFB '+fmtDate(inq.date)+' ›'));
+      afbList.appendChild(row);
+    });
+    afbBtn.addEventListener('click',()=>{
+      afbOpen.open=!afbOpen.open;
+      afbList.style.display=afbOpen.open?'block':'none';
+      afbChev.textContent=afbOpen.open?'▲':'▼';
+    });
+    panel.appendChild(afbBtn);
+    panel.appendChild(afbList);
+  }
+
   return panel;
 }
 
