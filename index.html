@@ -212,11 +212,22 @@ async function addMovement(mov){
 
   async function logToSite(siteKey, opName, isDeduction){
     if(!siteKey||!opName) return;
-    const k = eKey(opName, siteKey, 'spring');
+    const rk = roundForDate(mov.date) || STATE.round || 'spring';
+    const k = eKey(opName, siteKey, rk);
     const existing = STATE.entries[k]||[];
+    // Look across ALL rounds (not just this one) for the most recent state as of the
+    // movement date, so movements/entries logged in different seasonal buckets still
+    // carry forward correctly instead of resetting when a movement lands in a new season.
+    const allSiteEntries = Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(opName,siteKey,r2)]||[]))
+      .filter(e=>e.date<=mov.date)
+      .sort((a,b)=>{
+        const dc=(b.date||'').localeCompare(a.date||'');
+        return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
+      });
+    const lastAny = allSiteEntries[0]||null; // most recent entry of any kind (incl. movements) — hive count stacks across movements
     // Get last real entry for current doubles/singles
-    const lastReal=existing.filter(e=>!e._movement)[0]||null;
-    const lastHives = parseInt(existing[0]?.hives)||0;
+    const lastReal=allSiteEntries.find(e=>!e._movement)||null;
+    const lastHives = parseInt(lastAny?.hives)||0;
     const newHives = isDeduction ? Math.max(0,lastHives-hiveChange) : lastHives+hiveChange;
     // Carry doubles and singles
     // If no doubles/singles specified in movement form, pull from source yard's last entry
@@ -376,6 +387,12 @@ const todayStr = () => {
   return `${y}-${m}-${day}`;
 };
 const daysBetween = d => d?Math.floor((Date.now()-new Date(d).getTime())/86400000):null;
+// Map a YYYY-MM-DD date string to its seasonal round key (Southern Hemisphere calendar)
+const roundForDate = dateStr => {
+  const mo=parseInt((dateStr||'').split('-')[1]);
+  if(!mo) return null;
+  return mo>=6&&mo<=7?'winter':mo>=8&&mo<=11?'spring':mo>=12||mo<=3?'clover':'queen';
+};
 const fmtDate = d=>{ if(!d) return ''; const [y,m,day]=d.split('-'); return `${day}/${m}/${y.slice(2)}`; };
 const scoreColor = v=>{const n=parseInt(v);if(isNaN(n))return"#ccc";if(n<=1)return"#e24b4a";if(n<=3)return"#ef9f27";return"#3d7a4f";};
 const eKey = (op,site,rk)=>`${op}__${site}__${rk}`;
@@ -3967,9 +3984,8 @@ function renderForm(){
   di.addEventListener('change',e=>{
     STATE.formVals.date=e.target.value;
     // Auto-update round based on new date month
-    const mo=parseInt((e.target.value||'').split('-')[1]);
-    if(mo){
-      const newRound=mo>=6&&mo<=7?'winter':mo>=8&&mo<=11?'spring':mo>=12||mo<=3?'clover':'queen';
+    const newRound=roundForDate(e.target.value);
+    if(newRound){
       if(newRound!==STATE.round){
         STATE.round=newRound;
         // Re-render form with new round
