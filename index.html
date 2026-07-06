@@ -3889,6 +3889,24 @@ function renderForm(){
         const inquiryKey='apiary_afb_'+op+'__'+site;
         if(!localStorage.getItem(inquiryKey)) localStorage.setItem(inquiryKey,JSON.stringify({date:entry.date,site,op}));
       }
+      // Nuc splits — auto-create nuc batch in Nucs screen
+      const nucSplitCount=parseInt(entry.nuc_splits)||0;
+      if(nucSplitCount>0&&STATE.editing===null){
+        const nucKey='__nucs__'+op;
+        const allNucs=loadNucYards();
+        if(!allNucs[nucKey])allNucs[nucKey]={name:'Nucs',op,batches:[]};
+        const existingBatch=allNucs[nucKey].batches.find(b=>b._fromDiary&&b.dateAdded===entry.date&&b.sourceYard.startsWith(site));
+        if(!existingBatch){
+          const sameSite=allNucs[nucKey].batches.filter(b=>b.sourceYard===site||b.sourceYard.startsWith(site+' '));
+          const batchLabel=sameSite.length>0?site+' '+(sameSite.length+1):site;
+          const existingNucs=allNucs[nucKey].batches.flatMap(b=>b.nucs||[]);
+          const nextId=existingNucs.length>0?Math.max(...existingNucs.map(n=>n.id))+1:1;
+          const nucs=Array.from({length:nucSplitCount},(_,i)=>({id:nextId+i,status:'waiting',cellDate:'',virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
+          allNucs[nucKey].batches.push({id:Date.now(),sourceYard:batchLabel,sourceOp:op,dateAdded:entry.date,nucs,_fromDiary:true});
+          saveNucYards(allNucs);
+          showToast(nucSplitCount+' nuc split'+(nucSplitCount!==1?'s':'')+' added to Nucs — tap Nucs to update status');
+        }
+      }
       if(entry.check_note){setCheck(op,site,entry.check_note);}
       if(STATE.editing!==null&&entry._movement){
         const oldEntry=existing[STATE.editing];
