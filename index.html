@@ -1301,13 +1301,16 @@ function renderNucsScreen(){
         actRow.appendChild(h('button',{style:{padding:'8px',background:'#55555511',border:'1px solid #999',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#666',cursor:'pointer'},
           onClick:()=>showChangeSourceModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Change source'));
         actRow.appendChild(h('button',{style:{padding:'8px',background:'#e24b4a11',border:'1px solid #e24b4a',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#e24b4a',cursor:'pointer'},
-          onClick:()=>confirmAction('Delete this nuc batch?',()=>{
-            const all2=loadNucYards();
-            all2[key].batches.splice(bi,1);
-            saveNucYards(all2);
-            STATE._nucOp=selectedOp;
-            setState({op:'__nucs__'});
-          })},'Delete batch'));
+          onClick:()=>{
+            const msg=batch._fromDiary?'Delete this nuc batch? This was created from a diary entry — deleting here will NOT remove the nuc splits from that entry.':'Delete this nuc batch?';
+            confirmAction(msg,()=>{
+              const all2=loadNucYards();
+              all2[key].batches.splice(bi,1);
+              saveNucYards(all2);
+              STATE._nucOp=selectedOp;
+              setState({op:'__nucs__'});
+            });
+          }},'Delete batch'));
         bBody.appendChild(actRow);
 
         bHdr.addEventListener('click',()=>{
@@ -3454,6 +3457,18 @@ function renderEntriesList(){
         const entryToDelete=STATE.entries[k][idx];
         let updated={...STATE.entries,[k]:STATE.entries[k].filter((_,i)=>i!==idx)};
 
+        // If entry had nuc splits, remove matching nuc batch
+        if(entryToDelete&&parseInt(entryToDelete.nuc_splits)>0){
+          const nucKey='__nucs__'+op;
+          const allNucs=loadNucYards();
+          if(allNucs[nucKey]){
+            allNucs[nucKey].batches=allNucs[nucKey].batches.filter(b=>
+              !(b._fromDiary&&b.dateAdded===entryToDelete.date&&b.sourceYard.startsWith(site))
+            );
+            saveNucYards(allNucs);
+          }
+        }
+
         // If deleting a movement entry, also clean up related movement record and source/dest yard entries
         if(entryToDelete&&entryToDelete._movement){
           const movs=loadMovements();
@@ -4291,6 +4306,18 @@ function renderEntriesList(){
         const k=eKey(op,site,rk);
         const entryToDelete=STATE.entries[k][idx];
         let updated={...STATE.entries,[k]:STATE.entries[k].filter((_,i)=>i!==idx)};
+
+        // If entry had nuc splits, remove matching nuc batch
+        if(entryToDelete&&parseInt(entryToDelete.nuc_splits)>0){
+          const nucKey='__nucs__'+op;
+          const allNucs=loadNucYards();
+          if(allNucs[nucKey]){
+            allNucs[nucKey].batches=allNucs[nucKey].batches.filter(b=>
+              !(b._fromDiary&&b.dateAdded===entryToDelete.date&&b.sourceYard.startsWith(site))
+            );
+            saveNucYards(allNucs);
+          }
+        }
 
         // If deleting a movement entry, also clean up related movement record and source/dest yard entries
         if(entryToDelete&&entryToDelete._movement){
