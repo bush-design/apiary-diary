@@ -1503,6 +1503,64 @@ function renderReportsScreen(){
     return{q1,median,q3,min,max,mean,outliers,n};
   }
 
+  function drawMiteBarChart(canvas, groups, yLabel){
+    const dpr=window.devicePixelRatio||1;
+    const ctx4=canvas.getContext('2d');
+    const W=canvas.width/dpr, H=canvas.height/dpr;
+    const pad={top:30,bottom:60,left:50,right:15};
+    const chartW=W-pad.left-pad.right;
+    const chartH=H-pad.top-pad.bottom;
+    ctx4.clearRect(0,0,canvas.width,canvas.height);
+    ctx4.scale(dpr,dpr);
+    const validGroups=groups.filter(g=>g.vals.length>0);
+    if(!validGroups.length) return;
+    const avgs=validGroups.map(g=>g.vals.reduce((a,b)=>a+b,0)/g.vals.length);
+    const yMax=Math.max(1.2,...avgs)*1.1;
+    const toY=v=>pad.top+chartH-(v/yMax*chartH);
+    const step=chartW/validGroups.length;
+    const barW=Math.min(step*0.6,60);
+    // Grid
+    ctx4.strokeStyle='#e8e8e6';ctx4.lineWidth=1;
+    [0,0.25,0.5,0.75,1.0,1.25].filter(v=>v<=yMax).forEach(v=>{
+      const y=toY(v);ctx4.beginPath();ctx4.moveTo(pad.left,y);ctx4.lineTo(pad.left+chartW,y);ctx4.stroke();
+      ctx4.fillStyle='#888';ctx4.font='bold 11px system-ui';ctx4.textAlign='right';
+      ctx4.fillText(v.toFixed(2),pad.left-4,y+4);
+    });
+    // Threshold lines
+    if(0.5<=yMax){
+      ctx4.strokeStyle='#ef9f27';ctx4.lineWidth=1.5;ctx4.setLineDash([5,4]);
+      ctx4.beginPath();ctx4.moveTo(pad.left,toY(0.5));ctx4.lineTo(pad.left+chartW,toY(0.5));ctx4.stroke();
+      ctx4.fillStyle='#ef9f27';ctx4.font='bold 10px system-ui';ctx4.textAlign='left';
+      ctx4.fillText('Watch 0.5',pad.left+2,toY(0.5)-4);
+    }
+    if(1.0<=yMax){
+      ctx4.strokeStyle='#c0392b';ctx4.lineWidth=1.5;ctx4.setLineDash([5,4]);
+      ctx4.beginPath();ctx4.moveTo(pad.left,toY(1.0));ctx4.lineTo(pad.left+chartW,toY(1.0));ctx4.stroke();
+      ctx4.fillStyle='#c0392b';ctx4.font='bold 10px system-ui';ctx4.textAlign='left';
+      ctx4.fillText('Treat 1.0',pad.left+2,toY(1.0)-4);
+    }
+    ctx4.setLineDash([]);
+    // Bars
+    validGroups.forEach((g,i)=>{
+      const avg=avgs[i];
+      const x=pad.left+step*i+step/2;
+      const barColor=avg>=1.0?'#c0392b':avg>=0.5?'#ef9f27':'#3d7a4f';
+      const barH=chartH*(avg/yMax);
+      ctx4.fillStyle=barColor+'99';ctx4.fillRect(x-barW/2,toY(avg),barW,barH);
+      ctx4.strokeStyle=barColor;ctx4.lineWidth=1.5;ctx4.strokeRect(x-barW/2,toY(avg),barW,barH);
+      ctx4.fillStyle=barColor;ctx4.font='bold 11px system-ui';ctx4.textAlign='center';
+      ctx4.fillText(avg.toFixed(2),x,toY(avg)-5);
+      ctx4.fillStyle='#aaa';ctx4.font='10px system-ui';
+      ctx4.fillText('n='+g.vals.length,x,H-pad.bottom+26);
+      ctx4.fillStyle='#555';ctx4.font='bold 11px system-ui';
+      const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
+      ctx4.fillText(lbl,x,H-pad.bottom+14);
+    });
+    ctx4.save();ctx4.translate(14,pad.top+chartH/2);ctx4.rotate(-Math.PI/2);
+    ctx4.fillStyle='#555';ctx4.font='bold 11px system-ui';ctx4.textAlign='center';
+    ctx4.fillText(yLabel,0,0);ctx4.restore();
+  }
+
   function drawBoxWhisker(canvas,groups,color,yLabel){
     const ctx=canvas.getContext('2d');
     const W=canvas.width,H=canvas.height;
@@ -1937,7 +1995,24 @@ function renderReportsScreen(){
         groups=batches.map(batch=>{const be=entries.filter(e=>e._batch===batch);return{label:batch,vals:getValsFn(be),deadAlive:getDeadAlive(be)};}).filter(g=>g.vals.length>0||g.deadAlive?.length>0);
       }
 
-      if(ySel.value==='dead'){
+      // Use bar chart for mite rate in snapshot/batches mode
+      if(ySel.value==='mite'&&(chartMode==='snapshot'||(xSel.value==='batches'))){
+        drawMiteBarChart(canvas,groups,yLabel);
+        statsArea.innerHTML='';
+        statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Mite Rate — avg per group'));
+        groups.forEach(g=>{
+          if(!g.vals.length) return;
+          const avg=g.vals.reduce((a,b)=>a+b,0)/g.vals.length;
+          const status=avg>=1.0?{t:'Treat now',c:'#c0392b'}:avg>=0.5?{t:'Watch',c:'#ef9f27'}:{t:'Low',c:'#3d7a4f'};
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
+          row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333',flex:'1'}},g.label));
+          const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center'}});
+          right.appendChild(h('span',{style:{fontSize:'12px',color:'#666'}},'n='+g.vals.length+' · avg '+avg.toFixed(2)));
+          right.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:status.c,background:status.c+'18',borderRadius:'8px',padding:'2px 7px'}},status.t));
+          row.appendChild(right);
+          statsArea.appendChild(row);
+        });
+      } else if(ySel.value==='dead'){
         // Stacked bar for dead vs alive
         const deadGroups=groups.map(g=>({
           label:g.label,
@@ -1959,7 +2034,7 @@ function renderReportsScreen(){
           row.appendChild(info);
           statsArea.appendChild(row);
         });
-      } else {
+      } else if(ySel.value!=='dead') {
         drawBoxWhisker(canvas,groups,color,yLabel);
         // Stats table
         statsArea.innerHTML='';
@@ -6398,6 +6473,46 @@ async function boot(){
 }
 
 async function bootApp(){
+  // ── One-time migration: move Jun-Jul clover entries to winter round ──
+  if(!localStorage.getItem('apiary_migrated_winter')){
+    try{
+      const allEntries=JSON.parse(localStorage.getItem('apiary_entries')||'{}');
+      let changed=false;
+      const newEntries={};
+      Object.entries(allEntries).forEach(([key,entries])=>{
+        // Check if this is a clover round key
+        if(key.endsWith('__clover')){
+          const base=key.slice(0,key.length-7); // remove '__clover'
+          const winterKey=base+'__winter';
+          const winterEntries=allEntries[winterKey]||[];
+          // Find entries in Jun-Jul that should be winter
+          const toMove=entries.filter(e=>{
+            const mo=parseInt((e.date||'').split('-')[1]);
+            return mo===6||mo===7;
+          });
+          const remaining=entries.filter(e=>{
+            const mo=parseInt((e.date||'').split('-')[1]);
+            return mo!==6&&mo!==7;
+          });
+          if(toMove.length){
+            newEntries[key]=remaining;
+            newEntries[winterKey]=[...winterEntries,...toMove];
+            changed=true;
+          } else {
+            newEntries[key]=entries;
+          }
+        } else if(!newEntries[key]){
+          newEntries[key]=entries;
+        }
+      });
+      if(changed){
+        localStorage.setItem('apiary_entries',JSON.stringify(newEntries));
+        console.log('Migrated Jun-Jul clover entries to winter round');
+      }
+    }catch(e){console.warn('Migration failed:',e);}
+    localStorage.setItem('apiary_migrated_winter','1');
+  }
+
   // Show app immediately with local data
   render();
 
