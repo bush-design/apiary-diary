@@ -338,6 +338,7 @@ function getOrchardTotals(){
 
 // Display labels for disease codes — storage keys stay short (e.g. 'HMS') for compatibility with existing entries
 const DISEASE_LABELS={HMS:'Half Moon Syndrome'};
+const DISEASE_COLORS={'AFB':'#c0392b','Varroa':'#e24b4a','Sacbrood':'#ef9f27','Chalkbrood':'#b07800','HMS':'#9b59b6','Nosema':'#1a6fb0'};
 const ROUNDS = {
   winter:{label:"Winter",short:"Winter",color:"#1a4a6a",bg:"#e0eaf5",fields:[]},
   spring:{label:"Spring",short:"Spring",color:"#3d7a4f",bg:"#e6f2eb",fields:[
@@ -3444,11 +3445,11 @@ function renderSitesList(){
         {l:'Alive',v:lv('alive_hives'),show:lv('alive_hives')>0,green:true},
         {l:'Singles',v:lv('singles'),show:lv('singles')>0},
         {l:'Doubles',v:lv('doubles'),show:lv('doubles')>0},
-        {l:'Light',v:lv('light'),show:lv('light')>0},
+        {l:'Light',v:lv('light'),show:lv('light')>0,amber:true},
       ].filter(x=>x.show);
       if(hiveItems.length){
         const hRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginTop:'10px',marginBottom:'6px'}});
-        hiveItems.forEach(f=>hRow.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'700',color:f.red?'#c0392b':f.green?'#3d7a4f':'#333',background:f.red?'#fde8e8':f.green?'#e6f2eb':'#f5f5f3',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l)));
+        hiveItems.forEach(f=>hRow.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'700',color:f.red?'#c0392b':f.green?'#3d7a4f':f.amber?'#b07800':'#333',background:f.red?'#fde8e8':f.green?'#e6f2eb':f.amber?'#fff8e6':'#f5f5f3',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l)));
         body.appendChild(hRow);
       }
       // Boxes on
@@ -3473,6 +3474,16 @@ function renderSitesList(){
         if(br>0)qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#7a4fa8',background:'#f3e8ff',borderRadius:'6px',padding:'2px 8px'}},br+' Breeder'+(br!==1?'s':'')));
         if(fi>0)qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#3d7a4f',background:'#e6f2eb',borderRadius:'6px',padding:'2px 8px'}},fi+' Finisher'+(fi!==1?'s':'')));
         body.appendChild(qRow);
+      }
+      // Diseases found — from the most recent real entry
+      const diseasesFound=(latest?.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
+      if(diseasesFound.length){
+        const dRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
+        diseasesFound.forEach(d=>{
+          const col=DISEASE_COLORS[d]||'#c0392b';
+          dRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:col,background:col+'18',border:'1px solid '+col+'44',borderRadius:'6px',padding:'2px 8px'}},DISEASE_LABELS[d]||d));
+        });
+        body.appendChild(dRow);
       }
       // Treatment
       const tx=allReal.find(e=>e.treatment)?.treatment;
