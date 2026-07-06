@@ -3782,27 +3782,58 @@ function renderForm(){
         // Mite test section (always visible, separate from disease toggles)
         const miteSection=h('div',{style:{background:'#f8f8f6',borderRadius:'8px',padding:'10px',border:'.5px solid #eee',marginBottom:'4px'}});
         miteSection.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#555',marginBottom:'8px'}},'Mite Test'));
-        const miteGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
-        [{label:'Hives tested',key:'mites_tested'},{label:'Mites found',key:'mites_found'}].forEach(({label,key})=>{
-          const wrap=h('div',null);
-          wrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}},label));
-          const inp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box',textAlign:'center'}});
-          inp.value=vals[key]||'';
-          inp.addEventListener('input',e=>STATE.formVals[key]=e.target.value);
-          wrap.appendChild(inp);
-          miteGrid.appendChild(wrap);
-        });
-        miteSection.appendChild(miteGrid);
-        // Show mite rate live
-        const miteRate=h('div',{style:{fontSize:'11px',color:'#888',marginTop:'6px',textAlign:'center'}});
-        function updateMiteRate(){
-          const mf=parseInt(document.querySelector&&miteSection.querySelector('input:first-of-type')?.value)||parseInt(STATE.formVals.mites_found)||0;
-          const mt=parseInt(STATE.formVals.mites_tested)||0;
-          miteRate.textContent=mt>0?'Rate: '+(mf/mt).toFixed(2)+' mites per hive':'';
+        const miteTestedRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'10px'}});
+        miteTestedRow.appendChild(h('label',{style:{fontSize:'12px',color:'#555',fontWeight:'600',width:'90px',flexShrink:'0'}},'Hives tested'));
+        const miteTestedInp=h('input',{type:'number',inputmode:'numeric',min:'0',max:'20',placeholder:'0',style:{width:'70px',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'16px',fontWeight:'700',background:'#fff',textAlign:'center',boxSizing:'border-box'}});
+        miteTestedInp.value=vals.mites_tested||'';
+        miteTestedRow.appendChild(miteTestedInp);
+        miteSection.appendChild(miteTestedRow);
+        const perHiveArea=h('div',null);
+        const treatmentFlag=h('div',{style:{display:'none',background:'#fde8e8',border:'1px solid #c0392b',borderRadius:'6px',padding:'7px 10px',fontSize:'12px',color:'#c0392b',fontWeight:'700',marginTop:'8px'}});
+        treatmentFlag.textContent='⚠ High mite loading — Treatment needed';
+        if(!STATE.formVals._mitePerHive) STATE.formVals._mitePerHive=vals._mitePerHive||{};
+        function getMiteStyle(v){
+          if(v>=4) return{text:'High — treat',bg:'#fde8e8',col:'#c0392b'};
+          if(v>=2) return{text:'Medium',bg:'#fff8e6',col:'#b07800'};
+          return{text:'Low',bg:'#e6f2eb',col:'#3d7a4f'};
         }
-        miteSection.querySelectorAll&&miteSection.addEventListener('input',updateMiteRate);
-        miteSection.appendChild(miteRate);
+        function buildMiteRows(count){
+          perHiveArea.innerHTML='';
+          let hasHigh=false;
+          for(let i=0;i<count;i++){
+            const row2=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'}});
+            row2.appendChild(h('span',{style:{fontSize:'12px',color:'#555',fontWeight:'600',width:'52px',flexShrink:'0'}},'Hive '+(i+1)));
+            const hi2=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'60px',padding:'6px 8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'15px',fontWeight:'700',background:'#fff',textAlign:'center',boxSizing:'border-box'}});
+            hi2.value=STATE.formVals._mitePerHive[i]||'';
+            const v0=parseInt(hi2.value)||0;const s0=getMiteStyle(v0);
+            const lbl2=h('span',{style:{fontSize:'12px',fontWeight:'600',padding:'3px 8px',borderRadius:'10px',background:s0.bg,color:s0.col}},s0.text);
+            if(v0>=4) hasHigh=true;
+            hi2.addEventListener('input',e=>{
+              const v2=parseInt(e.target.value)||0;
+              STATE.formVals._mitePerHive[i]=e.target.value;
+              const s2=getMiteStyle(v2);
+              lbl2.textContent=s2.text;lbl2.style.background=s2.bg;lbl2.style.color=s2.col;
+              let tot=0,hi3=false;
+              for(let j=0;j<count;j++){const jv=parseInt(STATE.formVals._mitePerHive[j])||0;tot+=jv;if(jv>=4)hi3=true;}
+              STATE.formVals.mites_found=String(tot);
+              treatmentFlag.style.display=hi3?'block':'none';
+            });
+            row2.appendChild(hi2);row2.appendChild(lbl2);
+            perHiveArea.appendChild(row2);
+          }
+          treatmentFlag.style.display=hasHigh?'block':'none';
+        }
+        miteTestedInp.addEventListener('input',e=>{
+          const cnt=Math.min(parseInt(e.target.value)||0,20);
+          STATE.formVals.mites_tested=String(cnt);
+          buildMiteRows(cnt);
+        });
+        const initCnt=Math.min(parseInt(vals.mites_tested)||0,20);
+        if(initCnt>0) buildMiteRows(initCnt);
+        miteSection.appendChild(perHiveArea);
+        miteSection.appendChild(treatmentFlag);
         fw.appendChild(miteSection);
+
 
         DISEASES.forEach(disease=>{
           const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',borderRadius:'8px',background:found.has(disease)?'#fde8e8':'#f8f8f6',border:found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee'}});
