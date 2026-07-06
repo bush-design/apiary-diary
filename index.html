@@ -1802,8 +1802,8 @@ function renderReportsScreen(){
       const w=canvas.parentElement?.offsetWidth||300;
       canvas.width=w*dpr;
       canvas.height=300*dpr;
+      canvas.style.width='100%';
       canvas.style.height='300px';
-      ctx.scale(dpr,dpr);
       updateChart();
     };
     chartCard.appendChild(canvas);
@@ -2008,10 +2008,10 @@ function renderReportsScreen(){
           const dpr=window.devicePixelRatio||1;
           const w=canvas.parentElement?.offsetWidth||300;
           canvas.width=w*dpr;canvas.height=300*dpr;
-          canvas.style.height='300px';
+          canvas.style.width='100%';canvas.style.height='300px';
           drawLineGraph(canvas,diseaseSeries,yLabel2);
         };
-        setTimeout(resizeTrend2,50);
+        setTimeout(resizeTrend2,100);
         statsArea.innerHTML='';
         diseaseSeries.forEach(s=>{
           if(!s.points.length) return;
@@ -2110,10 +2110,11 @@ function renderReportsScreen(){
         const resizeDis=()=>{
           const dpr=window.devicePixelRatio||1;
           const w=canvas.parentElement?.offsetWidth||300;
-          canvas.width=w*dpr;canvas.height=300*dpr;canvas.style.height='300px';
+          canvas.width=w*dpr;canvas.height=300*dpr;
+          canvas.style.width='100%';canvas.style.height='300px';
           drawLineGraph(canvas,diseaseSeries2,'% yards');
         };
-        setTimeout(resizeDis,50);
+        setTimeout(resizeDis,100);
         statsArea.innerHTML='';
         diseaseSeries2.forEach(s=>{
           const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
