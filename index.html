@@ -3756,8 +3756,8 @@ function renderEntriesList(){
     const hl=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flex:'1',flexWrap:'wrap'}});
     hl.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px'}},fmtDate(entry.date)));
     const roundLabel=entry._movement?'Hive Movement':rd.label;
-    const roundBg=entry._movement?'#e8e0f0':rd.bg||'#eee';
-    const roundColor=entry._movement?'#6a4fa8':rd.color;
+    const roundBg=entry._movement?'#e3f2fb':rd.bg||'#eee';
+    const roundColor=entry._movement?'#1a6fb0':rd.color;
     hl.appendChild(h('span',{style:{fontSize:'11px',background:roundBg,color:roundColor,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},roundLabel));
     if(entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
@@ -4710,8 +4710,8 @@ function renderEntriesList(){
     const hl=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flex:'1',flexWrap:'wrap'}});
     hl.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px'}},fmtDate(entry.date)));
     const roundLabel=entry._movement?'Hive Movement':rd.label;
-    const roundBg=entry._movement?'#e8e0f0':rd.bg||'#eee';
-    const roundColor=entry._movement?'#6a4fa8':rd.color;
+    const roundBg=entry._movement?'#e3f2fb':rd.bg||'#eee';
+    const roundColor=entry._movement?'#1a6fb0':rd.color;
     hl.appendChild(h('span',{style:{fontSize:'11px',background:roundBg,color:roundColor,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},roundLabel));
     if(entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
