@@ -3817,6 +3817,23 @@ function renderForm(){
               for(let j=0;j<count;j++){const jv=parseInt(STATE.formVals._mitePerHive[j])||0;tot+=jv;if(jv>=4)hi3=true;}
               STATE.formVals.mites_found=String(tot);
               treatmentFlag.style.display=hi3?'block':'none';
+              // Auto-set Varroa found based on hives with mites > 0
+              const hivesWithMites=Object.values(STATE.formVals._mitePerHive).filter(v=>parseInt(v)>0).length;
+              if(hivesWithMites>0){
+                if(!STATE.formVals.diseases||!STATE.formVals.diseases.includes('Varroa')){
+                  STATE.formVals.diseases=((STATE.formVals.diseases||'').split(',').map(s=>s.trim()).filter(Boolean).concat(['Varroa'])).join(', ');
+                }
+                STATE.formVals['disease_count_varroa']=String(hivesWithMites);
+                // Update Varroa row visually if it exists
+                const varroaRow=document.querySelector('[data-disease="Varroa"]');
+                if(varroaRow){
+                  varroaRow.style.background='#fde8e8';varroaRow.style.border='1.5px solid #e24b4a';
+                  const varroaBtn=varroaRow.querySelector('button');
+                  if(varroaBtn){varroaBtn.style.background='#c0392b';varroaBtn.style.color='#fff';varroaBtn.textContent='Found';}
+                  const varroaSpan=varroaRow.querySelector('span');
+                  if(varroaSpan) varroaSpan.style.color='#c0392b';
+                }
+              }
             });
             row2.appendChild(hi2);row2.appendChild(lbl2);
             perHiveArea.appendChild(row2);
@@ -3836,7 +3853,7 @@ function renderForm(){
 
 
         DISEASES.forEach(disease=>{
-          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',borderRadius:'8px',background:found.has(disease)?'#fde8e8':'#f8f8f6',border:found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee'}});
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',borderRadius:'8px',background:found.has(disease)?'#fde8e8':'#f8f8f6',border:found.has(disease)?'1.5px solid #e24b4a':'.5px solid #eee'},'data-disease':disease});
           row.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'600',color:found.has(disease)?'#c0392b':'#444'}},disease+(disease==='AFB'?' ⚠':'')) );
           const btn=h('button',{type:'button',style:{padding:'5px 14px',borderRadius:'20px',border:found.has(disease)?'1.5px solid #c0392b':'1.5px solid #ddd',background:found.has(disease)?'#c0392b':'#fff',color:found.has(disease)?'#fff':'#aaa',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},found.has(disease)?'Found':'Not found');
           // Hive count input — shown when disease is found
