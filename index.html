@@ -2356,15 +2356,20 @@ function renderReportsScreen(){
       if(chartMode==='trend'&&ySel.value==='disease'){
         const allYrsSorted2=[...years].sort((a,b)=>a.startYear-b.startYear);
         const xLabels2=allYrsSorted2.flatMap(yr=>Object.values(getSeasonRanges(yr)).map(sr=>sr.label));
+        // Denominator is the whole fleet's site count by default — not just however many
+        // sites happened to be visited that season, which made sparse early-season data
+        // spike to misleading 100% readings. If a specific operation is selected (batches
+        // x-axis), use that operation's site count instead.
+        const fleetTotal=Object.keys(OPERATIONS).reduce((sum,opN)=>sum+allSitesFor(opN).length,0);
         const diseaseSeries=[...selectedDiseases].map(disease=>{
           const col=DISEASE_COLORS[disease]||'#555';
           const points=allYrsSorted2.flatMap(yr=>{
             return Object.entries(getSeasonRanges(yr)).map(([rk,sr])=>{
-              const se=getSeasonEntries(sr);
-              if(!se.length) return null;
-              const totalSites=new Set(se.map(e=>e._op+'__'+e._site)).size;
-              const affected=new Set(se.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._op+'__'+e._site)).size;
+              const filteredToOp=xVal==='batches'&&opFilter.value;
+              const totalSites=filteredToOp?allSitesFor(opFilter.value).length:fleetTotal;
               if(totalSites===0) return null;
+              const se=getSeasonEntries(sr).filter(e=>!filteredToOp||e._op===opFilter.value);
+              const affected=new Set(se.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._op+'__'+e._site)).size;
               return{x:sr.label,y:parseFloat((affected/totalSites*100).toFixed(1)),n:totalSites,aff:affected};
             }).filter(Boolean);
           });
@@ -2557,34 +2562,39 @@ function renderReportsScreen(){
           statsArea.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Select diseases above'));
           return;
         }
+        const fleetTotal2=Object.keys(OPERATIONS).reduce((sum,opN)=>sum+allSitesFor(opN).length,0);
         const diseaseSeries2=diseaseList.map(disease=>{
           const col=DISEASE_COLORS[disease]||'#555';
           let pts=[];
           if(xVal==='seasons'){
+            // Denominator: whole fleet (every point is a full year, not scoped to one operation)
             pts=years.sort((a,b)=>a.startYear-b.startYear).map(yr=>{
               const ranges=getSeasonRanges(yr);
               const allYrEntries=getSeasonEntries({start:ranges.winter.start,end:ranges.autumn.end});
-              const ts=new Set(allYrEntries.map(e=>e._op+'__'+e._site)).size;
+              const ts=fleetTotal2;
               const af=new Set(allYrEntries.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._op+'__'+e._site)).size;
-              return{x:yr.name||yr.startYear+'-'+(yr.startYear+1),y:ts>0?parseFloat((af/ts*100).toFixed(1)):0};
-            }).filter(p=>p.y>0);
+              return{x:yr.name||yr.startYear+'-'+(yr.startYear+1),y:ts>0?parseFloat((af/ts*100).toFixed(1)):0,n:ts,aff:af};
+            });
           } else if(xVal==='operations'){
+            // Denominator: each operation's own total site count
             const allEntries=getEntriesForMode();
             pts=Object.keys(OPERATIONS).map(op=>{
               const oe=allEntries.filter(e=>e._op===op);
-              const ts=new Set(oe.map(e=>e._op+'__'+e._site)).size;
+              const ts=allSitesFor(op).length;
               const af=new Set(oe.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._op+'__'+e._site)).size;
-              return{x:op,y:ts>0?parseFloat((af/ts*100).toFixed(1)):0};
-            }).filter(p=>p.y>0);
+              return{x:op,y:ts>0?parseFloat((af/ts*100).toFixed(1)):0,n:ts,aff:af};
+            });
           } else {
+            // Denominator: each batch's own total site count, within the selected operation
             const op=opFilter.value;
             const allEntries=getEntriesForMode().filter(e=>e._op===op);
-            pts=Object.keys(getYards(op)).map(batch=>{
+            const yardsForOp=getYards(op);
+            pts=Object.keys(yardsForOp).map(batch=>{
               const be=allEntries.filter(e=>e._batch===batch);
-              const ts=new Set(be.map(e=>e._site)).size;
+              const ts=(yardsForOp[batch]?.sites||[]).length;
               const af=new Set(be.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._site)).size;
-              return{x:batch,y:ts>0?parseFloat((af/ts*100).toFixed(1)):0};
-            }).filter(p=>p.y>0);
+              return{x:batch,y:ts>0?parseFloat((af/ts*100).toFixed(1)):0,n:ts,aff:af};
+            });
           }
           return{label:disease,color:col,points:pts};
         }).filter(s=>s.points.length>0);
