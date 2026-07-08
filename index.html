@@ -905,9 +905,12 @@ function calcSummary(opName){
 const HIVE_STATE_FIELDS=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
 const HIVE_STATE_NONZERO_FIELDS=['singles','doubles','light','weak','lids_floors'];
 function getSiteHiveState(opName,site,cutoffDate){
+  // Include movement entries here (unlike some other helpers) — calcSummary (the dashboard's
+  // source of truth) does the same, since a movement can be the most recent thing that changed
+  // a site's hive count. Excluding movements caused snapshot/report totals to run stale-high.
   const allSiteEntries=Object.keys(ROUNDS)
     .flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]))
-    .filter(e=>!e._movement&&(!cutoffDate||e.date<=cutoffDate))
+    .filter(e=>!cutoffDate||e.date<=cutoffDate)
     .sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||'');
       return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
@@ -1522,9 +1525,9 @@ function renderReportsScreen(){
       if(siteMap[k]) return;
       const hives=parseInt(e.hives)||0;
       const dead=parseInt(e.dead)||0;
-      if(hives>0) siteMap[k]={hives,dead};
+      if(hives>0||dead>0) siteMap[k]={hives,dead};
     });
-    return Object.values(siteMap).map(s=>s.dead/s.hives*100);
+    return Object.values(siteMap).map(s=>s.dead/(s.hives+s.dead)*100);
   }
 
   function getDeadAlive(entries, useAllTime){
@@ -1557,7 +1560,7 @@ function renderReportsScreen(){
       if(siteMap[k]) return;
       const hives=parseInt(e.hives)||0;
       const dead=parseInt(e.dead)||0;
-      if(hives>0) siteMap[k]={hives,dead};
+      if(hives>0||dead>0) siteMap[k]={hives,dead};
     });
     return Object.values(siteMap);
   }
@@ -2627,12 +2630,13 @@ function renderReportsScreen(){
           statsArea.appendChild(row);
         });
       } else if(ySel.value==='dead'){
-        // Stacked bar for dead vs alive
-        const deadGroups=groups.map(g=>({
-          label:g.label,
-          totalHives:g.deadAlive?g.deadAlive.reduce((a,s)=>a+(parseInt(s.hives)||0),0):0,
-          totalDead:g.deadAlive?g.deadAlive.reduce((a,s)=>a+(parseInt(s.dead)||0),0):0
-        }));
+        // Stacked bar for dead vs alive — the 'hives' field is ALIVE hives only (confirmed with the
+        // user), 'dead' is a separate additional count, so the true total is alive + dead.
+        const deadGroups=groups.map(g=>{
+          const totalAlive=g.deadAlive?g.deadAlive.reduce((a,s)=>a+(parseInt(s.hives)||0),0):0;
+          const totalDead=g.deadAlive?g.deadAlive.reduce((a,s)=>a+(parseInt(s.dead)||0),0):0;
+          return{label:g.label,totalHives:totalAlive+totalDead,totalDead,totalAlive};
+        });
         drawStackedBar(canvas,deadGroups);
         statsArea.innerHTML='';
         statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Dead vs Alive'));
@@ -2642,7 +2646,7 @@ function renderReportsScreen(){
           const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
           row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333',flex:'1'}},g.label));
           const info=h('div',{style:{display:'flex',gap:'10px',fontSize:'12px'}});
-          info.appendChild(h('span',{style:{color:'#3d7a4f',fontWeight:'600'}},(g.totalHives-g.totalDead)+' alive'));
+          info.appendChild(h('span',{style:{color:'#3d7a4f',fontWeight:'600'}},g.totalAlive+' alive'));
           info.appendChild(h('span',{style:{color:'#e24b4a',fontWeight:'600'}},g.totalDead+' dead'));
           info.appendChild(h('span',{style:{color:'#888'}},pct+'%'));
           row.appendChild(info);
@@ -2983,7 +2987,7 @@ function renderSummaryPanel(opName){
   );
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
   const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-  [{l:'Total hives',v:s.hives,key:'hives',color:'#1a2e1a'},{l:'Dead',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
+  [{l:'Alive hives',v:s.hives,key:'hives',color:'#1a2e1a'},{l:'Dead',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
     const clickable=st.v>0;
     const box2=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}33`}:{}});
     box2.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v));
