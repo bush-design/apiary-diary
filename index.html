@@ -1409,7 +1409,7 @@ function renderReportsScreen(){
     const row=h('div',{style:{background:'#fff',borderRadius:'8px',padding:'10px 13px',marginBottom:'6px',display:'flex',justifyContent:'space-between',alignItems:'center',border:'.5px solid #ddd'}});
     row.appendChild(h('div',null,
       h('div',{style:{fontWeight:'600',fontSize:'14px'}},yr.name||yr.startYear+'-'+( yr.startYear+1)),
-      h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'1px'}},'Jul '+yr.startYear+' – Jun '+(yr.startYear+1))
+      h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'1px'}},'Jun '+yr.startYear+' – May '+(yr.startYear+1))
     ));
     h('button',{style:{background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',padding:'4px 10px',fontSize:'11px',color:'#c0392b',cursor:'pointer'},
       onClick:()=>confirmAction('Delete '+yr.startYear+'-'+(yr.startYear+1)+'?',()=>{saveYears(years.filter((_,j)=>j!==i));setState({op:'__reports__'});})
@@ -1702,6 +1702,9 @@ function renderReportsScreen(){
 
   function drawMiteBarChart(canvas, groups, yLabel){
     const dpr=window.devicePixelRatio||1;
+    const ctx4=canvas.getContext('2d');
+    const W=canvas.width/dpr, H=canvas.height/dpr;
+    const pad={top:30,bottom:60,left:50,right:15};
     const chartW=W-pad.left-pad.right;
     const chartH=H-pad.top-pad.bottom;
     ctx4.clearRect(0,0,canvas.width,canvas.height);
@@ -1756,12 +1759,15 @@ function renderReportsScreen(){
   }
 
   function drawBoxWhisker(canvas,groups,color,yLabel){
+    const dpr=window.devicePixelRatio||1;
     const ctx=canvas.getContext('2d');
-    const W=canvas.width,H=canvas.height;
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.scale(dpr,dpr);
+    const W=canvas.width/dpr,H=canvas.height/dpr;
     const pad={top:20,bottom:50,left:40,right:10};
     const chartW=W-pad.left-pad.right;
     const chartH=H-pad.top-pad.bottom;
-    ctx.clearRect(0,0,W,H);
 
     // Find global min/max
     const allVals=groups.flatMap(g=>g.vals);
@@ -2244,12 +2250,15 @@ function renderReportsScreen(){
     const YLABELS={'strength':'Score','mite':'Mites/hive','yield':'Boxes','dead':'Dead %'};
 
     function drawStackedBar(canvas, groups){
+      const dpr=window.devicePixelRatio||1;
       const ctx2=canvas.getContext('2d');
-      const W=canvas.width,H=canvas.height;
+      ctx2.setTransform(1,0,0,1,0,0);
+      ctx2.clearRect(0,0,canvas.width,canvas.height);
+      ctx2.scale(dpr,dpr);
+      const W=canvas.width/dpr,H=canvas.height/dpr;
       const pad={top:30,bottom:60,left:50,right:15};
       const chartW=W-pad.left-pad.right;
       const chartH=H-pad.top-pad.bottom;
-      ctx2.clearRect(0,0,W,H);
       if(!groups.length) return;
       const maxHives=Math.max(...groups.map(g=>g.totalHives||1));
       const step=chartW/groups.length;
