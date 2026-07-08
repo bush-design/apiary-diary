@@ -1874,6 +1874,8 @@ function renderReportsScreen(){
     const yWrap=h('div',null);
     yWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Y Axis'));
     yWrap.appendChild(ySel);
+    const yStaticLabel=h('div',{style:{display:'none',padding:'8px 0 2px',fontSize:'15px',fontWeight:'700',color:'#333'}},'Disease Trends');
+    yWrap.appendChild(yStaticLabel);
     selRow.appendChild(yWrap);
 
     const xSel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
@@ -1997,9 +1999,13 @@ function renderReportsScreen(){
       cmpSeason2Wrap.style.display='none';
       opFilterWrap.style.display=(xVal==='batches')||chartMode==='trend'&&xVal==='batches'?'block':'none';
       // Disease trend always plots by season/year — the X axis picker doesn't apply, so hide it
-      // and use the dedicated Operation filter instead.
+      // and use the dedicated Operation filter instead. The Y axis is fixed to Disease Trends
+      // too once you're here (switching it mid-view would silently jump to an unrelated chart),
+      // so show it as a plain title instead of an editable dropdown.
       xWrap.style.display=isDiseaseTrend?'none':'block';
       diseaseOpFilterWrap.style.display=isDiseaseTrend?'block':'none';
+      ySel.style.display=isDiseaseTrend?'none':'block';
+      yStaticLabel.style.display=isDiseaseTrend?'block':'none';
     }
 
     // Quick reports — curated presets so common questions don't require manual axis/mode setup
