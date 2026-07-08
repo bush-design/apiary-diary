@@ -2353,6 +2353,48 @@ function renderReportsScreen(){
       let groups=[];
       const xVal=xSel.value;
 
+      if(chartMode==='trend'&&ySel.value==='disease'){
+        const allYrsSorted2=[...years].sort((a,b)=>a.startYear-b.startYear);
+        const xLabels2=allYrsSorted2.flatMap(yr=>Object.values(getSeasonRanges(yr)).map(sr=>sr.label));
+        const diseaseSeries=[...selectedDiseases].map(disease=>{
+          const col=DISEASE_COLORS[disease]||'#555';
+          const points=allYrsSorted2.flatMap(yr=>{
+            return Object.entries(getSeasonRanges(yr)).map(([rk,sr])=>{
+              const se=getSeasonEntries(sr);
+              if(!se.length) return null;
+              const totalSites=new Set(se.map(e=>e._op+'__'+e._site)).size;
+              const affected=new Set(se.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._op+'__'+e._site)).size;
+              if(totalSites===0) return null;
+              return{x:sr.label,y:parseFloat((affected/totalSites*100).toFixed(1))};
+            }).filter(Boolean);
+          });
+          return{label:disease,color:col,points};
+        }).filter(s=>s.points.length>0);
+        const yLabel2='% yards affected';
+        const resizeTrend2=()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=canvas.parentElement?.offsetWidth||300;
+          canvas.width=w*dpr;canvas.height=300*dpr;
+          canvas.style.width='100%';canvas.style.height='300px';
+          drawLineGraph(canvas,diseaseSeries,yLabel2);
+        };
+        setTimeout(resizeTrend2,100);
+        statsArea.innerHTML='';
+        diseaseSeries.forEach(s=>{
+          if(!s.points.length) return;
+          const avg=s.points.reduce((a,p)=>a+p.y,0)/s.points.length;
+          const peak=Math.max(...s.points.map(p=>p.y));
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
+          const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'50%',background:s.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
+          const left=h('div',{style:{display:'flex',alignItems:'center',flex:'1'}});
+          left.appendChild(dot);left.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},s.label));
+          row.appendChild(left);
+          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+avg.toFixed(1)+'% · peak '+peak.toFixed(1)+'%'));
+          statsArea.appendChild(row);
+        });
+        if(!diseaseSeries.length) statsArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No disease data — select diseases above and ensure entries have diseases logged'));
+        return;
+      }
       if(chartMode==='trend'){
         // Line graph: x=seasons across years, one line per operation or batch
         const allYrsSorted=[...years].sort((a,b)=>a.startYear-b.startYear);
@@ -2413,49 +2455,6 @@ function renderReportsScreen(){
           row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+avg.toFixed(2)+' · '+s.points.length+' seasons'));
           statsArea.appendChild(row);
         });
-        return;
-      }
-      // Disease trend mode
-      if(chartMode==='trend'&&ySel.value==='disease'){
-        const allYrsSorted2=[...years].sort((a,b)=>a.startYear-b.startYear);
-        const xLabels2=allYrsSorted2.flatMap(yr=>Object.values(getSeasonRanges(yr)).map(sr=>sr.label));
-        const diseaseSeries=[...selectedDiseases].map(disease=>{
-          const col=DISEASE_COLORS[disease]||'#555';
-          const points=allYrsSorted2.flatMap(yr=>{
-            return Object.entries(getSeasonRanges(yr)).map(([rk,sr])=>{
-              const se=getSeasonEntries(sr);
-              if(!se.length) return null;
-              const totalSites=new Set(se.map(e=>e._op+'__'+e._site)).size;
-              const affected=new Set(se.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._op+'__'+e._site)).size;
-              if(totalSites===0) return null;
-              return{x:sr.label,y:parseFloat((affected/totalSites*100).toFixed(1))};
-            }).filter(Boolean);
-          });
-          return{label:disease,color:col,points};
-        }).filter(s=>s.points.length>0);
-        const yLabel2='% yards affected';
-        const resizeTrend2=()=>{
-          const dpr=window.devicePixelRatio||1;
-          const w=canvas.parentElement?.offsetWidth||300;
-          canvas.width=w*dpr;canvas.height=300*dpr;
-          canvas.style.width='100%';canvas.style.height='300px';
-          drawLineGraph(canvas,diseaseSeries,yLabel2);
-        };
-        setTimeout(resizeTrend2,100);
-        statsArea.innerHTML='';
-        diseaseSeries.forEach(s=>{
-          if(!s.points.length) return;
-          const avg=s.points.reduce((a,p)=>a+p.y,0)/s.points.length;
-          const peak=Math.max(...s.points.map(p=>p.y));
-          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
-          const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'50%',background:s.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
-          const left=h('div',{style:{display:'flex',alignItems:'center',flex:'1'}});
-          left.appendChild(dot);left.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},s.label));
-          row.appendChild(left);
-          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+avg.toFixed(1)+'% · peak '+peak.toFixed(1)+'%'));
-          statsArea.appendChild(row);
-        });
-        if(!diseaseSeries.length) statsArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No disease data — select diseases above and ensure entries have diseases logged'));
         return;
       }
       if(chartMode==='year'&&xVal==='seasons'&&ySel.value!=='disease'&&ySel.value!=='dead'){
