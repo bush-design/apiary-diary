@@ -1917,6 +1917,17 @@ function renderReportsScreen(){
     opFilterWrap.appendChild(opFilter);
     ctrl.appendChild(opFilterWrap);
 
+    // Disease trend always plots by season/year — the X axis dropdown doesn't apply to it and was
+    // confusing, so it gets its own simple Operation filter instead (All operations, or just one).
+    const diseaseOpFilterWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
+    const diseaseOpFilter=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+    diseaseOpFilter.appendChild(h('option',{value:'all'},'All operations (combined)'));
+    Object.keys(OPERATIONS).forEach(op=>diseaseOpFilter.appendChild(h('option',{value:op},op)));
+    diseaseOpFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Operation'));
+    diseaseOpFilterWrap.appendChild(diseaseOpFilter);
+    ctrl.appendChild(diseaseOpFilterWrap);
+    diseaseOpFilter.addEventListener('change',updateChart);
+
     // Year filter
     const yearFilterWrap=h('div',{style:{display:'block',marginBottom:'8px'}});
     const yearSel2=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
@@ -1976,6 +1987,7 @@ function renderReportsScreen(){
       const isDR=chartMode==='daterange';
       const isSnap=chartMode==='snapshot';
       const xVal=xSel.value;
+      const isDiseaseTrend=ySel.value==='disease'&&chartMode==='trend';
       yearFilterWrap.style.display=isYear||isSeason||chartMode==='trend'?'block':'none';
       diseaseSelWrap.style.display=ySel.value==='disease'?'block':'none';
       roundFilterWrap.style.display=isSeason?'block':'none';
@@ -1984,6 +1996,10 @@ function renderReportsScreen(){
       cmp2Wrap.style.display='none';
       cmpSeason2Wrap.style.display='none';
       opFilterWrap.style.display=(xVal==='batches')||chartMode==='trend'&&xVal==='batches'?'block':'none';
+      // Disease trend always plots by season/year — the X axis picker doesn't apply, so hide it
+      // and use the dedicated Operation filter instead.
+      xWrap.style.display=isDiseaseTrend?'none':'block';
+      diseaseOpFilterWrap.style.display=isDiseaseTrend?'block':'none';
     }
 
     // Quick reports — curated presets so common questions don't require manual axis/mode setup
@@ -2365,10 +2381,10 @@ function renderReportsScreen(){
           const col=DISEASE_COLORS[disease]||'#555';
           const points=allYrsSorted2.flatMap(yr=>{
             return Object.entries(getSeasonRanges(yr)).map(([rk,sr])=>{
-              const filteredToOp=xVal==='batches'&&opFilter.value;
-              const totalSites=filteredToOp?allSitesFor(opFilter.value).length:fleetTotal;
+              const filteredToOp=diseaseOpFilter.value!=='all';
+              const totalSites=filteredToOp?allSitesFor(diseaseOpFilter.value).length:fleetTotal;
               if(totalSites===0) return null;
-              const se=getSeasonEntries(sr).filter(e=>!filteredToOp||e._op===opFilter.value);
+              const se=getSeasonEntries(sr).filter(e=>!filteredToOp||e._op===diseaseOpFilter.value);
               const affected=new Set(se.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._op+'__'+e._site)).size;
               return{x:sr.label,y:parseFloat((affected/totalSites*100).toFixed(1)),n:totalSites,aff:affected};
             }).filter(Boolean);
