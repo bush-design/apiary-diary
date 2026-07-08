@@ -1649,7 +1649,7 @@ function renderReportsScreen(){
         ctx3.fillStyle='#fff';ctx3.beginPath();ctx3.arc(px,py,5,0,Math.PI*2);ctx3.fill();
         ctx3.fillStyle=s.color;ctx3.beginPath();ctx3.arc(px,py,3.5,0,Math.PI*2);ctx3.fill();
         ctx3.fillStyle=s.color;ctx3.font='bold 10px system-ui';ctx3.textAlign='center';
-        ctx3.fillText(p.y.toFixed(1),px,py-10);
+        ctx3.fillText(p.n!==undefined?p.y.toFixed(1)+' ('+p.aff+'/'+p.n+')':p.y.toFixed(1),px,py-10);
       });
     });
     // Legend
@@ -2365,7 +2365,7 @@ function renderReportsScreen(){
               const totalSites=new Set(se.map(e=>e._op+'__'+e._site)).size;
               const affected=new Set(se.filter(e=>(e.diseases||'').includes(disease)).map(e=>e._op+'__'+e._site)).size;
               if(totalSites===0) return null;
-              return{x:sr.label,y:parseFloat((affected/totalSites*100).toFixed(1))};
+              return{x:sr.label,y:parseFloat((affected/totalSites*100).toFixed(1)),n:totalSites,aff:affected};
             }).filter(Boolean);
           });
           return{label:disease,color:col,points};
