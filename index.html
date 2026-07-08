@@ -2054,6 +2054,17 @@ function renderReportsScreen(){
     quickWrap.appendChild(quickGrid);
     metricsArea.appendChild(quickWrap);
 
+    // Manual axis/mode controls are now tucked behind an Advanced toggle — Quick Reports
+    // cover the common questions, but this stays available for anything more specific.
+    let advancedOpen=false;
+    const advancedToggle=h('button',{type:'button',style:{width:'100%',padding:'10px',background:'none',border:'1px dashed #ccc',borderRadius:'8px',color:'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer',marginBottom:'12px',textAlign:'center'}},'⚙ Advanced options');
+    advancedToggle.addEventListener('click',()=>{
+      advancedOpen=!advancedOpen;
+      ctrl.style.display=advancedOpen?'block':'none';
+      advancedToggle.textContent=advancedOpen?'⚙ Hide advanced options':'⚙ Advanced options';
+    });
+    metricsArea.appendChild(advancedToggle);
+    ctrl.style.display='none';
     metricsArea.appendChild(ctrl);
 
     // Canvas chart
