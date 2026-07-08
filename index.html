@@ -1658,11 +1658,50 @@ function renderReportsScreen(){
     });
   }
 
+  function drawScatterChart(canvas, points, xLabel, yLabel){
+    const dpr=window.devicePixelRatio||1;
+    const ctxS=canvas.getContext('2d');
+    ctxS.setTransform(1,0,0,1,0,0);
+    ctxS.clearRect(0,0,canvas.width,canvas.height);
+    ctxS.scale(dpr,dpr);
+    const W=canvas.width/dpr, H=canvas.height/dpr;
+    const pad={top:20,bottom:44,left:50,right:20};
+    const chartW=W-pad.left-pad.right;
+    const chartH=H-pad.top-pad.bottom;
+    if(!points.length){
+      ctxS.fillStyle='#bbb';ctxS.font='13px system-ui';ctxS.textAlign='center';
+      ctxS.fillText('No data',W/2,H/2);return;
+    }
+    const xMax=Math.max(...points.map(p=>p.x))*1.15||1;
+    const yMax=Math.max(...points.map(p=>p.y))*1.15||1;
+    const toX=v=>pad.left+(v/xMax)*chartW;
+    const toY=v=>pad.top+chartH-(v/yMax)*chartH;
+    ctxS.strokeStyle='#e8e8e6';ctxS.lineWidth=1;
+    for(let i=0;i<=4;i++){
+      const yv=yMax*i/4, yy=toY(yv);
+      ctxS.beginPath();ctxS.moveTo(pad.left,yy);ctxS.lineTo(pad.left+chartW,yy);ctxS.stroke();
+      ctxS.fillStyle='#888';ctxS.font='bold 11px system-ui';ctxS.textAlign='right';
+      ctxS.fillText(yv.toFixed(0),pad.left-6,yy+4);
+    }
+    for(let i=0;i<=4;i++){
+      const xv=xMax*i/4, xx=toX(xv);
+      ctxS.fillStyle='#888';ctxS.font='bold 10px system-ui';ctxS.textAlign='center';
+      ctxS.fillText(xv.toFixed(1),xx,H-pad.bottom+16);
+    }
+    ctxS.fillStyle='#555';ctxS.font='bold 11px system-ui';ctxS.textAlign='center';
+    ctxS.fillText(xLabel,pad.left+chartW/2,H-6);
+    ctxS.save();ctxS.translate(14,pad.top+chartH/2);ctxS.rotate(-Math.PI/2);
+    ctxS.fillText(yLabel,0,0);ctxS.restore();
+    points.forEach(p=>{
+      const px=toX(p.x),py=toY(p.y);
+      ctxS.fillStyle=p.color+'cc';
+      ctxS.beginPath();ctxS.arc(px,py,5,0,Math.PI*2);ctxS.fill();
+      ctxS.strokeStyle='#fff';ctxS.lineWidth=1;ctxS.stroke();
+    });
+  }
+
   function drawMiteBarChart(canvas, groups, yLabel){
     const dpr=window.devicePixelRatio||1;
-    const ctx4=canvas.getContext('2d');
-    const W=canvas.width/dpr, H=canvas.height/dpr;
-    const pad={top:30,bottom:60,left:50,right:15};
     const chartW=W-pad.left-pad.right;
     const chartH=H-pad.top-pad.bottom;
     ctx4.clearRect(0,0,canvas.width,canvas.height);
@@ -1804,17 +1843,18 @@ function renderReportsScreen(){
     const modeRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr 1fr',gap:'4px',marginBottom:'12px'}});
     let chartMode='year'; // 'year' | 'season' | 'daterange' | 'snapshot'
     const modeBtns={};
+    function selectMode(mode){
+      chartMode=mode;
+      Object.entries(modeBtns).forEach(([m,b])=>{
+        b.style.border=m===mode?'1.5px solid #3d7a4f':'1px solid #ddd';
+        b.style.background=m===mode?'#e6f2eb':'#fff';
+        b.style.color=m===mode?'#3d7a4f':'#888';
+      });
+      updateFilterVisibility();updateChart();
+    }
     [['year','Year'],['season','Season'],['daterange','Date Range'],['snapshot','Snapshot'],['trend','Trend']].forEach(([mode,label])=>{
       const btn=h('button',{type:'button',style:{padding:'7px',borderRadius:'8px',border:mode==='season'?'1.5px solid #3d7a4f':'1px solid #ddd',background:mode==='season'?'#e6f2eb':'#fff',color:mode==='season'?'#3d7a4f':'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},label);
-      btn.addEventListener('click',()=>{
-        chartMode=mode;
-        Object.entries(modeBtns).forEach(([m,b])=>{
-          b.style.border=m===mode?'1.5px solid #3d7a4f':'1px solid #ddd';
-          b.style.background=m===mode?'#e6f2eb':'#fff';
-          b.style.color=m===mode?'#3d7a4f':'#888';
-        });
-        updateFilterVisibility();updateChart();
-      });
+      btn.addEventListener('click',()=>selectMode(mode));
       modeBtns[mode]=btn;modeRow.appendChild(btn);
     });
     ctrl.appendChild(modeRow);
@@ -1937,6 +1977,58 @@ function renderReportsScreen(){
       opFilterWrap.style.display=(xVal==='batches')||chartMode==='trend'&&xVal==='batches'?'block':'none';
     }
 
+    // Quick reports — curated presets so common questions don't require manual axis/mode setup
+    const quickWrap=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+    quickWrap.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Quick reports'));
+    const quickGrid=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px'}});
+    const QUICK_REPORTS=[
+      {label:'Mite rate by operation',mode:'year',x:'seasons',y:'mite'},
+      {label:'Yield by operation',mode:'year',x:'operations',y:'yield'},
+      {label:'Hive strength trend',mode:'year',x:'seasons',y:'strength'},
+      {label:'Dead/alive right now',mode:'snapshot',x:'operations',y:'dead'},
+      {label:'Disease prevalence',mode:'trend',x:'operations',y:'disease'},
+      {label:'Treatment coverage',custom:'treatment'},
+      {label:'Days since last visit',custom:'overdue'},
+      {label:'AFB inquiry timeline',custom:'afb'},
+      {label:'Yield vs hive strength',custom:'scatter'},
+      {label:'Movement log by driver',custom:'movements'},
+    ];
+    function backToCharts(){
+      customArea.style.display='none';customArea.innerHTML='';
+      ctrl.style.display='';chartCard.style.display='';statsArea.style.display='';
+    }
+    function showCustomReport(key){
+      ctrl.style.display='none';chartCard.style.display='none';statsArea.style.display='none';
+      customArea.style.display='block';customArea.innerHTML='';
+      const backBtn=h('button',{type:'button',style:{padding:'6px 12px',borderRadius:'8px',border:'1px solid #ddd',background:'#fff',color:'#555',fontSize:'12px',fontWeight:'600',cursor:'pointer',marginBottom:'12px'}},'← Back to chart reports');
+      backBtn.addEventListener('click',backToCharts);
+      customArea.appendChild(backBtn);
+      const body=h('div',null);
+      customArea.appendChild(body);
+      if(key==='treatment') renderTreatmentCoverage(body);
+      else if(key==='overdue') renderOverdueHeatmap(body);
+      else if(key==='afb') renderAFBTimeline(body);
+      else if(key==='scatter') renderYieldScatter(body);
+      else if(key==='movements') renderMovementsByDriver(body);
+    }
+    QUICK_REPORTS.forEach(q=>{
+      const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
+      qBtn.addEventListener('click',()=>{
+        if(q.custom){showCustomReport(q.custom);return;}
+        backToCharts();
+        selectMode(q.mode);
+        ySel.value=q.y;
+        xSel.value=q.x;
+        if(q.mode==='snapshot') snapDate.value=todayStr();
+        if(years.length) yearSel2.value=years[0].startYear; // most recent beekeeping year
+        updateFilterVisibility();
+        updateChart();
+      });
+      quickGrid.appendChild(qBtn);
+    });
+    quickWrap.appendChild(quickGrid);
+    metricsArea.appendChild(quickWrap);
+
     metricsArea.appendChild(ctrl);
 
     // Canvas chart
@@ -1958,6 +2050,186 @@ function renderReportsScreen(){
     // Stats summary below chart
     const statsArea=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
     metricsArea.appendChild(statsArea);
+
+    // Custom (non-chart-engine) reports render here
+    const customArea=h('div',{style:{display:'none'}});
+    metricsArea.appendChild(customArea);
+
+    // ── Treatment coverage: % of sites treated with each product, per operation ──
+    function renderTreatmentCoverage(container){
+      const yr=years[0];
+      if(!yr){container.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Add a seasonal year to see this report'));return;}
+      const ranges=getSeasonRanges(yr);
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage — '+(yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      Object.keys(OPERATIONS).forEach(opName=>{
+        const yards=getYards(opName);
+        const allSites=Object.values(yards).flatMap(b=>b.sites);
+        if(!allSites.length) return;
+        const treatCounts={};
+        allSites.forEach(site=>{
+          const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement&&e.date>=ranges.winter.start&&e.date<=ranges.autumn.end));
+          const seen=new Set();
+          allE.forEach(e=>(e.treatment||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(t=>seen.add(t)));
+          seen.forEach(t=>{treatCounts[t]=(treatCounts[t]||0)+1;});
+        });
+        const opCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'10px',border:'.5px solid #ddd'}});
+        opCard.appendChild(h('div',{style:{fontWeight:'700',fontSize:'14px',marginBottom:'8px'}},opName+' · '+allSites.length+' sites'));
+        const rows=Object.entries(treatCounts).sort((a,b)=>b[1]-a[1]);
+        if(!rows.length) opCard.appendChild(h('div',{style:{color:'#bbb',fontSize:'12px'}},'No treatments logged yet'));
+        rows.forEach(([t,count])=>{
+          const pct=Math.round(count/allSites.length*100);
+          const row=h('div',{style:{marginBottom:'8px'}});
+          row.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}},h('span',{style:{fontWeight:'600'}},t),h('span',{style:{color:'#888'}},count+'/'+allSites.length+' · '+pct+'%')));
+          const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'8px',overflow:'hidden'}});
+          barBg.appendChild(h('div',{style:{background:'#3d7a4f',height:'100%',width:pct+'%'}}));
+          row.appendChild(barBg);
+          opCard.appendChild(row);
+        });
+        container.appendChild(opCard);
+      });
+    }
+
+    // ── Days since last visit — color-coded chip grid per operation ──
+    function renderOverdueHeatmap(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Days since last visit'));
+      const legend=h('div',{style:{display:'flex',gap:'12px',marginBottom:'12px',fontSize:'11px',color:'#888',flexWrap:'wrap'}});
+      [['#3d7a4f','< 7 days'],['#ef9f27','7–21 days'],['#e24b4a','21+ days'],['#bbb','Never visited']].forEach(([col,lbl])=>{
+        legend.appendChild(h('span',{style:{display:'flex',alignItems:'center',gap:'4px'}},h('span',{style:{width:'8px',height:'8px',borderRadius:'50%',background:col,display:'inline-block'}}),lbl));
+      });
+      container.appendChild(legend);
+      Object.keys(OPERATIONS).forEach(opName=>{
+        const yards=getYards(opName);
+        const siteList=[];
+        Object.entries(yards).forEach(([batchName,batch])=>batch.sites.forEach(site=>siteList.push({batchName,site})));
+        if(!siteList.length) return;
+        const opCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'10px',border:'.5px solid #ddd'}});
+        opCard.appendChild(h('div',{style:{fontWeight:'700',fontSize:'14px',marginBottom:'8px'}},opName));
+        const grid=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px'}});
+        siteList.forEach(({batchName,site})=>{
+          const latestDate=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0]?.date||null;
+          const days=latestDate?daysBetween(latestDate):null;
+          const col=days===null?'#bbb':days<7?'#3d7a4f':days<=21?'#ef9f27':'#e24b4a';
+          const chip=h('div',{style:{width:'64px',padding:'6px 4px',borderRadius:'8px',background:col+'18',border:'1.5px solid '+col,textAlign:'center',cursor:'pointer'}});
+          chip.appendChild(h('div',{style:{fontSize:'10px',fontWeight:'700',color:col}},days===null?'—':days+'d'));
+          chip.appendChild(h('div',{style:{fontSize:'9px',color:'#666',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},site));
+          chip.addEventListener('click',()=>setState({tab:'diary',op:opName,run:batchName,site,diaryView:'entries',round:STATE.round}));
+          grid.appendChild(chip);
+        });
+        opCard.appendChild(grid);
+        container.appendChild(opCard);
+      });
+    }
+
+    // ── AFB inquiry timeline — chronological list across all operations ──
+    function renderAFBTimeline(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'AFB inquiry timeline'));
+      const events=[];
+      Object.keys(OPERATIONS).forEach(opName=>{
+        const yards=getYards(opName);
+        Object.entries(yards).forEach(([batchName,batch])=>{
+          batch.sites.forEach(site=>{
+            const inq=getAFBInquiry(opName,site);
+            if(inq) events.push({opName,batchName,site,...inq});
+          });
+        });
+      });
+      events.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+      if(!events.length){container.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No AFB inquiries on record'));return;}
+      events.forEach(ev=>{
+        const card=h('div',{style:{background:'#fff',border:'1.5px solid #c0392b',borderRadius:'10px',padding:'10px 12px',marginBottom:'8px',cursor:'pointer'}});
+        card.appendChild(h('div',{style:{fontWeight:'700',fontSize:'14px',color:'#c0392b'}},'⚠ '+ev.site));
+        card.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},ev.opName+' · '+ev.batchName));
+        card.appendChild(h('div',{style:{fontSize:'12px',color:'#555',marginTop:'4px'}},'Found: '+fmtDate(ev.date)));
+        card.addEventListener('click',()=>setState({tab:'diary',op:ev.opName,run:ev.batchName,site:ev.site,diaryView:'entries'}));
+        container.appendChild(card);
+      });
+    }
+
+    // ── Yield vs hive strength — scatter, one dot per site, colored by operation ──
+    function renderYieldScatter(container){
+      const yr=years[0];
+      if(!yr){container.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Add a seasonal year to see this report'));return;}
+      const ranges=getSeasonRanges(yr);
+      const allYrEntries=getSeasonEntries({start:ranges.winter.start,end:ranges.autumn.end});
+      const OPCOLORS4=Object.fromEntries(Object.entries(OPERATIONS).map(([opN,d],i)=>[opN,['#3d7a4f','#1a6fb0','#9b59b6'][i]||'#555']));
+      const bySite={};
+      allYrEntries.forEach(e=>{
+        const k=e._op+'__'+e._site;
+        if(!bySite[k]) bySite[k]={op:e._op,site:e._site,yield:0,scoreSum:0,scoreCount:0};
+        bySite[k].yield+=(parseInt(e.fd_harv)||0)+(parseInt(e.harv_34)||0)+(parseInt(e.honeycomb_fd)||0)+(parseInt(e.honeycomb_hd)||0);
+        const bd=e.score_breakdown||{};
+        let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+        if(ac>0){bySite[k].scoreSum+=(at/ac);bySite[k].scoreCount+=1;}
+      });
+      const points=Object.values(bySite).filter(s=>s.yield>0&&s.scoreCount>0).map(s=>({x:s.scoreSum/s.scoreCount,y:s.yield,color:OPCOLORS4[s.op]||'#555',label:s.site}));
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Yield vs hive strength — '+(yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      const legendRow=h('div',{style:{display:'flex',gap:'12px',marginBottom:'8px',fontSize:'11px',flexWrap:'wrap'}});
+      Object.entries(OPCOLORS4).forEach(([opN,col])=>legendRow.appendChild(h('span',{style:{display:'flex',alignItems:'center',gap:'4px',color:'#555'}},h('span',{style:{width:'8px',height:'8px',borderRadius:'50%',background:col,display:'inline-block'}}),opN)));
+      container.appendChild(legendRow);
+      const chartCardS=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
+      const canvasS=document.createElement('canvas');
+      canvasS.style.width='100%';canvasS.style.display='block';
+      chartCardS.appendChild(canvasS);
+      container.appendChild(chartCardS);
+      setTimeout(()=>{
+        const dpr=window.devicePixelRatio||1;
+        const w=canvasS.parentElement?.offsetWidth||300;
+        canvasS.width=w*dpr;canvasS.height=300*dpr;
+        canvasS.style.width='100%';canvasS.style.height='300px';
+        drawScatterChart(canvasS,points,'Hive strength (score)','Yield (boxes)');
+      },50);
+      if(!points.length) container.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'Not enough data yet — need both score and harvest logged for the same sites'));
+    }
+
+    // ── Movement log by driver — pick-ups and drop-offs for a selected driver ──
+    function renderMovementsByDriver(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Movement log by driver'));
+      const DRIVERS_LIST=['Adam','Neil','Em','Zeke','Shaun','Other'];
+      const allMovements=loadMovements();
+      const driversUsed=[...new Set(allMovements.map(m=>m.driver).filter(Boolean))];
+      const driverOptions=[...new Set([...DRIVERS_LIST,...driversUsed])];
+      const sel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',marginBottom:'12px'}});
+      sel.appendChild(h('option',{value:''},'— Select driver —'));
+      driverOptions.forEach(d=>sel.appendChild(h('option',{value:d},d)));
+      container.appendChild(sel);
+      const listWrap=h('div',null);
+      container.appendChild(listWrap);
+      function renderList(){
+        listWrap.innerHTML='';
+        const driver=sel.value;
+        if(!driver){listWrap.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'Select a driver to see their pick-ups and drop-offs'));return;}
+        const mine=allMovements.filter(m=>m.driver===driver).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+        if(!mine.length){listWrap.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No movements logged for '+driver));return;}
+        const dropoffs=mine.filter(m=>m.direction==='to_orchard').length;
+        const pickups=mine.filter(m=>m.direction!=='to_orchard'&&m.direction!=='yard_yard'&&m.direction!=='orchard_orchard').length;
+        const transfers=mine.length-dropoffs-pickups;
+        const summary=h('div',{style:{display:'flex',gap:'10px',marginBottom:'12px',fontSize:'12px',flexWrap:'wrap'}});
+        summary.appendChild(h('span',{style:{background:'#e6f2eb',color:'#3d7a4f',borderRadius:'8px',padding:'4px 10px',fontWeight:'700'}},pickups+' pick-ups'));
+        summary.appendChild(h('span',{style:{background:'#fff3e0',color:'#ef9f27',borderRadius:'8px',padding:'4px 10px',fontWeight:'700'}},dropoffs+' drop-offs'));
+        if(transfers>0) summary.appendChild(h('span',{style:{background:'#e3f2fb',color:'#1a6fb0',borderRadius:'8px',padding:'4px 10px',fontWeight:'700'}},transfers+' transfers'));
+        listWrap.appendChild(summary);
+        mine.forEach(m=>{
+          const isOut=m.direction==='to_orchard';
+          const isYY=m.direction==='yard_yard';
+          const isOO=m.direction==='orchard_orchard';
+          const kind=isOut?'Drop-off':(isYY||isOO)?'Transfer':'Pick-up';
+          const col=isOut?'#ef9f27':(isYY||isOO)?'#1a6fb0':'#3d7a4f';
+          const title=isOut?(m.from_site||'?')+' → '+(m.to_orchard||'?'):isYY?(m.from_site||'?')+' → '+(m.to_site||'?'):isOO?(m.from_orchard||'?')+' → '+(m.to_orchard||'?'):(m.from_orchard||'?')+' → '+(m.to_site||'?');
+          const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderLeft:'3px solid '+col,borderRadius:'8px',padding:'10px 12px',marginBottom:'7px'}});
+          const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
+          topRow.appendChild(h('div',null,
+            h('span',{style:{fontSize:'10px',fontWeight:'700',color:col,background:col+'18',borderRadius:'8px',padding:'2px 7px',marginRight:'6px'}},kind),
+            h('div',{style:{fontWeight:'600',fontSize:'13px',marginTop:'4px'}},title)
+          ));
+          topRow.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',flexShrink:'0'}},fmtDate(m.date)));
+          card.appendChild(topRow);
+          card.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'4px'}},(m.pallets||0)+'p · '+(m.singles||0)+'s'+(m.vehicle?' · '+m.vehicle:'')));
+          listWrap.appendChild(card);
+        });
+      }
+      sel.addEventListener('change',renderList);
+      renderList();
+    }
 
     function getValsFn(entries){
       switch(ySel.value){
