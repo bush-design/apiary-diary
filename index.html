@@ -2174,8 +2174,61 @@ function renderReportsScreen(){
         if(!diseaseSeries.length) statsArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No disease data — select diseases above and ensure entries have diseases logged'));
         return;
       }
+      if(chartMode==='year'&&xVal==='seasons'&&ySel.value!=='disease'&&ySel.value!=='dead'){
+        // Line graph: one line per operation, plus an Average line, across this year's 4 seasons
+        const yr=years.find(y=>String(y.startYear)===String(yearSel2.value))||years[0];
+        statsArea.innerHTML='';
+        if(!yr){
+          statsArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'Add a seasonal year to see this chart'));
+          return;
+        }
+        const ranges=getSeasonRanges(yr);
+        const seasonPairs=Object.entries(ranges); // [rk,sr] in Winter,Spring,Summer,Autumn order
+        const OPCOLORS3=Object.fromEntries(Object.entries(OPERATIONS).map(([opN,d],i)=>[opN,['#3d7a4f','#1a6fb0','#9b59b6'][i]||'#555']));
+        let lineSeries3=Object.keys(OPERATIONS).map(opN=>{
+          const points=seasonPairs.map(([rk,sr])=>{
+            const se=getSeasonEntries(sr).filter(e=>e._op===opN);
+            const vals=getValsFn(se);
+            if(!vals.length) return null;
+            const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+            return{x:sr.label,y:parseFloat(avg.toFixed(2))};
+          }).filter(Boolean);
+          return{label:opN,color:OPCOLORS3[opN]||'#555',points};
+        }).filter(s=>s.points.length>0);
+        // Average line — pooled across all operations per season
+        const avgPoints=seasonPairs.map(([rk,sr])=>{
+          const se=getSeasonEntries(sr);
+          const vals=getValsFn(se);
+          if(!vals.length) return null;
+          const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+          return{x:sr.label,y:parseFloat(avg.toFixed(2))};
+        }).filter(Boolean);
+        if(avgPoints.length) lineSeries3.push({label:'Average',color:'#555',points:avgPoints});
+        const resizeYearSeasons=()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=canvas.parentElement?.offsetWidth||300;
+          canvas.width=w*dpr;canvas.height=300*dpr;
+          canvas.style.width='100%';canvas.style.height='300px';
+          drawLineGraph(canvas,lineSeries3,yLabel);
+        };
+        setTimeout(resizeYearSeasons,50);
+        statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},(yr.name||yr.startYear+'-'+(yr.startYear+1))+' by season'));
+        lineSeries3.forEach(s=>{
+          if(!s.points.length) return;
+          const avg=s.points.reduce((a,p)=>a+p.y,0)/s.points.length;
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
+          const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'50%',background:s.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
+          const left=h('div',{style:{display:'flex',alignItems:'center',flex:'1'}});
+          left.appendChild(dot);left.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},s.label));
+          row.appendChild(left);
+          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+avg.toFixed(2)+' · '+s.points.length+' seasons'));
+          statsArea.appendChild(row);
+        });
+        if(!lineSeries3.length) statsArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No data for this year yet'));
+        return;
+      }
       if(chartMode==='year'&&xVal==='seasons'){
-        // Show all 4 seasons as bars on x-axis
+        // Dead/alive or disease Y-axis still use the combined-groups path below
         const yr=years.find(y=>String(y.startYear)===String(yearSel2.value))||years[0];
         if(yr){
           const ranges=getSeasonRanges(yr);
@@ -6954,7 +7007,7 @@ async function bootApp(){
 
   // Proactively cache this page for offline use whenever we have signal
   if(navigator.onLine&&'caches' in window){
-    caches.open('apiary-v6').then(cache=>{
+    caches.open('apiary-v7').then(cache=>{
       cache.add(window.location.href).catch(()=>{});
     }).catch(()=>{});
   }
