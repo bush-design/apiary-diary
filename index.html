@@ -1851,14 +1851,6 @@ function renderReportsScreen(){
     cmp2Wrap.appendChild(snapDate2);
     ctrl.appendChild(cmp2Wrap);
 
-    // Season filter (shown when mode=season and x=operations or batches)
-    const seasonFilterWrap=h('div',{style:{display:'none',marginBottom:'8px'}});
-    const seasonFilter=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
-    years.forEach(yr=>seasonFilter.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
-    seasonFilterWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px',textTransform:'uppercase'}},'Season'));
-    seasonFilterWrap.appendChild(seasonFilter);
-    ctrl.appendChild(seasonFilterWrap);
-
     // Compare season 2
     const cmpSeason2Wrap=h('div',{style:{display:'none',marginBottom:'8px'}});
     const cmpSeason2Sel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
@@ -1941,7 +1933,6 @@ function renderReportsScreen(){
       drWrap.style.display=isDR?'block':'none';
       snapWrap.style.display=isSnap?'block':'none';
       cmp2Wrap.style.display='none';
-      seasonFilterWrap.style.display=(isSeason||isYear)&&(xVal==='operations'||xVal==='batches')?'block':'none';
       cmpSeason2Wrap.style.display='none';
       opFilterWrap.style.display=(xVal==='batches')||chartMode==='trend'&&xVal==='batches'?'block':'none';
     }
@@ -2346,7 +2337,6 @@ function renderReportsScreen(){
 
     xSel.addEventListener('change',()=>{updateFilterVisibility();updateChart();});
     ySel.addEventListener('change',updateChart);
-    seasonFilter.addEventListener('change',updateChart);
     opFilter.addEventListener('change',updateChart);
 
     // Draw after layout
