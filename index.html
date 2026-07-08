@@ -991,7 +991,7 @@ function renderOpSelector(){
       h('div',null,
         h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},name),
         h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},
-          `${Object.keys(op.yards).length} batches · ${Object.values(op.yards).flatMap(y=>y.sites).length} sites`,
+          `${Object.keys(getYards(name)).length} batches · ${Object.values(getYards(name)).flatMap(y=>y.sites).length} sites`,
           s.flagged>0?h('span',{style:{color:'#f4a0a0',marginLeft:'8px'}},`⚑ ${s.flagged} overdue`):null
         )
       ),
