@@ -1706,11 +1706,12 @@ function renderReportsScreen(){
     });
   }
 
-  function drawMiteBarChart(canvas, groups, yLabel){
+  function drawMiteBarChart(canvas, groups, yLabel, xLabel){
     const dpr=window.devicePixelRatio||1;
     const ctx4=canvas.getContext('2d');
+    ctx4.setTransform(1,0,0,1,0,0);
     const W=canvas.width/dpr, H=canvas.height/dpr;
-    const pad={top:30,bottom:60,left:50,right:15};
+    const pad={top:30,bottom:xLabel?90:74,left:50,right:15};
     const chartW=W-pad.left-pad.right;
     const chartH=H-pad.top-pad.bottom;
     ctx4.clearRect(0,0,canvas.width,canvas.height);
@@ -1753,25 +1754,34 @@ function renderReportsScreen(){
       ctx4.strokeStyle=barColor;ctx4.lineWidth=1.5;ctx4.strokeRect(x-barW/2,toY(avg),barW,barH);
       ctx4.fillStyle=barColor;ctx4.font='bold 11px system-ui';ctx4.textAlign='center';
       ctx4.fillText(avg.toFixed(2),x,toY(avg)-5);
-      ctx4.fillStyle='#aaa';ctx4.font='10px system-ui';
-      ctx4.fillText('n='+g.vals.length,x,H-pad.bottom+26);
+      ctx4.fillStyle='#aaa';ctx4.font='10px system-ui';ctx4.textAlign='center';
+      ctx4.fillText('n='+g.vals.length,x,H-pad.bottom+34);
+      ctx4.save();
+      ctx4.translate(x,H-pad.bottom+16);
+      const needsAngle=validGroups.length>3||g.label.length>8;
+      if(needsAngle){ctx4.rotate(-Math.PI/5);ctx4.textAlign='right';}
+      else{ctx4.textAlign='center';}
       ctx4.fillStyle='#555';ctx4.font='bold 11px system-ui';
-      const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
-      ctx4.fillText(lbl,x,H-pad.bottom+14);
+      ctx4.fillText(g.label,0,0);
+      ctx4.restore();
     });
+    if(xLabel){
+      ctx4.fillStyle='#555';ctx4.font='bold 11px system-ui';ctx4.textAlign='center';
+      ctx4.fillText(xLabel,pad.left+chartW/2,H-6);
+    }
     ctx4.save();ctx4.translate(14,pad.top+chartH/2);ctx4.rotate(-Math.PI/2);
     ctx4.fillStyle='#555';ctx4.font='bold 11px system-ui';ctx4.textAlign='center';
     ctx4.fillText(yLabel,0,0);ctx4.restore();
   }
 
-  function drawBoxWhisker(canvas,groups,color,yLabel){
+  function drawBoxWhisker(canvas,groups,color,yLabel,xLabel){
     const dpr=window.devicePixelRatio||1;
     const ctx=canvas.getContext('2d');
     ctx.setTransform(1,0,0,1,0,0);
     ctx.clearRect(0,0,canvas.width,canvas.height);
     ctx.scale(dpr,dpr);
     const W=canvas.width/dpr,H=canvas.height/dpr;
-    const pad={top:20,bottom:50,left:40,right:10};
+    const pad={top:20,bottom:xLabel?80:64,left:44,right:10};
     const chartW=W-pad.left-pad.right;
     const chartH=H-pad.top-pad.bottom;
 
@@ -1826,15 +1836,25 @@ function renderReportsScreen(){
         ctx.fillStyle=color+'99';
         stats.outliers.forEach(v=>{ctx.beginPath();ctx.arc(x,toY(v),3,0,Math.PI*2);ctx.fill();});
       }
-      // X label
-      ctx.fillStyle='#555';ctx.font='bold 13px system-ui';ctx.textAlign='center';
-      const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
-      ctx.fillText(lbl,x,H-pad.bottom+14);
+      // X label — angled when there are several groups or the label is long, to avoid overlap
+      ctx.save();
+      ctx.translate(x,H-pad.bottom+16);
+      const needsAngle=groups.length>3||g.label.length>8;
+      if(needsAngle){ctx.rotate(-Math.PI/5);ctx.textAlign='right';}
+      else{ctx.textAlign='center';}
+      ctx.fillStyle='#555';ctx.font='bold 12px system-ui';
+      ctx.fillText(g.label,0,0);
+      ctx.restore();
       // n count
-      ctx.fillStyle='#aaa';ctx.font='9px system-ui';
-      ctx.fillText('n='+g.vals.length,x,H-pad.bottom+26);
+      ctx.fillStyle='#aaa';ctx.font='9px system-ui';ctx.textAlign='center';
+      ctx.fillText('n='+g.vals.length,x,H-pad.bottom+34);
     });
 
+    // X axis title
+    if(xLabel){
+      ctx.fillStyle='#555';ctx.font='bold 11px system-ui';ctx.textAlign='center';
+      ctx.fillText(xLabel,pad.left+chartW/2,H-6);
+    }
     // Y axis label
     ctx.save();ctx.translate(14,pad.top+chartH/2);ctx.rotate(-Math.PI/2);
     ctx.fillStyle='#555';ctx.font='bold 13px system-ui';ctx.textAlign='center';
@@ -1994,6 +2014,7 @@ function renderReportsScreen(){
       const xVal=xSel.value;
       const isDisease=ySel.value==='disease';
       const isDiseaseTrend=isDisease&&chartMode==='trend';
+      const isDRLine=isDR&&!isDisease; // Date Range now always renders as a time-bucketed line, X axis picker doesn't apply
       // Year/Round filters ARE respected by disease charts in Year/Season/Snapshot/Date Range
       // mode (via getEntriesForMode()) — only Trend mode's disease chart ignores them (it always
       // spans every year), so only suppress them there.
@@ -2007,8 +2028,9 @@ function renderReportsScreen(){
       opFilterWrap.style.display=!isDisease&&((xVal==='batches')||chartMode==='trend'&&xVal==='batches')?'block':'none';
       // Disease charts always work off a fixed shape — grouped by Operation (or drilled into one
       // operation's batches) via the dedicated Operation filter — in every mode. The raw X/Y axis
-      // pickers don't map onto that cleanly and were confusing, so they're replaced.
-      xWrap.style.display=isDisease?'none':'block';
+      // pickers don't map onto that cleanly and were confusing, so they're replaced. Date Range
+      // is now always a time-bucketed trend per operation, so its X axis picker is hidden too.
+      xWrap.style.display=isDisease||isDRLine?'none':'block';
       diseaseOpFilterWrap.style.display=isDisease?'block':'none';
       ySel.style.display=isDisease?'none':'block';
       yStaticLabel.style.display=isDisease?'block':'none';
@@ -2291,14 +2313,14 @@ function renderReportsScreen(){
     const COLORS={'strength':'#3d7a4f','mite':'#c0392b','yield':'#b05a1a','dead':'#e24b4a'};
     const YLABELS={'strength':'Score','mite':'Mites/hive','yield':'Boxes','dead':'Dead %'};
 
-    function drawStackedBar(canvas, groups){
+    function drawStackedBar(canvas, groups, xLabel, yLabel){
       const dpr=window.devicePixelRatio||1;
       const ctx2=canvas.getContext('2d');
       ctx2.setTransform(1,0,0,1,0,0);
       ctx2.clearRect(0,0,canvas.width,canvas.height);
       ctx2.scale(dpr,dpr);
       const W=canvas.width/dpr,H=canvas.height/dpr;
-      const pad={top:30,bottom:60,left:50,right:15};
+      const pad={top:30,bottom:78,left:55,right:15};
       const chartW=W-pad.left-pad.right;
       const chartH=H-pad.top-pad.bottom;
       if(!groups.length) return;
@@ -2331,25 +2353,46 @@ function renderReportsScreen(){
         ctx2.fillStyle='#3d7a4f';ctx2.font='bold 10px system-ui';ctx2.textAlign='center';
         if(aliveH>14) ctx2.fillText(alive,x-halfW/2-1,baseY-aliveH-3);
         // Dead bar (right, red)
+        let tallestH=aliveH;
         if(dead>0){
           const deadH=chartH*(dead/maxHives);
+          tallestH=Math.max(aliveH,deadH);
           ctx2.fillStyle='#e24b4a99';
           ctx2.fillRect(x+1,baseY-deadH,halfW,deadH);
           ctx2.strokeStyle='#e24b4a';ctx2.lineWidth=1;
           ctx2.strokeRect(x+1,baseY-deadH,halfW,deadH);
           ctx2.fillStyle='#c0392b';ctx2.font='bold 10px system-ui';ctx2.textAlign='center';
           if(deadH>14) ctx2.fillText(dead,x+halfW/2+1,baseY-deadH-3);
-          const pct=Math.round(dead/total*100);
-          ctx2.fillStyle='#888';ctx2.font='9px system-ui';
-          ctx2.fillText(pct+'%',x,baseY+12);
         }
-        // X label
-        ctx2.fillStyle='#555';ctx2.font='bold 11px system-ui';ctx2.textAlign='center';
-        const lbl=g.label.length>10?g.label.substring(0,9)+'…':g.label;
-        ctx2.fillText(lbl,x,H-pad.bottom+14);
-        ctx2.fillStyle='#666';ctx2.font='10px system-ui';
-        ctx2.fillText(total+'h',x,H-pad.bottom+26);
+        // Dead % — placed above the taller bar so it never collides with the x-axis labels below
+        if(dead>0){
+          const pct=Math.round(dead/total*100);
+          ctx2.fillStyle='#888';ctx2.font='bold 10px system-ui';ctx2.textAlign='center';
+          ctx2.fillText(pct+'% dead',x,baseY-tallestH-16);
+        }
+        // X label (group name + total), rotated slightly if there isn't room to sit flat
+        ctx2.save();
+        ctx2.translate(x,H-pad.bottom+14);
+        const lbl=g.label;
+        const needsAngle=groups.length>3||lbl.length>8;
+        if(needsAngle){ctx2.rotate(-Math.PI/5);ctx2.textAlign='right';}
+        else{ctx2.textAlign='center';}
+        ctx2.fillStyle='#555';ctx2.font='bold 11px system-ui';
+        ctx2.fillText(lbl,0,0);
+        ctx2.restore();
+        ctx2.fillStyle='#666';ctx2.font='10px system-ui';ctx2.textAlign='center';
+        ctx2.fillText(total+'h',x,H-pad.bottom+30);
       });
+      // Axis titles
+      if(xLabel){
+        ctx2.fillStyle='#555';ctx2.font='bold 11px system-ui';ctx2.textAlign='center';
+        ctx2.fillText(xLabel,pad.left+chartW/2,H-6);
+      }
+      if(yLabel){
+        ctx2.save();ctx2.translate(14,pad.top+chartH/2);ctx2.rotate(-Math.PI/2);
+        ctx2.fillStyle='#555';ctx2.font='bold 11px system-ui';ctx2.textAlign='center';
+        ctx2.fillText(yLabel,0,0);ctx2.restore();
+      }
       // Legend
       ctx2.fillStyle='#3d7a4f88';ctx2.fillRect(pad.left,8,12,10);
       ctx2.fillStyle='#555';ctx2.font='bold 11px system-ui';ctx2.textAlign='left';ctx2.fillText('Alive',pad.left+15,17);
@@ -2391,6 +2434,63 @@ function renderReportsScreen(){
       const yLabel=YLABELS[ySel.value]||'';
       let groups=[];
       const xVal=xSel.value;
+
+      if(chartMode==='daterange'&&ySel.value!=='disease'){
+        // A date range is inherently "over time" — show the trend across it (bucketed by day,
+        // week, or month depending on how wide the range is) rather than one flat aggregate.
+        statsArea.innerHTML='';
+        const s=drStart.value,e=drEnd.value;
+        if(!s||!e){
+          statsArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'Pick a From and To date to see this chart'));
+          return;
+        }
+        const startD=new Date(s+'T00:00:00'),endD=new Date(e+'T00:00:00');
+        const totalDays=Math.max(1,Math.round((endD-startD)/86400000));
+        const bucketDays=totalDays<=14?1:totalDays<=90?7:30;
+        const buckets=[];
+        let cur=new Date(startD);
+        while(cur<=endD){
+          const bStart=cur.toISOString().slice(0,10);
+          const bEndDate=new Date(cur);bEndDate.setDate(bEndDate.getDate()+bucketDays-1);
+          const bEndClamped=bEndDate>endD?endD:bEndDate;
+          const bEnd=bEndClamped.toISOString().slice(0,10);
+          buckets.push({start:bStart,end:bEnd,label:fmtDate(bStart)+(bucketDays>1?'–'+fmtDate(bEnd):'')});
+          cur.setDate(cur.getDate()+bucketDays);
+        }
+        const OPCOLORS5=Object.fromEntries(Object.entries(OPERATIONS).map(([opN,d],i)=>[opN,['#3d7a4f','#1a6fb0','#9b59b6'][i]||'#555']));
+        const lineSeries5=Object.keys(OPERATIONS).map(opN=>{
+          const points=buckets.map(b=>{
+            const be=getEntriesForRange(b.start,b.end).filter(en=>en._op===opN);
+            const vals=ySel.value==='dead'?getDeadPct(be):getValsFn(be);
+            if(!vals.length) return null;
+            const avg=vals.reduce((a,c)=>a+c,0)/vals.length;
+            return{x:b.label,y:parseFloat(avg.toFixed(2))};
+          }).filter(Boolean);
+          return{label:opN,color:OPCOLORS5[opN]||'#555',points};
+        }).filter(sr=>sr.points.length>0);
+        const yLabelDR=ySel.value==='dead'?'Dead %':(YLABELS[ySel.value]||'');
+        const resizeDR=()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=canvas.parentElement?.offsetWidth||300;
+          canvas.width=w*dpr;canvas.height=300*dpr;
+          canvas.style.width='100%';canvas.style.height='300px';
+          drawLineGraph(canvas,lineSeries5,yLabelDR);
+        };
+        setTimeout(resizeDR,50);
+        lineSeries5.forEach(sr=>{
+          if(!sr.points.length) return;
+          const avg=sr.points.reduce((a,p)=>a+p.y,0)/sr.points.length;
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
+          const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'50%',background:sr.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
+          const left=h('div',{style:{display:'flex',alignItems:'center',flex:'1'}});
+          left.appendChild(dot);left.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},sr.label));
+          row.appendChild(left);
+          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+avg.toFixed(2)+' · '+sr.points.length+' points'));
+          statsArea.appendChild(row);
+        });
+        if(!lineSeries5.length) statsArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No data in this range'));
+        return;
+      }
 
       if(chartMode==='trend'&&ySel.value==='disease'){
         const allYrsSorted2=[...years].sort((a,b)=>a.startYear-b.startYear);
@@ -2652,7 +2752,8 @@ function renderReportsScreen(){
 
       // Use bar chart for mite rate in snapshot/batches mode
       if(ySel.value==='mite'&&(chartMode==='snapshot'||(xSel.value==='batches'))){
-        drawMiteBarChart(canvas,groups,yLabel);
+        const xAxisLabelMite={operations:'Operation',batches:'Batch',seasons:'Season'}[xVal]||'';
+        drawMiteBarChart(canvas,groups,yLabel,xAxisLabelMite);
         statsArea.innerHTML='';
         statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Mite Rate — avg per group'));
         groups.forEach(g=>{
@@ -2675,7 +2776,8 @@ function renderReportsScreen(){
           const totalDead=g.deadAlive?g.deadAlive.reduce((a,s)=>a+(parseInt(s.dead)||0),0):0;
           return{label:g.label,totalHives:totalAlive+totalDead,totalDead,totalAlive};
         });
-        drawStackedBar(canvas,deadGroups);
+        const xAxisLabel={operations:'Operation',batches:'Batch',seasons:'Season'}[xVal]||'';
+        drawStackedBar(canvas,deadGroups,xAxisLabel,'Hive count');
         statsArea.innerHTML='';
         statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Dead vs Alive'));
         deadGroups.forEach(g=>{
@@ -2691,7 +2793,8 @@ function renderReportsScreen(){
           statsArea.appendChild(row);
         });
       } else if(ySel.value!=='dead') {
-        drawBoxWhisker(canvas,groups,color,yLabel);
+        const xAxisLabel={operations:'Operation',batches:'Batch',seasons:'Season'}[xVal]||'';
+        drawBoxWhisker(canvas,groups,color,yLabel,xAxisLabel);
         // Stats table
         statsArea.innerHTML='';
         statsArea.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Summary statistics'));
