@@ -2070,9 +2070,6 @@ function renderReportsScreen(){
     function showCustomReport(key){
       ctrl.style.display='none';chartCard.style.display='none';statsArea.style.display='none';
       customArea.style.display='block';customArea.innerHTML='';
-      const backBtn=h('button',{type:'button',style:{padding:'6px 12px',borderRadius:'8px',border:'1px solid #ddd',background:'#fff',color:'#555',fontSize:'12px',fontWeight:'600',cursor:'pointer',marginBottom:'12px'}},'← Back to chart reports');
-      backBtn.addEventListener('click',backToCharts);
-      customArea.appendChild(backBtn);
       const body=h('div',null);
       customArea.appendChild(body);
       if(key==='treatment') renderTreatmentCoverage(body);
