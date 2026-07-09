@@ -2058,7 +2058,7 @@ function renderReportsScreen(){
     const quickGrid=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px'}});
     const QUICK_REPORTS=[
       {label:'Mite rate by operation',custom:'miterate'},
-      {label:'Yield by operation',mode:'year',x:'operations',y:'yield'},
+      {label:'Yield by operation',custom:'yield'},
       {label:'Hive strength trend',mode:'year',x:'seasons',y:'strength'},
       {label:'Dead/alive right now',custom:'deadalive'},
       {label:'Disease prevalence',mode:'trend',x:'operations',y:'disease'},
@@ -2084,6 +2084,7 @@ function renderReportsScreen(){
       else if(key==='movements') renderMovementsByDriver(body);
       else if(key==='miterate') renderMiteRateByOperation(body);
       else if(key==='deadalive') renderDeadAliveReport(body);
+      else if(key==='yield') renderYieldByOperation(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -2110,6 +2111,8 @@ function renderReportsScreen(){
 
     // Canvas chart
     const chartCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+    const chartTitleEl=h('div',{style:{fontSize:'13px',fontWeight:'700',color:'#333',marginBottom:'8px'}});
+    chartCard.appendChild(chartTitleEl);
     const canvas=document.createElement('canvas');
     canvas.style.width='100%';canvas.style.display='block';
     const resizeCanvas=()=>{
@@ -2506,6 +2509,69 @@ function renderReportsScreen(){
       draw();
     }
 
+    // ── Yield by operation — by year, optionally narrowed to Thyme or Clover harvest ──
+    function renderYieldByOperation(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Yield by operation'));
+      if(!years.length){container.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Add a seasonal year to see this report'));return;}
+
+      // A harvest entry counts as Thyme/Clover from its explicit tag if logged, otherwise
+      // falls back to the season it was recorded in (Nov-Dec = Thyme, Jan-end of season =
+      // Clover) so older, untagged entries still show up somewhere sensible.
+      function flowerFor(e){
+        if(e.harvest_flower) return e.harvest_flower;
+        const mo=parseInt((e.date||'').split('-')[1]);
+        if(mo===11||mo===12) return 'Thyme';
+        if(mo>=1&&mo<=5) return 'Clover';
+        return null;
+      }
+
+      const selRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'14px'}});
+      const yearSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      [...years].sort((a,b)=>b.startYear-a.startYear).forEach(yr=>yearSel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      const flowerSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      [['all','All harvests'],['Thyme','Thyme'],['Clover','Clover']].forEach(([v,l])=>flowerSel.appendChild(h('option',{value:v},l)));
+      selRow.appendChild(yearSel);selRow.appendChild(flowerSel);
+      container.appendChild(selRow);
+
+      const chartCardY=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+      const canvasY=document.createElement('canvas');
+      canvasY.style.width='100%';canvasY.style.display='block';
+      chartCardY.appendChild(canvasY);
+      container.appendChild(chartCardY);
+      const statsY=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
+      container.appendChild(statsY);
+
+      function draw(){
+        const yr=years.find(y=>String(y.startYear)===String(yearSel.value))||years[0];
+        const ranges=getSeasonRanges(yr);
+        let se=getSeasonEntries({start:ranges.winter.start,end:ranges.autumn.end});
+        if(flowerSel.value!=='all') se=se.filter(e=>flowerFor(e)===flowerSel.value);
+        const groups=Object.keys(OPERATIONS).map(op=>({label:op,vals:getYieldValues(se.filter(e=>e._op===op))}));
+        setTimeout(()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=canvasY.parentElement?.offsetWidth||300;
+          canvasY.width=w*dpr;canvasY.height=300*dpr;
+          canvasY.style.width='100%';canvasY.style.height='300px';
+          drawBoxWhisker(canvasY,groups,'#b05a1a','Boxes','Operation');
+        },50);
+        statsY.innerHTML='';
+        statsY.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},(yr.name||yr.startYear+'-'+(yr.startYear+1))+(flowerSel.value!=='all'?' · '+flowerSel.value:'')));
+        groups.filter(g=>g.vals.length>0).forEach(g=>{
+          const avg=g.vals.reduce((a,b)=>a+b,0)/g.vals.length;
+          const sorted=[...g.vals].sort((a,b)=>a-b);
+          const median=sorted.length%2===0?(sorted[sorted.length/2-1]+sorted[sorted.length/2])/2:sorted[Math.floor(sorted.length/2)];
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
+          row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},g.label));
+          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+avg.toFixed(1)+' · median '+median.toFixed(1)+' · n='+g.vals.length));
+          statsY.appendChild(row);
+        });
+        if(!groups.some(g=>g.vals.length>0)) statsY.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No harvest logged yet for this selection — harvest is usually Nov onward, so an early-season year may genuinely be empty'));
+      }
+      yearSel.addEventListener('change',draw);
+      flowerSel.addEventListener('change',draw);
+      draw();
+    }
+
     // ── Days since last visit — color-coded chip grid per operation ──
     function renderOverdueHeatmap(container){
       container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Days since last visit'));
@@ -2781,6 +2847,13 @@ function renderReportsScreen(){
       const yLabel=YLABELS[ySel.value]||'';
       let groups=[];
       const xVal=xSel.value;
+      // Chart title — always visible above the canvas so it's never ambiguous what's shown
+      const MODE_LABELS={year:'Year',season:'Season',daterange:'Date Range',snapshot:'Snapshot',trend:'Trend'};
+      const X_LABELS={operations:'Operation',batches:'Batch',seasons:'Season'};
+      if(ySel.value!=='disease'){
+        const yTitle=YLABELS[ySel.value]||ySel.options[ySel.selectedIndex]?.text||'';
+        chartTitleEl.textContent=yTitle+' by '+(X_LABELS[xVal]||'')+' — '+(MODE_LABELS[chartMode]||'');
+      }
 
       if(chartMode==='daterange'&&ySel.value!=='disease'){
         // A date range is inherently "over time" — show the trend across it (bucketed by day,
@@ -4965,6 +5038,7 @@ function renderForm(){
       {key:'disease_notes',label:'Notes',type:'text'},
     ]},
     {key:'harvest',label:'Harvest',color:'#b05a1a',fields:[
+      {key:'harvest_flower',label:'Harvest Type',type:'harvest_flower'},
       {key:'fd_on',label:'FD on',type:'number'},{key:'on_34',label:'3/4 on',type:'number'},
       {key:'fd_harv',label:'FD Harvested',type:'number'},{key:'harv_34',label:'3/4 Harvested',type:'number'},
       {key:'harvest_pct',label:'% Full (whole load)',type:'percent'},
@@ -5199,6 +5273,24 @@ function renderForm(){
           hRow.appendChild(btn);
         });
         fw.appendChild(hRow);
+      } else if(f.type==='harvest_flower'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},f.label));
+        const flowerOptions=['Thyme','Clover'];
+        const hfRow=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
+        flowerOptions.forEach(opt=>{
+          const btn=h('button',{type:'button',style:{padding:'7px 14px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',border:`1.5px solid ${vals.harvest_flower===opt?sec.color:'#ddd'}`,background:vals.harvest_flower===opt?`${sec.color}18`:'#fff',color:vals.harvest_flower===opt?sec.color:'#888'}},opt);
+          btn.addEventListener('click',()=>{
+            STATE.formVals.harvest_flower=STATE.formVals.harvest_flower===opt?'':opt;
+            hfRow.querySelectorAll('button').forEach((b,i)=>{
+              const isActive=STATE.formVals.harvest_flower===flowerOptions[i];
+              b.style.border=`1.5px solid ${isActive?sec.color:'#ddd'}`;
+              b.style.background=isActive?`${sec.color}18`:'#fff';
+              b.style.color=isActive?sec.color:'#888';
+            });
+          });
+          hfRow.appendChild(btn);
+        });
+        fw.appendChild(hfRow);
       } else if(f.type==='carrot_grid'){
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},'Carrot Score — hives per score'));
         const grid=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:'4px'}});
