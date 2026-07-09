@@ -2138,41 +2138,69 @@ function renderReportsScreen(){
 
     // ── Treatment coverage: % of sites treated with each product, per operation ──
     function renderTreatmentCoverage(container){
-      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage — current'));
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage — current, by batch'));
       Object.keys(OPERATIONS).forEach(opName=>{
         const yards=getYards(opName);
         const allSites=Object.values(yards).flatMap(b=>b.sites);
         if(!allSites.length) return;
-        const treatCounts={};
-        allSites.forEach(site=>{
-          // Carry forward each site's most recent LOGGED treatment, regardless of how long ago
-          // that was — a treatment doesn't stop being "current" just because the next visit
-          // didn't re-type it, and it shouldn't fall out of view just because it crossed into
-          // a new beekeeping year.
-          const withTreatment=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]))
-            .filter(e=>!e._movement&&e.treatment&&e.treatment.trim())
-            .sort((a,b)=>{
-              const dc=(b.date||'').localeCompare(a.date||'');
-              return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
-            });
-          const latest=withTreatment[0];
-          if(!latest) return;
-          latest.treatment.split(',').map(s=>s.trim()).filter(Boolean).forEach(t=>{
-            treatCounts[t]=(treatCounts[t]||0)+1;
-          });
-        });
         const opCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'10px',border:'.5px solid #ddd'}});
-        opCard.appendChild(h('div',{style:{fontWeight:'700',fontSize:'14px',marginBottom:'8px'}},opName+' · '+allSites.length+' sites'));
-        const rows=Object.entries(treatCounts).sort((a,b)=>b[1]-a[1]);
-        if(!rows.length) opCard.appendChild(h('div',{style:{color:'#bbb',fontSize:'12px'}},'No treatments logged yet'));
-        rows.forEach(([t,count])=>{
-          const pct=Math.round(count/allSites.length*100);
-          const row=h('div',{style:{marginBottom:'8px'}});
-          row.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}},h('span',{style:{fontWeight:'600'}},t),h('span',{style:{color:'#888'}},count+'/'+allSites.length+' · '+pct+'%')));
-          const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'8px',overflow:'hidden'}});
-          barBg.appendChild(h('div',{style:{background:'#3d7a4f',height:'100%',width:pct+'%'}}));
-          row.appendChild(barBg);
-          opCard.appendChild(row);
+        opCard.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',marginBottom:'10px'}},opName+' · '+allSites.length+' sites'));
+        Object.entries(yards).forEach(([batchName,batch])=>{
+          if(!batch.sites.length) return;
+          // All percentages here are scoped to this batch — its own site count and its own
+          // hive count — not the operation as a whole.
+          const batchHives=batch.sites.reduce((sum,site)=>sum+getSiteHiveState(opName,site,null).hives,0);
+          const treatCounts={};
+          let formicQty=0;
+          batch.sites.forEach(site=>{
+            // Carry forward each site's most recent LOGGED treatment, regardless of how long ago
+            // that was — a treatment doesn't stop being "current" just because the next visit
+            // didn't re-type it, and it shouldn't fall out of view just because it crossed into
+            // a new beekeeping year.
+            const withTreatment=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]))
+              .filter(e=>!e._movement&&e.treatment&&e.treatment.trim())
+              .sort((a,b)=>{
+                const dc=(b.date||'').localeCompare(a.date||'');
+                return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
+              });
+            const latest=withTreatment[0];
+            if(!latest) return;
+            const items=latest.treatment.split(',').map(s=>s.trim()).filter(Boolean);
+            const seenNames=new Set();
+            items.forEach(item=>{
+              // "Formic Pro · N" is Formic Pro plus a dose count, not a distinct treatment —
+              // collapse every dose variant into one "Formic Pro" bucket for coverage purposes.
+              const fm=item.match(/Formic Pro\s*·\s*(\d+)/);
+              const name=fm?'Formic Pro':item;
+              if(!seenNames.has(name)){seenNames.add(name);treatCounts[name]=(treatCounts[name]||0)+1;}
+              if(fm) formicQty+=parseInt(fm[1])||0;
+            });
+          });
+          const rows=Object.entries(treatCounts).sort((a,b)=>b[1]-a[1]);
+          if(!rows.length&&formicQty===0) return; // skip batches with nothing logged, keep the report tight
+          const batchBlock=h('div',{style:{marginBottom:'16px',paddingBottom:'12px',borderBottom:'.5px solid #eee'}});
+          batchBlock.appendChild(h('div',{style:{fontWeight:'700',fontSize:'13px',color:'#555',marginBottom:'6px'}},batchName+' · '+batch.sites.length+' sites'));
+          if(!rows.length) batchBlock.appendChild(h('div',{style:{color:'#bbb',fontSize:'12px'}},'No treatments logged yet'));
+          rows.forEach(([t,count])=>{
+            const pct=Math.round(count/batch.sites.length*100);
+            const row=h('div',{style:{marginBottom:'8px'}});
+            row.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}},h('span',{style:{fontWeight:'600'}},t),h('span',{style:{color:'#888'}},count+'/'+batch.sites.length+' · '+pct+'%')));
+            const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'8px',overflow:'hidden'}});
+            barBg.appendChild(h('div',{style:{background:'#3d7a4f',height:'100%',width:pct+'%'}}));
+            row.appendChild(barBg);
+            batchBlock.appendChild(row);
+          });
+          // Formic Pro dosage — total packets put out across the batch ÷ the batch's whole hive count
+          if(formicQty>0&&batchHives>0){
+            const dosePct=Math.round(formicQty/batchHives*100);
+            const row=h('div',{style:{marginTop:'4px'}});
+            row.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}},h('span',{style:{fontWeight:'600',color:'#b07800'}},'Formic Pro dosage'),h('span',{style:{color:'#888'}},formicQty+' packets / '+batchHives+' hives · '+dosePct+'%')));
+            const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'8px',overflow:'hidden'}});
+            barBg.appendChild(h('div',{style:{background:'#ef9f27',height:'100%',width:Math.min(dosePct,100)+'%'}}));
+            row.appendChild(barBg);
+            batchBlock.appendChild(row);
+          }
+          opCard.appendChild(batchBlock);
         });
         container.appendChild(opCard);
       });
