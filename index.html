@@ -453,7 +453,16 @@ function removeCustomSite(opName,batchName,siteName){
   saveCustomYards(cy);
   pushToSupabase('custom_yards',cy);
 }
-function saveLocal(entries){try{localStorage.setItem('apiary_entries',JSON.stringify(entries));}catch(e){}}
+function saveLocal(entries){
+  try{
+    localStorage.setItem('apiary_entries',JSON.stringify(entries));
+  }catch(e){
+    // Storage full (or otherwise blocked) — this entry did NOT save. Staying silent here
+    // would mean a real hive check quietly vanishes, so surface it loudly instead.
+    console.error('saveLocal failed:',e);
+    showToast('⚠ Storage full — this entry was NOT saved! Free up space or export data.',6000);
+  }
+}
 
 // ── Check storage (blue reminder, less urgent than flag) ─────────────────────
 function loadChecks(){try{return JSON.parse(localStorage.getItem('apiary_checks')||'{}');}catch(e){return{};}}
@@ -487,6 +496,8 @@ async function setFlag(op,site,comment){
   }
 }
 
+function loadPending(){try{return JSON.parse(localStorage.getItem('apiary_pending')||'[]');}catch(e){return[];}}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 let STATE={
   op:null,tab:'overview',round:'spring',
@@ -494,7 +505,7 @@ let STATE={
   entries:loadLocal(),formVals:{},
   syncStatus:'online', // online|syncing|offline|error
   userName: localStorage.getItem('apiary_user')||null,
-  pendingSync: JSON.parse(localStorage.getItem('apiary_pending')||'[]'),
+  pendingSync: loadPending(),
   todayEntries: {} // track entries made today for email report
 };
 
@@ -511,7 +522,7 @@ function updateSyncDot(status){
 // ── Supabase sync ─────────────────────────────────────────────────────────────
 async function pushToSupabase(key, data){
   if(!navigator.onLine||!window._sb){
-    const pending=JSON.parse(localStorage.getItem('apiary_pending')||'[]');
+    const pending=loadPending();
     if(!pending.find(p=>p.key===key)) pending.push({key,data});
     localStorage.setItem('apiary_pending',JSON.stringify(pending));
     return;
@@ -524,7 +535,7 @@ async function pushToSupabase(key, data){
   }catch(e){
     updateSyncDot('error');
     showToast('Sync error — saved locally');
-    const pending=JSON.parse(localStorage.getItem('apiary_pending')||'[]');
+    const pending=loadPending();
     if(!pending.find(p=>p.key===key)) pending.push({key,data});
     localStorage.setItem('apiary_pending',JSON.stringify(pending));
   }
@@ -596,7 +607,7 @@ async function pullFromSupabase(){
 }
 
 async function flushPending(){
-  const pending=JSON.parse(localStorage.getItem('apiary_pending')||'[]');
+  const pending=loadPending();
   if(!pending.length) return;
   updateSyncDot('syncing');
   const failed=[];
