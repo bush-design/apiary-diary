@@ -2052,7 +2052,7 @@ function renderReportsScreen(){
     quickWrap.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Quick reports'));
     const quickGrid=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px'}});
     const QUICK_REPORTS=[
-      {label:'Mite rate by operation',mode:'year',x:'seasons',y:'mite'},
+      {label:'Mite rate by operation',custom:'miterate'},
       {label:'Yield by operation',mode:'year',x:'operations',y:'yield'},
       {label:'Hive strength trend',mode:'year',x:'seasons',y:'strength'},
       {label:'Dead/alive right now',mode:'snapshot',x:'operations',y:'dead'},
@@ -2080,6 +2080,7 @@ function renderReportsScreen(){
       else if(key==='afb') renderAFBTimeline(body);
       else if(key==='scatter') renderYieldScatter(body);
       else if(key==='movements') renderMovementsByDriver(body);
+      else if(key==='miterate') renderMiteRateByOperation(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -2286,6 +2287,143 @@ function renderReportsScreen(){
       });
       seasonSel.addEventListener('change',renderBody);
       renderBody();
+    }
+
+    // ── Mite rate by operation — trend across years, within-year by season, or one season's spread ──
+    function renderMiteRateByOperation(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Mite rate by operation'));
+      if(!years.length){container.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Add a seasonal year to see this report'));return;}
+
+      const selRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'14px'}});
+      const yearSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      yearSel.appendChild(h('option',{value:'trend'},'Trend across years'));
+      [...years].sort((a,b)=>b.startYear-a.startYear).forEach(yr=>yearSel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      const seasonSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',display:'none'}});
+      seasonSel.appendChild(h('option',{value:'all'},'All seasons'));
+      Object.entries(ROUNDS).forEach(([rk,r])=>seasonSel.appendChild(h('option',{value:rk},r.label)));
+      selRow.appendChild(yearSel);selRow.appendChild(seasonSel);
+      container.appendChild(selRow);
+
+      const chartCardM=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+      const canvasM=document.createElement('canvas');
+      canvasM.style.width='100%';canvasM.style.display='block';
+      chartCardM.appendChild(canvasM);
+      container.appendChild(chartCardM);
+      const statsM=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
+      container.appendChild(statsM);
+
+      const OPCOLORSM=Object.fromEntries(Object.entries(OPERATIONS).map(([opN,d],i)=>[opN,['#3d7a4f','#1a6fb0','#9b59b6'][i]||'#555']));
+
+      function renderStatsLine(items){ // [{label,color,avg,n}]
+        statsM.innerHTML='';
+        items.forEach(it=>{
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
+          const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'50%',background:it.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
+          const left=h('div',{style:{display:'flex',alignItems:'center',flex:'1'}});
+          left.appendChild(dot);left.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},it.label));
+          row.appendChild(left);
+          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+it.avg.toFixed(2)+' · n='+it.n));
+          statsM.appendChild(row);
+        });
+        if(!items.length) statsM.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No mite data for this selection'));
+      }
+
+      function draw(){
+        const sortedYears=[...years].sort((a,b)=>a.startYear-b.startYear);
+        if(yearSel.value==='trend'){
+          // Line graph — one point per year, one line per operation + Average
+          const lineSeries=Object.keys(OPERATIONS).map(op=>{
+            const points=sortedYears.map(yr=>{
+              const ranges=getSeasonRanges(yr);
+              const se=getSeasonEntries({start:ranges.winter.start,end:ranges.autumn.end}).filter(e=>e._op===op);
+              const vals=getMiteValues(se);
+              if(!vals.length) return null;
+              return{x:yr.name||yr.startYear+'-'+(yr.startYear+1),y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
+            }).filter(Boolean);
+            return{label:op,color:OPCOLORSM[op]||'#555',points};
+          }).filter(s=>s.points.length>0);
+          const avgPoints=sortedYears.map(yr=>{
+            const ranges=getSeasonRanges(yr);
+            const se=getSeasonEntries({start:ranges.winter.start,end:ranges.autumn.end});
+            const vals=getMiteValues(se);
+            if(!vals.length) return null;
+            return{x:yr.name||yr.startYear+'-'+(yr.startYear+1),y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
+          }).filter(Boolean);
+          if(avgPoints.length) lineSeries.push({label:'Average',color:'#555',points:avgPoints});
+          setTimeout(()=>{
+            const dpr=window.devicePixelRatio||1;
+            const w=canvasM.parentElement?.offsetWidth||300;
+            canvasM.width=w*dpr;canvasM.height=300*dpr;
+            canvasM.style.width='100%';canvasM.style.height='300px';
+            drawLineGraph(canvasM,lineSeries,'Mites/hive');
+          },50);
+          renderStatsLine(lineSeries.map(s=>({label:s.label,color:s.color,avg:s.points.reduce((a,p)=>a+p.y,0)/s.points.length,n:s.points.length})));
+        } else if(seasonSel.value==='all'){
+          // Within one year, by season — one point per season, one line per operation + Average
+          const yr=years.find(y=>String(y.startYear)===String(yearSel.value));
+          if(!yr){statsM.innerHTML='';return;}
+          const ranges=getSeasonRanges(yr);
+          const seasonPairs=Object.entries(ranges);
+          const lineSeries=Object.keys(OPERATIONS).map(op=>{
+            const points=seasonPairs.map(([rk,sr])=>{
+              const se=getSeasonEntries(sr).filter(e=>e._op===op);
+              const vals=getMiteValues(se);
+              if(!vals.length) return null;
+              return{x:sr.label,y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
+            }).filter(Boolean);
+            return{label:op,color:OPCOLORSM[op]||'#555',points};
+          }).filter(s=>s.points.length>0);
+          const avgPoints=seasonPairs.map(([rk,sr])=>{
+            const se=getSeasonEntries(sr);
+            const vals=getMiteValues(se);
+            if(!vals.length) return null;
+            return{x:sr.label,y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
+          }).filter(Boolean);
+          if(avgPoints.length) lineSeries.push({label:'Average',color:'#555',points:avgPoints});
+          setTimeout(()=>{
+            const dpr=window.devicePixelRatio||1;
+            const w=canvasM.parentElement?.offsetWidth||300;
+            canvasM.width=w*dpr;canvasM.height=300*dpr;
+            canvasM.style.width='100%';canvasM.style.height='300px';
+            drawLineGraph(canvasM,lineSeries,'Mites/hive');
+          },50);
+          renderStatsLine(lineSeries.map(s=>({label:s.label,color:s.color,avg:s.points.reduce((a,p)=>a+p.y,0)/s.points.length,n:s.points.length})));
+        } else {
+          // One specific season — box-and-whisker per operation, so the spread (not just the
+          // average) is visible, since a handful of high-mite sites can hide behind a fine average.
+          const yr=years.find(y=>String(y.startYear)===String(yearSel.value));
+          if(!yr){statsM.innerHTML='';return;}
+          const ranges=getSeasonRanges(yr);
+          const sr=ranges[seasonSel.value];
+          if(!sr){statsM.innerHTML='';return;}
+          const se=getSeasonEntries(sr);
+          const groups=Object.keys(OPERATIONS).map(op=>({label:op,vals:getMiteValues(se.filter(e=>e._op===op))}));
+          setTimeout(()=>{
+            const dpr=window.devicePixelRatio||1;
+            const w=canvasM.parentElement?.offsetWidth||300;
+            canvasM.width=w*dpr;canvasM.height=300*dpr;
+            canvasM.style.width='100%';canvasM.style.height='300px';
+            drawBoxWhisker(canvasM,groups,'#c0392b','Mites/hive','Operation');
+          },50);
+          statsM.innerHTML='';
+          groups.filter(g=>g.vals.length>0).forEach(g=>{
+            const avg=g.vals.reduce((a,b)=>a+b,0)/g.vals.length;
+            const sorted=[...g.vals].sort((a,b)=>a-b);
+            const median=sorted.length%2===0?(sorted[sorted.length/2-1]+sorted[sorted.length/2])/2:sorted[Math.floor(sorted.length/2)];
+            const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
+            row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},g.label));
+            row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg '+avg.toFixed(2)+' · median '+median.toFixed(2)+' · n='+g.vals.length));
+            statsM.appendChild(row);
+          });
+          if(!groups.some(g=>g.vals.length>0)) statsM.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No mite data for this season'));
+        }
+      }
+      yearSel.addEventListener('change',()=>{
+        seasonSel.style.display=yearSel.value==='trend'?'none':'block';
+        draw();
+      });
+      seasonSel.addEventListener('change',draw);
+      draw();
     }
 
     // ── Days since last visit — color-coded chip grid per operation ──
