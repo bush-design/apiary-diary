@@ -2099,18 +2099,10 @@ function renderReportsScreen(){
     quickWrap.appendChild(quickGrid);
     metricsArea.appendChild(quickWrap);
 
-    // Manual axis/mode controls are now tucked behind an Advanced toggle — Quick Reports
-    // cover the common questions, but this stays available for anything more specific.
-    let advancedOpen=false;
-    const advancedToggle=h('button',{type:'button',style:{width:'100%',padding:'10px',background:'none',border:'1px dashed #ccc',borderRadius:'8px',color:'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer',marginBottom:'12px',textAlign:'center'}},'⚙ Advanced options');
-    advancedToggle.addEventListener('click',()=>{
-      advancedOpen=!advancedOpen;
-      ctrl.style.display=advancedOpen?'block':'none';
-      advancedToggle.textContent=advancedOpen?'⚙ Hide advanced options':'⚙ Advanced options';
-    });
-    metricsArea.appendChild(advancedToggle);
-    ctrl.style.display='none';
-    metricsArea.appendChild(ctrl);
+    // The manual Y/X axis + mode picker panel (ctrl) is intentionally never attached to the
+    // page anymore — Quick Reports are now the only interface. Its elements (ySel, xSel,
+    // yearSel2, etc.) still exist in memory and Quick Reports still set their .value directly,
+    // which is all updateChart() actually reads, so nothing else needs to change.
 
     // Canvas chart
     const chartCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
@@ -2138,8 +2130,37 @@ function renderReportsScreen(){
 
     // ── Treatment coverage: % of sites treated with each product, per operation ──
     function renderTreatmentCoverage(container){
-      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage — current'));
-      Object.keys(OPERATIONS).forEach(opName=>{
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage'));
+
+      // Window selector — defaults to "All time (current)", matching the original carry-forward
+      // behavior. Picking a year/season scopes it to "current as of the end of that window".
+      const selRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'14px'}});
+      const yearSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      yearSel.appendChild(h('option',{value:'all'},'All time (current)'));
+      [...years].sort((a,b)=>b.startYear-a.startYear).forEach(yr=>yearSel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      const seasonSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',display:'none'}});
+      seasonSel.appendChild(h('option',{value:'all'},'All seasons'));
+      Object.entries(ROUNDS).forEach(([rk,r])=>seasonSel.appendChild(h('option',{value:rk},r.label)));
+      selRow.appendChild(yearSel);
+      selRow.appendChild(seasonSel);
+      container.appendChild(selRow);
+
+      const bodyArea=h('div',null);
+      container.appendChild(bodyArea);
+
+      function getCutoff(){
+        if(yearSel.value==='all') return null;
+        const yr=years.find(y=>String(y.startYear)===String(yearSel.value));
+        if(!yr) return null;
+        const ranges=getSeasonRanges(yr);
+        if(seasonSel.value==='all') return ranges.autumn.end; // end of that whole beekeeping year
+        return ranges[seasonSel.value]?ranges[seasonSel.value].end:ranges.autumn.end;
+      }
+
+      function renderBody(){
+        bodyArea.innerHTML='';
+        const cutoffDate=getCutoff();
+        Object.keys(OPERATIONS).forEach(opName=>{
         const yards=getYards(opName);
         const allSites=Object.values(yards).flatMap(b=>b.sites);
         if(!allSites.length) return;
@@ -2149,12 +2170,11 @@ function renderReportsScreen(){
         const siteInfo={}; // site -> {batchName, items:[{name,qty}]}
         Object.entries(yards).forEach(([batchName,batch])=>{
           batch.sites.forEach(site=>{
-            // Carry forward each site's most recent LOGGED treatment, regardless of how long ago
-            // that was — a treatment doesn't stop being "current" just because the next visit
-            // didn't re-type it, and it shouldn't fall out of view just because it crossed into
-            // a new beekeeping year.
+            // Carry forward each site's most recent LOGGED treatment as of the selected window
+            // (or all time, if "All time" is selected) — a treatment doesn't stop being
+            // "current" just because the next visit didn't re-type it.
             const withTreatment=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]))
-              .filter(e=>!e._movement&&e.treatment&&e.treatment.trim())
+              .filter(e=>!e._movement&&e.treatment&&e.treatment.trim()&&(!cutoffDate||e.date<=cutoffDate))
               .sort((a,b)=>{
                 const dc=(b.date||'').localeCompare(a.date||'');
                 return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
@@ -2189,7 +2209,7 @@ function renderReportsScreen(){
           const totalQty=list.reduce((s,x)=>s+(x.qty||0),0);
           const row=h('div',{style:{marginBottom:'8px',cursor:'pointer'}});
           const headRow=h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}});
-          headRow.appendChild(h('span',{style:{fontWeight:'600'}},name+(totalQty>0?' ('+totalQty+' doses)':'')+' ▾'));
+          headRow.appendChild(h('span',{style:{fontWeight:'600'}},name+(totalQty>0?' ('+totalQty+' dose'+(totalQty===1?'':'s')+')':'')+' ▾'));
           headRow.appendChild(h('span',{style:{color:'#888'}},list.length+'/'+allSites.length+' · '+pct+'%'));
           row.appendChild(headRow);
           const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'8px',overflow:'hidden'}});
@@ -2200,7 +2220,7 @@ function renderReportsScreen(){
           list.sort((a,b)=>a.site.localeCompare(b.site)).forEach(x=>{
             detail.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',padding:'3px 0'}},
               h('span',{style:{color:'#555'}},x.site+' ('+x.batchName+')'),
-              h('span',{style:{color:'#888',fontWeight:'600'}},x.qty!=null?x.qty+' doses':'✓')
+              h('span',{style:{color:'#888',fontWeight:'600'}},x.qty!=null?x.qty+' dose'+(x.qty===1?'':'s'):'✓')
             ));
           });
           row.appendChild(detail);
@@ -2222,7 +2242,7 @@ function renderReportsScreen(){
           if(!batch.sites.length) return;
           const batchSitesInfo=batch.sites.filter(s=>siteInfo[s]);
           if(!batchSitesInfo.length) return;
-          const batchHives=batch.sites.reduce((sum,site)=>sum+getSiteHiveState(opName,site,null).hives,0);
+          const batchHives=batch.sites.reduce((sum,site)=>sum+getSiteHiveState(opName,site,cutoffDate).hives,0);
           const batchTreat={};
           let formicQty=0;
           batchSitesInfo.forEach(site=>{
@@ -2246,7 +2266,7 @@ function renderReportsScreen(){
           if(formicQty>0&&batchHives>0){
             const dosePct=Math.round(formicQty/batchHives*100);
             const row=h('div',{style:{marginTop:'2px'}});
-            row.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}},h('span',{style:{fontWeight:'600',color:'#b07800'}},'Formic Pro dosage'),h('span',{style:{color:'#888'}},formicQty+' packets / '+batchHives+' hives · '+dosePct+'%')));
+            row.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}},h('span',{style:{fontWeight:'600',color:'#b07800'}},'Formic Pro dosage'),h('span',{style:{color:'#888'}},formicQty+' packet'+(formicQty===1?'':'s')+' / '+batchHives+' hive'+(batchHives===1?'':'s')+' · '+dosePct+'%')));
             const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'7px',overflow:'hidden'}});
             barBg.appendChild(h('div',{style:{background:'#ef9f27',height:'100%',width:Math.min(dosePct,100)+'%'}}));
             row.appendChild(barBg);
@@ -2256,8 +2276,16 @@ function renderReportsScreen(){
         });
         opCard.appendChild(batchToggle);
         opCard.appendChild(batchArea);
-        container.appendChild(opCard);
+        bodyArea.appendChild(opCard);
+        });
+      }
+
+      yearSel.addEventListener('change',()=>{
+        seasonSel.style.display=yearSel.value==='all'?'none':'block';
+        renderBody();
       });
+      seasonSel.addEventListener('change',renderBody);
+      renderBody();
     }
 
     // ── Days since last visit — color-coded chip grid per operation ──
