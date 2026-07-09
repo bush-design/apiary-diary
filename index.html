@@ -2138,20 +2138,28 @@ function renderReportsScreen(){
 
     // ── Treatment coverage: % of sites treated with each product, per operation ──
     function renderTreatmentCoverage(container){
-      const yr=years[0];
-      if(!yr){container.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Add a seasonal year to see this report'));return;}
-      const ranges=getSeasonRanges(yr);
-      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage — '+(yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage — current'));
       Object.keys(OPERATIONS).forEach(opName=>{
         const yards=getYards(opName);
         const allSites=Object.values(yards).flatMap(b=>b.sites);
         if(!allSites.length) return;
         const treatCounts={};
         allSites.forEach(site=>{
-          const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement&&e.date>=ranges.winter.start&&e.date<=ranges.autumn.end));
-          const seen=new Set();
-          allE.forEach(e=>(e.treatment||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(t=>seen.add(t)));
-          seen.forEach(t=>{treatCounts[t]=(treatCounts[t]||0)+1;});
+          // Carry forward each site's most recent LOGGED treatment, regardless of how long ago
+          // that was — a treatment doesn't stop being "current" just because the next visit
+          // didn't re-type it, and it shouldn't fall out of view just because it crossed into
+          // a new beekeeping year.
+          const withTreatment=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]))
+            .filter(e=>!e._movement&&e.treatment&&e.treatment.trim())
+            .sort((a,b)=>{
+              const dc=(b.date||'').localeCompare(a.date||'');
+              return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
+            });
+          const latest=withTreatment[0];
+          if(!latest) return;
+          latest.treatment.split(',').map(s=>s.trim()).filter(Boolean).forEach(t=>{
+            treatCounts[t]=(treatCounts[t]||0)+1;
+          });
         });
         const opCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'10px',border:'.5px solid #ddd'}});
         opCard.appendChild(h('div',{style:{fontWeight:'700',fontSize:'14px',marginBottom:'8px'}},opName+' · '+allSites.length+' sites'));
