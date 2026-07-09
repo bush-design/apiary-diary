@@ -6023,7 +6023,7 @@ function showEditMovementModal(m){
       // Find and update the _movement diary entry that matches this movement
       async function updateMovDiaryEntry(opName, siteKey, oldDate, newMov2){
         if(!opName||!siteKey) return;
-        const k=eKey(opName,siteKey,'spring');
+        const k=eKey(opName,siteKey,roundForDate(oldDate)||'spring');
         const existing=STATE.entries[k]||[];
         const entryIdx=existing.findIndex(e=>e._movement&&e.date===oldDate&&e.comments&&(
           e.comments.includes(m.to_orchard||'')||
@@ -7317,10 +7317,30 @@ function renderMovementsScreen(){
 
   // ── History tab ──
   else if(STATE.tab==='history'){
-    const movements=[...loadMovements()].reverse();
-    if(!movements.length){screen.appendChild(h('div',{className:'empty-msg'},'No movements logged yet'));}
+    const allMovements=[...loadMovements()].reverse();
+    const historyFilter=STATE.historyFilter||'all';
+    const MOVE_FILTERS=[
+      {key:'all',label:'All'},
+      {key:'yard_yard',label:'Yard → Yard'},
+      {key:'to_orchard',label:'Yard → Orchard'},
+      {key:'from_orchard',label:'Orchard → Yard'},
+      {key:'orchard_orchard',label:'Orchard → Orchard'},
+    ];
+    const filterRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px',marginBottom:'12px'}});
+    MOVE_FILTERS.forEach(f=>{
+      const active=historyFilter===f.key;
+      filterRow.appendChild(h('button',{type:'button',style:{padding:'6px 12px',borderRadius:'20px',border:'1.5px solid '+(active?'#6a4fa8':'#ddd'),background:active?'#6a4fa818':'#fff',color:active?'#6a4fa8':'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'},
+        onClick:()=>setState({historyFilter:f.key})},f.label));
+    });
+    screen.appendChild(filterRow);
+    const movements=historyFilter==='all'?allMovements:allMovements.filter(m=>{
+      const dir=m.direction||'from_orchard'; // no direction stored = orchard→yard pickup, matches card logic below
+      if(historyFilter==='from_orchard') return dir!=='to_orchard'&&dir!=='yard_yard'&&dir!=='orchard_orchard';
+      return dir===historyFilter;
+    });
+    if(!movements.length){screen.appendChild(h('div',{className:'empty-msg'},allMovements.length?'No movements match this filter':'No movements logged yet'));}
     else{
-      screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},movements.length+' movements'));
+      screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},movements.length+' movement'+(movements.length===1?'':'s')+(historyFilter!=='all'?' of '+allMovements.length:'')));
       movements.forEach(m=>{
         const isOut=m.direction==='to_orchard';
         const isYY=m.direction==='yard_yard';
@@ -7367,7 +7387,7 @@ function renderMovementsScreen(){
                 // Delete matching diary entries from affected yard sites
                 async function removeDiaryEntry(opName, siteKey){
                   if(!opName||!siteKey) return;
-                  const k=eKey(opName,siteKey,'spring');
+                  const k=eKey(opName,siteKey,roundForDate(m.date)||'spring');
                   const existing=STATE.entries[k]||[];
                   // Match by _movement flag and movement id stored in comments
                   const filtered=existing.filter(e=>!(e._movement&&e.date===m.date&&e.comments&&(
