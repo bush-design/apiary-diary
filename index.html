@@ -2138,20 +2138,16 @@ function renderReportsScreen(){
 
     // ── Treatment coverage: % of sites treated with each product, per operation ──
     function renderTreatmentCoverage(container){
-      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage — current, by batch'));
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Treatment coverage — current'));
       Object.keys(OPERATIONS).forEach(opName=>{
         const yards=getYards(opName);
         const allSites=Object.values(yards).flatMap(b=>b.sites);
         if(!allSites.length) return;
-        const opCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'10px',border:'.5px solid #ddd'}});
-        opCard.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',marginBottom:'10px'}},opName+' · '+allSites.length+' sites'));
+
+        // Gather each site's current treatment once, reused for the operation view, the batch
+        // breakdown, and the site-by-site detail lists.
+        const siteInfo={}; // site -> {batchName, items:[{name,qty}]}
         Object.entries(yards).forEach(([batchName,batch])=>{
-          if(!batch.sites.length) return;
-          // All percentages here are scoped to this batch — its own site count and its own
-          // hive count — not the operation as a whole.
-          const batchHives=batch.sites.reduce((sum,site)=>sum+getSiteHiveState(opName,site,null).hives,0);
-          const treatCounts={};
-          let formicQty=0;
           batch.sites.forEach(site=>{
             // Carry forward each site's most recent LOGGED treatment, regardless of how long ago
             // that was — a treatment doesn't stop being "current" just because the next visit
@@ -2165,43 +2161,101 @@ function renderReportsScreen(){
               });
             const latest=withTreatment[0];
             if(!latest) return;
-            const items=latest.treatment.split(',').map(s=>s.trim()).filter(Boolean);
-            const seenNames=new Set();
-            items.forEach(item=>{
-              // "Formic Pro · N" is Formic Pro plus a dose count, not a distinct treatment —
-              // collapse every dose variant into one "Formic Pro" bucket for coverage purposes.
+            const items=latest.treatment.split(',').map(s=>s.trim()).filter(Boolean).map(item=>{
+              // "Formic Pro · N" is Formic Pro plus a dose count, not a distinct treatment.
               const fm=item.match(/Formic Pro\s*·\s*(\d+)/);
-              const name=fm?'Formic Pro':item;
-              if(!seenNames.has(name)){seenNames.add(name);treatCounts[name]=(treatCounts[name]||0)+1;}
-              if(fm) formicQty+=parseInt(fm[1])||0;
+              return fm?{name:'Formic Pro',qty:parseInt(fm[1])||0}:{name:item,qty:null};
+            });
+            siteInfo[site]={batchName,items};
+          });
+        });
+
+        // Operation-wide tally: treatment name -> list of {site,batchName,qty}
+        const opTreat={};
+        Object.entries(siteInfo).forEach(([site,{batchName,items}])=>{
+          const seen=new Set();
+          items.forEach(it=>{
+            if(seen.has(it.name)) return; seen.add(it.name);
+            (opTreat[it.name]=opTreat[it.name]||[]).push({site,batchName,qty:it.qty});
+          });
+        });
+
+        const opCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'10px',border:'.5px solid #ddd'}});
+        opCard.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',marginBottom:'10px'}},opName+' · '+allSites.length+' sites'));
+        const rows=Object.entries(opTreat).sort((a,b)=>b[1].length-a[1].length);
+        if(!rows.length) opCard.appendChild(h('div',{style:{color:'#bbb',fontSize:'12px'}},'No treatments logged yet'));
+        rows.forEach(([name,list])=>{
+          const pct=Math.round(list.length/allSites.length*100);
+          const totalQty=list.reduce((s,x)=>s+(x.qty||0),0);
+          const row=h('div',{style:{marginBottom:'8px',cursor:'pointer'}});
+          const headRow=h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}});
+          headRow.appendChild(h('span',{style:{fontWeight:'600'}},name+(totalQty>0?' ('+totalQty+' doses)':'')+' ▾'));
+          headRow.appendChild(h('span',{style:{color:'#888'}},list.length+'/'+allSites.length+' · '+pct+'%'));
+          row.appendChild(headRow);
+          const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'8px',overflow:'hidden'}});
+          barBg.appendChild(h('div',{style:{background:'#3d7a4f',height:'100%',width:pct+'%'}}));
+          row.appendChild(barBg);
+          // Site-by-site detail list — collapsed by default, tap the row to reveal
+          const detail=h('div',{style:{display:'none',marginTop:'6px',background:'#f8f8f6',borderRadius:'8px',padding:'8px 10px'}});
+          list.sort((a,b)=>a.site.localeCompare(b.site)).forEach(x=>{
+            detail.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',padding:'3px 0'}},
+              h('span',{style:{color:'#555'}},x.site+' ('+x.batchName+')'),
+              h('span',{style:{color:'#888',fontWeight:'600'}},x.qty!=null?x.qty+' doses':'✓')
+            ));
+          });
+          row.appendChild(detail);
+          let open=false;
+          row.addEventListener('click',()=>{open=!open;detail.style.display=open?'block':'none';});
+          opCard.appendChild(row);
+        });
+
+        // Batches — collapsed by default
+        const batchToggle=h('button',{type:'button',style:{width:'100%',padding:'8px',marginTop:'8px',background:'none',border:'1px dashed #ccc',borderRadius:'8px',color:'#888',fontSize:'11px',fontWeight:'700',cursor:'pointer'}},'▾ Show batches');
+        const batchArea=h('div',{style:{display:'none',marginTop:'10px'}});
+        let batchesOpen=false;
+        batchToggle.addEventListener('click',()=>{
+          batchesOpen=!batchesOpen;
+          batchArea.style.display=batchesOpen?'block':'none';
+          batchToggle.textContent=batchesOpen?'▴ Hide batches':'▾ Show batches';
+        });
+        Object.entries(yards).forEach(([batchName,batch])=>{
+          if(!batch.sites.length) return;
+          const batchSitesInfo=batch.sites.filter(s=>siteInfo[s]);
+          if(!batchSitesInfo.length) return;
+          const batchHives=batch.sites.reduce((sum,site)=>sum+getSiteHiveState(opName,site,null).hives,0);
+          const batchTreat={};
+          let formicQty=0;
+          batchSitesInfo.forEach(site=>{
+            const seen=new Set();
+            siteInfo[site].items.forEach(it=>{
+              if(!seen.has(it.name)){seen.add(it.name);batchTreat[it.name]=(batchTreat[it.name]||0)+1;}
+              if(it.name==='Formic Pro') formicQty+=it.qty||0;
             });
           });
-          const rows=Object.entries(treatCounts).sort((a,b)=>b[1]-a[1]);
-          if(!rows.length&&formicQty===0) return; // skip batches with nothing logged, keep the report tight
-          const batchBlock=h('div',{style:{marginBottom:'16px',paddingBottom:'12px',borderBottom:'.5px solid #eee'}});
+          const batchBlock=h('div',{style:{marginBottom:'14px',paddingBottom:'10px',borderBottom:'.5px solid #eee'}});
           batchBlock.appendChild(h('div',{style:{fontWeight:'700',fontSize:'13px',color:'#555',marginBottom:'6px'}},batchName+' · '+batch.sites.length+' sites'));
-          if(!rows.length) batchBlock.appendChild(h('div',{style:{color:'#bbb',fontSize:'12px'}},'No treatments logged yet'));
-          rows.forEach(([t,count])=>{
+          Object.entries(batchTreat).sort((a,b)=>b[1]-a[1]).forEach(([t,count])=>{
             const pct=Math.round(count/batch.sites.length*100);
-            const row=h('div',{style:{marginBottom:'8px'}});
+            const row=h('div',{style:{marginBottom:'6px'}});
             row.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}},h('span',{style:{fontWeight:'600'}},t),h('span',{style:{color:'#888'}},count+'/'+batch.sites.length+' · '+pct+'%')));
-            const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'8px',overflow:'hidden'}});
+            const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'7px',overflow:'hidden'}});
             barBg.appendChild(h('div',{style:{background:'#3d7a4f',height:'100%',width:pct+'%'}}));
             row.appendChild(barBg);
             batchBlock.appendChild(row);
           });
-          // Formic Pro dosage — total packets put out across the batch ÷ the batch's whole hive count
           if(formicQty>0&&batchHives>0){
             const dosePct=Math.round(formicQty/batchHives*100);
-            const row=h('div',{style:{marginTop:'4px'}});
+            const row=h('div',{style:{marginTop:'2px'}});
             row.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'12px',marginBottom:'3px'}},h('span',{style:{fontWeight:'600',color:'#b07800'}},'Formic Pro dosage'),h('span',{style:{color:'#888'}},formicQty+' packets / '+batchHives+' hives · '+dosePct+'%')));
-            const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'8px',overflow:'hidden'}});
+            const barBg=h('div',{style:{background:'#f0f0ee',borderRadius:'6px',height:'7px',overflow:'hidden'}});
             barBg.appendChild(h('div',{style:{background:'#ef9f27',height:'100%',width:Math.min(dosePct,100)+'%'}}));
             row.appendChild(barBg);
             batchBlock.appendChild(row);
           }
-          opCard.appendChild(batchBlock);
+          batchArea.appendChild(batchBlock);
         });
+        opCard.appendChild(batchToggle);
+        opCard.appendChild(batchArea);
         container.appendChild(opCard);
       });
     }
