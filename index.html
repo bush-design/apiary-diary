@@ -2055,7 +2055,7 @@ function renderReportsScreen(){
       {label:'Mite rate by operation',custom:'miterate'},
       {label:'Yield by operation',mode:'year',x:'operations',y:'yield'},
       {label:'Hive strength trend',mode:'year',x:'seasons',y:'strength'},
-      {label:'Dead/alive right now',mode:'snapshot',x:'operations',y:'dead'},
+      {label:'Dead/alive right now',custom:'deadalive'},
       {label:'Disease prevalence',mode:'trend',x:'operations',y:'disease'},
       {label:'Treatment coverage',custom:'treatment'},
       {label:'Days since last visit',custom:'overdue'},
@@ -2081,6 +2081,7 @@ function renderReportsScreen(){
       else if(key==='scatter') renderYieldScatter(body);
       else if(key==='movements') renderMovementsByDriver(body);
       else if(key==='miterate') renderMiteRateByOperation(body);
+      else if(key==='deadalive') renderDeadAliveReport(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -2420,6 +2421,83 @@ function renderReportsScreen(){
       }
       yearSel.addEventListener('change',()=>{
         seasonSel.style.display=yearSel.value==='trend'?'none':'block';
+        draw();
+      });
+      seasonSel.addEventListener('change',draw);
+      draw();
+    }
+
+    // ── Dead/alive — right now, or as of the end of a chosen year/season ──
+    function renderDeadAliveReport(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Dead / alive'));
+
+      const selRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'6px'}});
+      const yearSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      yearSel.appendChild(h('option',{value:'now'},'Right now (today)'));
+      [...years].sort((a,b)=>b.startYear-a.startYear).forEach(yr=>yearSel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      const seasonSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',display:'none'}});
+      seasonSel.appendChild(h('option',{value:'end'},'End of year'));
+      Object.entries(ROUNDS).forEach(([rk,r])=>seasonSel.appendChild(h('option',{value:rk},'End of '+r.label)));
+      selRow.appendChild(yearSel);selRow.appendChild(seasonSel);
+      container.appendChild(selRow);
+      const asOfLabel=h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'12px'}});
+      container.appendChild(asOfLabel);
+
+      const chartCardD=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+      const canvasD=document.createElement('canvas');
+      canvasD.style.width='100%';canvasD.style.display='block';
+      chartCardD.appendChild(canvasD);
+      container.appendChild(chartCardD);
+      const statsD=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
+      container.appendChild(statsD);
+
+      function getCutoff(){
+        if(yearSel.value==='now') return todayStr();
+        const yr=years.find(y=>String(y.startYear)===String(yearSel.value));
+        if(!yr) return todayStr();
+        const ranges=getSeasonRanges(yr);
+        if(seasonSel.value==='end') return ranges.autumn.end;
+        return ranges[seasonSel.value]?ranges[seasonSel.value].end:ranges.autumn.end;
+      }
+
+      function draw(){
+        const cutoff=getCutoff();
+        asOfLabel.textContent=yearSel.value==='now'?'As of today ('+fmtDate(todayStr())+')':'As of '+fmtDate(cutoff);
+        // getSnapshotEntries already carries each site's hive/dead state forward correctly
+        // (including movements) as of the given cutoff date — exactly "what were the numbers
+        // at the end of this window."
+        const entries=getSnapshotEntries(cutoff);
+        const deadGroups=Object.keys(OPERATIONS).map(op=>{
+          const oe=entries.filter(e=>e._op===op);
+          const totalAlive=oe.reduce((a,e)=>a+(parseInt(e.hives)||0),0);
+          const totalDead=oe.reduce((a,e)=>a+(parseInt(e.dead)||0),0);
+          return{label:op,totalHives:totalAlive+totalDead,totalDead,totalAlive};
+        });
+        setTimeout(()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=canvasD.parentElement?.offsetWidth||300;
+          canvasD.width=w*dpr;canvasD.height=300*dpr;
+          canvasD.style.width='100%';canvasD.style.height='300px';
+          drawStackedBar(canvasD,deadGroups,'Operation','Hive count');
+        },50);
+        statsD.innerHTML='';
+        statsD.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Dead vs Alive'));
+        deadGroups.forEach(g=>{
+          if(!g.totalHives) return;
+          const pct=Math.round(g.totalDead/g.totalHives*100);
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'.5px solid #f0f0ee'}});
+          row.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333',flex:'1'}},g.label));
+          const info=h('div',{style:{display:'flex',gap:'10px',fontSize:'12px'}});
+          info.appendChild(h('span',{style:{color:'#3d7a4f',fontWeight:'600'}},g.totalAlive+' alive'));
+          info.appendChild(h('span',{style:{color:'#e24b4a',fontWeight:'600'}},g.totalDead+' dead'));
+          info.appendChild(h('span',{style:{color:'#888'}},pct+'%'));
+          row.appendChild(info);
+          statsD.appendChild(row);
+        });
+        if(!deadGroups.some(g=>g.totalHives>0)) statsD.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No data for this selection'));
+      }
+      yearSel.addEventListener('change',()=>{
+        seasonSel.style.display=yearSel.value==='now'?'none':'block';
         draw();
       });
       seasonSel.addEventListener('change',draw);
