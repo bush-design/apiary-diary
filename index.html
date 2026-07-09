@@ -1064,15 +1064,20 @@ function renderOpSelector(){
     onClick:()=>setState({op:'__movements__',tab:'movements'})});
   const movTotals=getOrchardTotals();
   const totalInOrchards=Object.values(movTotals).reduce((a,o)=>a+o.hives,0);
-  const totalMovements=loadMovements().length;
-  movCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:totalMovements>0?'12px':'0'}},
+  // "Movements" resets each beekeeping year (Jun 1) — matches how every other stat in the app
+  // scopes to the current season. "In orchards" stays as a live current-state count, not scoped.
+  const _now=new Date();
+  const _seasonStartYear=(_now.getMonth()+1)>=6?_now.getFullYear():_now.getFullYear()-1;
+  const _seasonStart=_seasonStartYear+'-06-01';
+  const totalMovements=loadMovements().filter(m=>(m.date||'')>=_seasonStart).length;
+  movCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:(totalMovements>0||totalInOrchards>0)?'12px':'0'}},
     h('div',null,
       h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Hive Movements'),
       h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},'Pollination in/out tracking')
     ),
     h('div',{style:{fontSize:'22px',color:'#c39bd3',opacity:'0.8'}},'›')
   ));
-  if(totalMovements>0){
+  if(totalMovements>0||totalInOrchards>0){
     movCard.appendChild(h('div',{style:{borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:'10px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px'}},
       h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 6px',textAlign:'center'}},
         h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},totalInOrchards),
@@ -1080,7 +1085,7 @@ function renderOpSelector(){
       ),
       h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 6px',textAlign:'center'}},
         h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},totalMovements),
-        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.05em',marginTop:'2px'}},'Movements')
+        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.05em',marginTop:'2px'}},'This season')
       )
     ));
   }
@@ -7341,7 +7346,19 @@ function renderMovementsScreen(){
     if(!movements.length){screen.appendChild(h('div',{className:'empty-msg'},allMovements.length?'No movements match this filter':'No movements logged yet'));}
     else{
       screen.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},movements.length+' movement'+(movements.length===1?'':'s')+(historyFilter!=='all'?' of '+allMovements.length:'')));
+      const beekeepingYearLabel=dateStr=>{
+        if(!dateStr) return 'Unknown';
+        const [y,mo]=dateStr.split('-').map(Number);
+        const startYear=mo>=6?y:y-1;
+        return startYear+'-'+(startYear+1);
+      };
+      let lastYearLabel=null;
       movements.forEach(m=>{
+        const yl=beekeepingYearLabel(m.date);
+        if(yl!==lastYearLabel){
+          lastYearLabel=yl;
+          screen.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'700',color:'#6a4fa8',margin:'14px 0 8px',paddingBottom:'4px',borderBottom:'1.5px solid #6a4fa833'}},yl));
+        }
         const isOut=m.direction==='to_orchard';
         const isYY=m.direction==='yard_yard';
         const isOO=m.direction==='orchard_orchard';
