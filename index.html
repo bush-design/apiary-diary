@@ -1680,14 +1680,113 @@ function renderReportsScreen(){
     });
   }
 
+  // Dual-axis combo chart — lines (left axis) overlaid with grouped bars (right axis) sharing
+  // the same X categories. Built for correlating a continuous trend (e.g. hive strength) against
+  // an event count (e.g. times fed) without one scale drowning out the other.
+  function drawComboChart(canvas, lines, bars, yLabelLeft, yLabelRight){
+    const dpr=window.devicePixelRatio||1;
+    const ctxC=canvas.getContext('2d');
+    ctxC.setTransform(1,0,0,1,0,0);
+    ctxC.clearRect(0,0,canvas.width,canvas.height);
+    ctxC.scale(dpr,dpr);
+    const W=canvas.width/dpr,H=canvas.height/dpr;
+    const pad={top:26,bottom:78,left:46,right:46};
+    const chartW=W-pad.left-pad.right;
+    const chartH=H-pad.top-pad.bottom;
+    const allX=[];
+    [...lines,...bars].forEach(s=>s.points.forEach(p=>{if(!allX.includes(p.x))allX.push(p.x);}));
+    if(!allX.length){ctxC.fillStyle='#bbb';ctxC.font='13px system-ui';ctxC.textAlign='center';ctxC.fillText('No data',W/2,H/2);return;}
+    const stepX=chartW/allX.length;
+    const toX=i=>pad.left+stepX*i+stepX/2;
+    const allLineVals=lines.flatMap(s=>s.points.map(p=>p.y));
+    const leftMax=Math.max(1,...(allLineVals.length?allLineVals:[1]))*1.15;
+    const toYLeft=v=>pad.top+chartH-(v/leftMax)*chartH;
+    const allBarVals=bars.flatMap(s=>s.points.map(p=>p.y));
+    const rightMax=Math.max(1,...(allBarVals.length?allBarVals:[1]))*1.3;
+    const toYRight=v=>pad.top+chartH-(v/rightMax)*chartH;
+
+    ctxC.strokeStyle='#f0f0ee';ctxC.lineWidth=1;
+    for(let i=0;i<=4;i++){
+      const v=leftMax*i/4, y=toYLeft(v);
+      ctxC.beginPath();ctxC.moveTo(pad.left,y);ctxC.lineTo(pad.left+chartW,y);ctxC.stroke();
+      ctxC.fillStyle='#888';ctxC.font='bold 10px system-ui';ctxC.textAlign='right';
+      ctxC.fillText(v.toFixed(1),pad.left-6,y+3);
+    }
+    for(let i=0;i<=4;i++){
+      const v=rightMax*i/4, y=toYRight(v);
+      ctxC.fillStyle='#aaa';ctxC.font='bold 10px system-ui';ctxC.textAlign='left';
+      ctxC.fillText(Math.round(v),pad.left+chartW+6,y+3);
+    }
+
+    // Grouped bars, drawn first so lines sit on top
+    const barGroupW=stepX*0.55;
+    const barW=bars.length?barGroupW/bars.length:0;
+    const baseY=pad.top+chartH;
+    allX.forEach((xv,i)=>{
+      const xCenter=toX(i);
+      bars.forEach((s,bi)=>{
+        const pt=s.points.find(p=>p.x===xv);
+        if(!pt) return;
+        const bx=xCenter-barGroupW/2+bi*barW;
+        const by=toYRight(pt.y);
+        ctxC.fillStyle=s.color+'99';
+        ctxC.fillRect(bx,by,Math.max(barW-3,2),baseY-by);
+        ctxC.strokeStyle=s.color;ctxC.lineWidth=1;
+        ctxC.strokeRect(bx,by,Math.max(barW-3,2),baseY-by);
+        if(pt.y>0){ctxC.fillStyle=s.color;ctxC.font='bold 9px system-ui';ctxC.textAlign='center';ctxC.fillText(pt.y,bx+Math.max(barW-3,2)/2,by-4);}
+      });
+    });
+
+    // Lines on top
+    lines.forEach(s=>{
+      ctxC.strokeStyle=s.color;ctxC.lineWidth=2.5;ctxC.beginPath();
+      let started=false;
+      s.points.forEach(p=>{
+        const xi=allX.indexOf(p.x);
+        const x=toX(xi), y=toYLeft(p.y);
+        if(!started){ctxC.moveTo(x,y);started=true;} else ctxC.lineTo(x,y);
+      });
+      ctxC.stroke();
+      s.points.forEach(p=>{
+        const xi=allX.indexOf(p.x);
+        const x=toX(xi), y=toYLeft(p.y);
+        ctxC.fillStyle='#fff';ctxC.beginPath();ctxC.arc(x,y,5,0,Math.PI*2);ctxC.fill();
+        ctxC.fillStyle=s.color;ctxC.beginPath();ctxC.arc(x,y,3.5,0,Math.PI*2);ctxC.fill();
+      });
+    });
+
+    // X labels — angled
+    allX.forEach((xv,i)=>{
+      const x=toX(i);
+      ctxC.save();
+      ctxC.translate(x,H-pad.bottom+14);
+      ctxC.rotate(-Math.PI/5);ctxC.textAlign='right';
+      ctxC.fillStyle='#555';ctxC.font='bold 11px system-ui';
+      ctxC.fillText(xv,0,0);
+      ctxC.restore();
+    });
+
+    // Axis titles
+    ctxC.save();ctxC.translate(12,pad.top+chartH/2);ctxC.rotate(-Math.PI/2);
+    ctxC.fillStyle='#555';ctxC.font='bold 11px system-ui';ctxC.textAlign='center';
+    ctxC.fillText(yLabelLeft,0,0);ctxC.restore();
+    ctxC.save();ctxC.translate(W-8,pad.top+chartH/2);ctxC.rotate(Math.PI/2);
+    ctxC.fillStyle='#888';ctxC.font='bold 11px system-ui';ctxC.textAlign='center';
+    ctxC.fillText(yLabelRight,0,0);ctxC.restore();
+
+    // Legend — lines then bars
+    let lx=pad.left;
+    [...lines,...bars].forEach(s=>{
+      if(lx>W-70) return;
+      ctxC.fillStyle=s.color;ctxC.fillRect(lx,4,14,3);
+      ctxC.fillStyle='#333';ctxC.font='9px system-ui';ctxC.textAlign='left';
+      ctxC.fillText(s.label,lx+17,9);
+      lx+=s.label.length*5+34;
+    });
+  }
+
   function drawScatterChart(canvas, points, xLabel, yLabel){
     const dpr=window.devicePixelRatio||1;
-    const ctxS=canvas.getContext('2d');
-    ctxS.setTransform(1,0,0,1,0,0);
-    ctxS.clearRect(0,0,canvas.width,canvas.height);
-    ctxS.scale(dpr,dpr);
-    const W=canvas.width/dpr, H=canvas.height/dpr;
-    const pad={top:20,bottom:44,left:50,right:20};
     const chartW=W-pad.left-pad.right;
     const chartH=H-pad.top-pad.bottom;
     if(!points.length){
@@ -2059,7 +2158,7 @@ function renderReportsScreen(){
     const QUICK_REPORTS=[
       {label:'Mite rate by operation',custom:'miterate'},
       {label:'Yield by operation',custom:'yield'},
-      {label:'Hive strength trend',mode:'year',x:'seasons',y:'strength'},
+      {label:'Hive strength trend',custom:'strength'},
       {label:'Dead/alive right now',custom:'deadalive'},
       {label:'Disease prevalence',mode:'trend',x:'operations',y:'disease'},
       {label:'Treatment coverage',custom:'treatment'},
@@ -2085,6 +2184,7 @@ function renderReportsScreen(){
       else if(key==='miterate') renderMiteRateByOperation(body);
       else if(key==='deadalive') renderDeadAliveReport(body);
       else if(key==='yield') renderYieldByOperation(body);
+      else if(key==='strength') renderHiveStrengthTrend(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -2569,6 +2669,100 @@ function renderReportsScreen(){
       }
       yearSel.addEventListener('change',draw);
       flowerSel.addEventListener('change',draw);
+      draw();
+    }
+
+    // ── Hive strength trend — with an overlay of pollen/sugar feed events per season ──
+    function renderHiveStrengthTrend(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Hive Strength Trend'));
+      if(!years.length){container.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Add a seasonal year to see this report'));return;}
+
+      const selRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'6px'}});
+      const yearSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      [...years].sort((a,b)=>b.startYear-a.startYear).forEach(yr=>yearSel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      selRow.appendChild(yearSel);
+      container.appendChild(selRow);
+      container.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'12px'}},'Bars show how many separate visits logged a pollen or sugar feed that season — not just the latest entry — so repeat feeding across a season all counts.'));
+
+      const chartCardS=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+      const canvasS=document.createElement('canvas');
+      canvasS.style.width='100%';canvasS.style.display='block';
+      chartCardS.appendChild(canvasS);
+      container.appendChild(chartCardS);
+      const statsS=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
+      container.appendChild(statsS);
+
+      const OPCOLORSS=Object.fromEntries(Object.entries(OPERATIONS).map(([opN,d],i)=>[opN,['#3d7a4f','#1a6fb0','#9b59b6'][i]||'#555']));
+
+      function draw(){
+        const yr=years.find(y=>String(y.startYear)===String(yearSel.value))||years[0];
+        const ranges=getSeasonRanges(yr);
+        const seasonPairs=Object.entries(ranges); // winter, spring, summer, autumn
+
+        const lines=Object.keys(OPERATIONS).map(op=>{
+          const points=seasonPairs.map(([rk,sr])=>{
+            const se=getSeasonEntries(sr).filter(e=>e._op===op);
+            const vals=getScoreValues(se);
+            if(!vals.length) return null;
+            return{x:sr.label,y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
+          }).filter(Boolean);
+          return{label:op,color:OPCOLORSS[op]||'#555',points};
+        }).filter(s=>s.points.length>0);
+        const avgPoints=seasonPairs.map(([rk,sr])=>{
+          const se=getSeasonEntries(sr);
+          const vals=getScoreValues(se);
+          if(!vals.length) return null;
+          return{x:sr.label,y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
+        }).filter(Boolean);
+        if(avgPoints.length) lines.push({label:'Average',color:'#555',points:avgPoints});
+
+        // Feed EVENT counts — every visit that logged a feed counts, not just the latest entry
+        const pollenPoints = seasonPairs.map(([rk,sr])=>{
+          const se=getSeasonEntries(sr).filter(e=>!e._movement);
+          return{x:sr.label,y:se.filter(e=>parseInt(e.pollen_hives_fed)>0).length};
+        });
+        const sugarPoints = seasonPairs.map(([rk,sr])=>{
+          const se=getSeasonEntries(sr).filter(e=>!e._movement);
+          return{x:sr.label,y:se.filter(e=>parseInt(e.hives_fed)>0).length};
+        });
+        const bars=[
+          {label:'Pollen feeds',color:'#ef9f27',points:pollenPoints},
+          {label:'Sugar feeds',color:'#1a6fb0',points:sugarPoints},
+        ];
+
+        setTimeout(()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=canvasS.parentElement?.offsetWidth||300;
+          canvasS.width=w*dpr;canvasS.height=300*dpr;
+          canvasS.style.width='100%';canvasS.style.height='300px';
+          drawComboChart(canvasS,lines,bars,'Score','Feeds');
+        },50);
+
+        statsS.innerHTML='';
+        statsS.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},yr.name||yr.startYear+'-'+(yr.startYear+1)));
+        lines.forEach(s=>{
+          const avg=s.points.reduce((a,p)=>a+p.y,0)/s.points.length;
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
+          const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'50%',background:s.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
+          const left=h('div',{style:{display:'flex',alignItems:'center',flex:'1'}});
+          left.appendChild(dot);left.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},s.label));
+          row.appendChild(left);
+          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},'avg score '+avg.toFixed(2)));
+          statsS.appendChild(row);
+        });
+        bars.forEach(s=>{
+          const total=s.points.reduce((a,p)=>a+p.y,0);
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
+          const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'2px',background:s.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
+          const left=h('div',{style:{display:'flex',alignItems:'center',flex:'1'}});
+          left.appendChild(dot);left.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600'}},s.label));
+          row.appendChild(left);
+          row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},total+' total this year · '+s.points.map(p=>p.y).join('/')));
+          statsS.appendChild(row);
+        });
+        if(!lines.length) statsS.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No strength scores logged yet for this year'));
+      }
+      yearSel.addEventListener('change',draw);
       draw();
     }
 
@@ -4587,6 +4781,7 @@ function renderEntriesList(){
       {l:'3/4 Harv',v:lv('harv_34'),show:lv('harv_34')>0},
       {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
       {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
+      {l:'Pollen fed',v:lv('pollen_hives_fed'),show:lv('pollen_hives_fed')>0},
     ].filter(x=>x.show);
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
@@ -4685,6 +4880,7 @@ function renderEntriesList(){
       // Feed
       {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
+      {key:'pollen_hives_fed',label:'Pollen Hives Fed'},{key:'pollen_amount',label:'Pollen Amount'},
       // Harvest
       {key:'fd_on',label:'FD on'},{key:'on_34',label:'3/4 on'},
       {key:'fd_harv',label:'FD Harvested'},{key:'harv_34',label:'3/4 Harvested'},
@@ -5590,6 +5786,7 @@ function renderEntriesList(){
       {l:'3/4 Harv',v:lv('harv_34'),show:lv('harv_34')>0},
       {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
       {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
+      {l:'Pollen fed',v:lv('pollen_hives_fed'),show:lv('pollen_hives_fed')>0},
     ].filter(x=>x.show);
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
@@ -5688,6 +5885,7 @@ function renderEntriesList(){
       // Feed
       {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
+      {key:'pollen_hives_fed',label:'Pollen Hives Fed'},{key:'pollen_amount',label:'Pollen Amount'},
       // Harvest
       {key:'fd_on',label:'FD on'},{key:'on_34',label:'3/4 on'},
       {key:'fd_harv',label:'FD Harvested'},{key:'harv_34',label:'3/4 Harvested'},
