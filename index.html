@@ -2682,7 +2682,33 @@ function renderReportsScreen(){
       [...years].sort((a,b)=>b.startYear-a.startYear).forEach(yr=>yearSel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
       selRow.appendChild(yearSel);
       container.appendChild(selRow);
+
+      // Cascading scope: Operation -> Batch -> Yard. Each narrows the one below it.
+      const scopeRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'6px'}});
+      const opSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      opSel.appendChild(h('option',{value:'all'},'All operations'));
+      Object.keys(OPERATIONS).forEach(op=>opSel.appendChild(h('option',{value:op},op)));
+      const batchSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',display:'none'}});
+      const siteSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',display:'none'}});
+      scopeRow.appendChild(opSel);scopeRow.appendChild(batchSel);scopeRow.appendChild(siteSel);
+      container.appendChild(scopeRow);
       container.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'12px'}},'Bars show how many separate visits logged a pollen or sugar feed that season — not just the latest entry — so repeat feeding across a season all counts.'));
+
+      function refreshBatchSel(){
+        batchSel.innerHTML='';
+        if(opSel.value==='all'){batchSel.style.display='none';siteSel.style.display='none';siteSel.innerHTML='';return;}
+        batchSel.style.display='block';
+        batchSel.appendChild(h('option',{value:'all'},'All batches'));
+        Object.keys(getYards(opSel.value)).forEach(b=>batchSel.appendChild(h('option',{value:b},b)));
+      }
+      function refreshSiteSel(){
+        siteSel.innerHTML='';
+        if(opSel.value==='all'||batchSel.value==='all'){siteSel.style.display='none';return;}
+        siteSel.style.display='block';
+        siteSel.appendChild(h('option',{value:'all'},'All yards'));
+        const yardsForOp=getYards(opSel.value);
+        (yardsForOp[batchSel.value]?.sites||[]).forEach(s=>siteSel.appendChild(h('option',{value:s},s)));
+      }
 
       const chartCardS=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
       const canvasS=document.createElement('canvas');
@@ -2699,30 +2725,50 @@ function renderReportsScreen(){
         const ranges=getSeasonRanges(yr);
         const seasonPairs=Object.entries(ranges); // winter, spring, summer, autumn
 
-        const lines=Object.keys(OPERATIONS).map(op=>{
-          const points=seasonPairs.map(([rk,sr])=>{
-            const se=getSeasonEntries(sr).filter(e=>e._op===op);
+        const scopeOp=opSel.value!=='all'?opSel.value:null;
+        const scopeBatch=(scopeOp&&batchSel.value!=='all')?batchSel.value:null;
+        const scopeSite=(scopeBatch&&siteSel.value!=='all')?siteSel.value:null;
+        const matchesScope=e=>(!scopeOp||e._op===scopeOp)&&(!scopeBatch||e._batch===scopeBatch)&&(!scopeSite||e._site===scopeSite);
+        const scopeLabel=scopeSite||scopeBatch||scopeOp||null;
+
+        let lines;
+        if(!scopeOp){
+          // No scope chosen — compare every operation, plus a fleet-wide Average
+          lines=Object.keys(OPERATIONS).map(op=>{
+            const points=seasonPairs.map(([rk,sr])=>{
+              const se=getSeasonEntries(sr).filter(e=>e._op===op);
+              const vals=getScoreValues(se);
+              if(!vals.length) return null;
+              return{x:sr.label,y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
+            }).filter(Boolean);
+            return{label:op,color:OPCOLORSS[op]||'#555',points};
+          }).filter(s=>s.points.length>0);
+          const avgPoints=seasonPairs.map(([rk,sr])=>{
+            const se=getSeasonEntries(sr);
             const vals=getScoreValues(se);
             if(!vals.length) return null;
             return{x:sr.label,y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
           }).filter(Boolean);
-          return{label:op,color:OPCOLORSS[op]||'#555',points};
-        }).filter(s=>s.points.length>0);
-        const avgPoints=seasonPairs.map(([rk,sr])=>{
-          const se=getSeasonEntries(sr);
-          const vals=getScoreValues(se);
-          if(!vals.length) return null;
-          return{x:sr.label,y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
-        }).filter(Boolean);
-        if(avgPoints.length) lines.push({label:'Average',color:'#555',points:avgPoints});
+          if(avgPoints.length) lines.push({label:'Average',color:'#555',points:avgPoints});
+        } else {
+          // Scoped to one operation/batch/yard — a single line for whatever's selected
+          const points=seasonPairs.map(([rk,sr])=>{
+            const se=getSeasonEntries(sr).filter(matchesScope);
+            const vals=getScoreValues(se);
+            if(!vals.length) return null;
+            return{x:sr.label,y:parseFloat((vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(2))};
+          }).filter(Boolean);
+          lines=[{label:scopeLabel,color:'#3d7a4f',points}];
+        }
 
-        // Feed EVENT counts — every visit that logged a feed counts, not just the latest entry
+        // Feed EVENT counts — every visit that logged a feed counts, not just the latest entry —
+        // scoped the same way as the strength line(s) above.
         const pollenPoints = seasonPairs.map(([rk,sr])=>{
-          const se=getSeasonEntries(sr).filter(e=>!e._movement);
+          const se=getSeasonEntries(sr).filter(e=>!e._movement&&matchesScope(e));
           return{x:sr.label,y:se.filter(e=>parseInt(e.pollen_hives_fed)>0).length};
         });
         const sugarPoints = seasonPairs.map(([rk,sr])=>{
-          const se=getSeasonEntries(sr).filter(e=>!e._movement);
+          const se=getSeasonEntries(sr).filter(e=>!e._movement&&matchesScope(e));
           return{x:sr.label,y:se.filter(e=>parseInt(e.hives_fed)>0).length};
         });
         const bars=[
@@ -2739,8 +2785,9 @@ function renderReportsScreen(){
         },50);
 
         statsS.innerHTML='';
-        statsS.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},yr.name||yr.startYear+'-'+(yr.startYear+1)));
+        statsS.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},(yr.name||yr.startYear+'-'+(yr.startYear+1))+(scopeLabel?' · '+scopeLabel:'')));
         lines.forEach(s=>{
+          if(!s.points.length) return;
           const avg=s.points.reduce((a,p)=>a+p.y,0)/s.points.length;
           const row=h('div',{style:{display:'flex',justifyContent:'space-between',padding:'6px 0',borderBottom:'.5px solid #f0f0ee',alignItems:'center'}});
           const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:'50%',background:s.color,display:'inline-block',marginRight:'8px',flexShrink:'0'}});
@@ -2760,9 +2807,12 @@ function renderReportsScreen(){
           row.appendChild(h('span',{style:{fontSize:'12px',color:'#888'}},total+' total this year · '+s.points.map(p=>p.y).join('/')));
           statsS.appendChild(row);
         });
-        if(!lines.length) statsS.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No strength scores logged yet for this year'));
+        if(!lines.some(s=>s.points.length>0)) statsS.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No strength scores logged yet for this selection'));
       }
       yearSel.addEventListener('change',draw);
+      opSel.addEventListener('change',()=>{refreshBatchSel();draw();});
+      batchSel.addEventListener('change',()=>{refreshSiteSel();draw();});
+      siteSel.addEventListener('change',draw);
       draw();
     }
 
