@@ -5032,6 +5032,9 @@ function renderForm(){
       {key:'_honey_label',label:'Honey Fed',type:'subtitle'},
       {key:'honey_fed_type',label:'Type',type:'honey_feed'},
       {key:'honey_hives_fed',label:'Hives Fed',type:'number'},
+      {key:'_pollen_label',label:'Pollen',type:'subtitle'},
+      {key:'pollen_hives_fed',label:'Hives Fed',type:'number'},
+      {key:'pollen_amount',label:'Amount',type:'pollen_amount'},
     ]},
     {key:'disease',label:'Disease',color:'#e24b4a',fields:[
       {key:'_disease_checks',type:'disease_checks',label:'Disease'},
@@ -5291,6 +5294,24 @@ function renderForm(){
           hfRow.appendChild(btn);
         });
         fw.appendChild(hfRow);
+      } else if(f.type==='pollen_amount'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},f.label));
+        const amountOptions=['1/3','1/2','Full'];
+        const paRow=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
+        amountOptions.forEach(opt=>{
+          const btn=h('button',{type:'button',style:{padding:'7px 14px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',border:`1.5px solid ${vals.pollen_amount===opt?sec.color:'#ddd'}`,background:vals.pollen_amount===opt?`${sec.color}18`:'#fff',color:vals.pollen_amount===opt?sec.color:'#888'}},opt);
+          btn.addEventListener('click',()=>{
+            STATE.formVals.pollen_amount=STATE.formVals.pollen_amount===opt?'':opt;
+            paRow.querySelectorAll('button').forEach((b,i)=>{
+              const isActive=STATE.formVals.pollen_amount===amountOptions[i];
+              b.style.border=`1.5px solid ${isActive?sec.color:'#ddd'}`;
+              b.style.background=isActive?`${sec.color}18`:'#fff';
+              b.style.color=isActive?sec.color:'#888';
+            });
+          });
+          paRow.appendChild(btn);
+        });
+        fw.appendChild(paRow);
       } else if(f.type==='carrot_grid'){
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},'Carrot Score — hives per score'));
         const grid=h('div',{style:{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:'4px'}});
@@ -5359,8 +5380,17 @@ function renderForm(){
       setState({entries:updated,diaryView:'entries',editing:null,editingOriginalRound:null});
       pushToSupabase(k,updated[k]).catch(e=>console.warn('Supabase push failed:',e));
       if(roundChanged) pushToSupabase(originalK,updated[originalK]).catch(e=>console.warn('Supabase push failed:',e));
-      if(_flag&&entry.comments){setFlag(op,site,entry.comments);}
-      else if(STATE.editing!==null&&getFlag(op,site)&&entry.comments){setFlag(op,site,entry.comments);}
+      if(_flag===false){
+        // Explicitly unflagged in the entry form — clear it everywhere (same delete path the
+        // yard page's "Remove Flag" button already used correctly).
+        setFlag(op,site,null);
+      } else if(_flag&&entry.comments){
+        setFlag(op,site,entry.comments);
+      } else if(_flag===undefined&&getFlag(op,site)&&entry.comments){
+        // Toggle was never touched but the site was already flagged — keep the flag's text in
+        // sync with the latest comments, without overriding an explicit uncheck.
+        setFlag(op,site,entry.comments);
+      }
       // AFB inquiry — store date found, auto-expires after 2 years
       if((entry.diseases||'').includes('AFB')){
         const inquiryKey='apiary_afb_'+op+'__'+site;
