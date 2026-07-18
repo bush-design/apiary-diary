@@ -4197,12 +4197,8 @@ function renderOverviewTab(){
       else left.appendChild(h('div',{style:{fontSize:'12px',color:'#bbb'}},'No entries yet'));
       row.appendChild(left);
       const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center',flexShrink:'0'}});
-      // Use movement-adjusted hive count (same as yard detail)
-      const _allSiteEWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
-      const _lastMov=_allSiteEWithMov[0]||null;
-      let hivesToShow=null;
-      if(_lastMov) hivesToShow=_lastMov.hives||null;
-      if(!hivesToShow){const _withH=_allSiteEWithMov.find(e=>parseInt(e.hives)>0);if(_withH)hivesToShow=_withH.hives;}
+      // Current hive count — single shared implementation, see computeCurrentHivesForSite.
+      const hivesToShow=computeCurrentHivesForSite(op,site)||null;
       if(hivesToShow)right.appendChild(h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'18px',fontWeight:'700',lineHeight:'1'}},hivesToShow),h('div',{style:{fontSize:'10px',color:'#999',textTransform:'uppercase'}},'hives')));
       if(avg!==null)right.appendChild(scoreCircle(avg,32,14));
       row.appendChild(right);card.appendChild(row);
