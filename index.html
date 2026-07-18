@@ -911,6 +911,44 @@ function calcSummary(opName){
   return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
 }
 
+// ── Shared: exact current-hive-count calculation, factored out of the yard detail page so
+// every screen that needs "how many hives are at this site right now" uses this literal same
+// code path — no separate reimplementation that could quietly drift out of sync.
+function computeCurrentHivesForSite(op, site){
+  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>
+    (STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map((e,i)=>({...e,_arrIdx:i}))
+  ).sort((a,b)=>{
+    const dc=(b.date||'').localeCompare(a.date||'');
+    if(dc!==0) return dc;
+    const sc=(b.saved_at||'').localeCompare(a.saved_at||'');
+    if(sc!==0) return sc;
+    return a._arrIdx-b._arrIdx;
+  });
+  const mostRecentWithHives=allSiteEntries.find(e=>
+    e.hives!==undefined&&e.hives!==null&&e.hives!==''
+  )||null;
+  const latestReal=allSiteEntries[0]||null;
+  const allMovements=loadMovements();
+  const latestDiaryDate2=allSiteEntries[0]?.date||'';
+  let movementNet=0;
+  allMovements.forEach(m=>{
+    if(latestDiaryDate2&&m.date<latestDiaryDate2) return;
+    const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+    if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
+    else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
+    else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
+    else if(m.direction==='yard_yard'&&m.to_site===site) movementNet+=hives;
+  });
+  const baseHives=mostRecentWithHives?(parseInt(mostRecentWithHives.hives)||0):0;
+  const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
+  let currentHives=0;
+  if(latestReal) currentHives=Math.max(0,baseHives+movementNet);
+  else if(latestMovementHives>0) currentHives=latestMovementHives;
+  else if(movementNet>0) currentHives=movementNet;
+  return currentHives;
+}
+
 // ── Shared: carry-forward hive-state fields for a single site, as of an optional cutoff date ──
 // Mirrors calcSummary's per-field "last known value" logic so reports and the dashboard agree.
 const HIVE_STATE_FIELDS=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
@@ -942,38 +980,38 @@ function getSiteHiveState(opName,site,cutoffDate){
   const out={lids_floors:lastVal('lids_floors')};
   HIVE_STATE_FIELDS.forEach(k=>{out[k]=lastVal(k);});
 
-  // 'hives' needs special handling: a hive-movement diary entry's own 'hives' field records
-  // the AMOUNT MOVED, not a new total — so naively carrying it forward (as lastVal above does)
-  // is wrong whenever a movement is the most recent thing logged. The correct total is the
-  // last REAL diary entry's count, adjusted by the net of any movements logged since then —
-  // matching the same logic the site's own detail page already uses correctly.
-  const realEntries=allSiteEntries.filter(e=>!e._movement);
-  const lastRealHives=(()=>{
-    for(const e of realEntries){
-      const raw=e.hives;
-      if(raw===undefined||raw===null||raw==='') continue;
-      const v=parseInt(raw);
-      if(!isNaN(v)) return v;
-    }
-    return null;
-  })();
-  const latestRealDate=realEntries[0]?.date||'';
-  const movementsSince=loadMovements().filter(m=>(!cutoffDate||m.date<=cutoffDate)&&(!latestRealDate||m.date>=latestRealDate));
-  let hivesNet=0;
-  movementsSince.forEach(m=>{
-    const amt=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
-    if(m.direction==='to_orchard'&&m.from_site===site) hivesNet-=amt;
-    else if(m.direction==='from_orchard'&&m.to_site===site) hivesNet+=amt;
-    else if(m.direction==='yard_yard'&&m.from_site===site) hivesNet-=amt;
-    else if(m.direction==='yard_yard'&&m.to_site===site) hivesNet+=amt;
-  });
-  if(lastRealHives!==null){
-    out.hives=Math.max(0,lastRealHives+hivesNet);
+  // 'hives' uses the exact same calculation as the site's own detail page (not a
+  // reimplementation) — when there's no cutoff date, call it directly so there is only one
+  // real implementation of "current hive count" anywhere in the app.
+  if(!cutoffDate){
+    out.hives=computeCurrentHivesForSite(opName,site);
   } else {
-    // No real diary entry at all — fall back to whatever a movement entry itself recorded,
-    // or the raw movement-log net if that's all there is.
-    const movementEntryHives=parseInt(allSiteEntries.find(e=>e._movement)?.hives)||0;
-    out.hives=movementEntryHives>0?movementEntryHives:Math.max(0,hivesNet);
+    const realEntries=allSiteEntries.filter(e=>!e._movement);
+    const lastRealHives=(()=>{
+      for(const e of realEntries){
+        const raw=e.hives;
+        if(raw===undefined||raw===null||raw==='') continue;
+        const v=parseInt(raw);
+        if(!isNaN(v)) return v;
+      }
+      return null;
+    })();
+    const latestRealDate=realEntries[0]?.date||'';
+    const movementsSince=loadMovements().filter(m=>m.date<=cutoffDate&&(!latestRealDate||m.date>=latestRealDate));
+    let hivesNet=0;
+    movementsSince.forEach(m=>{
+      const amt=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+      if(m.direction==='to_orchard'&&m.from_site===site) hivesNet-=amt;
+      else if(m.direction==='from_orchard'&&m.to_site===site) hivesNet+=amt;
+      else if(m.direction==='yard_yard'&&m.from_site===site) hivesNet-=amt;
+      else if(m.direction==='yard_yard'&&m.to_site===site) hivesNet+=amt;
+    });
+    if(lastRealHives!==null){
+      out.hives=Math.max(0,lastRealHives+hivesNet);
+    } else {
+      const movementEntryHives=parseInt(allSiteEntries.find(e=>e._movement)?.hives)||0;
+      out.hives=movementEntryHives>0?movementEntryHives:Math.max(0,hivesNet);
+    }
   }
   return out;
 }
@@ -4816,31 +4854,21 @@ function renderEntriesList(){
   const latestReal=allSiteEntries[0]||null;
   const days=latestReal?daysBetween(latestReal.date):null;
 
-  // Calculate current hive count:
-  // 1. Use most recent real diary entry hive count as base
-  // 2. Also check movement diary entries (_movement:true) for hive count
-  // 3. Adjust by net movements logged in hive movements log
+  // Current hive count — single shared implementation, see computeCurrentHivesForSite.
+  const currentHives=computeCurrentHivesForSite(op,site);
   const allMovements=loadMovements();
-  // Only count movements AFTER the most recent diary entry — earlier ones are baked in
   const latestDiaryDate2=allSiteEntries[0]?.date||'';
   let movementNet=0;
   allMovements.forEach(m=>{
-    if(latestDiaryDate2&&m.date<latestDiaryDate2) return; // movements on same date as diary still count
+    if(latestDiaryDate2&&m.date<latestDiaryDate2) return;
     const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
     if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
     else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='yard_yard'&&m.to_site===site) movementNet+=hives;
   });
-  const baseHives=lv('hives');
-  // Also check movement diary entries for hive count (these have _movement:true)
   const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
-  // Use whichever source gives us data
-  let currentHives=0;
-  if(latestReal) currentHives=Math.max(0,baseHives+movementNet); // use diary entry (even if 0) + net movements
-  else if(latestMovementHives>0) currentHives=latestMovementHives;
-  else if(movementNet>0) currentHives=movementNet;
   const hasMovement=movementNet!==0||latestMovementHives>0;
 
   // Spring score avg
@@ -5821,31 +5849,21 @@ function renderEntriesList(){
   const latestReal=allSiteEntries[0]||null;
   const days=latestReal?daysBetween(latestReal.date):null;
 
-  // Calculate current hive count:
-  // 1. Use most recent real diary entry hive count as base
-  // 2. Also check movement diary entries (_movement:true) for hive count
-  // 3. Adjust by net movements logged in hive movements log
+  // Current hive count — single shared implementation, see computeCurrentHivesForSite.
+  const currentHives=computeCurrentHivesForSite(op,site);
   const allMovements=loadMovements();
-  // Only count movements AFTER the most recent diary entry — earlier ones are baked in
   const latestDiaryDate2=allSiteEntries[0]?.date||'';
   let movementNet=0;
   allMovements.forEach(m=>{
-    if(latestDiaryDate2&&m.date<latestDiaryDate2) return; // movements on same date as diary still count
+    if(latestDiaryDate2&&m.date<latestDiaryDate2) return;
     const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
     if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
     else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='yard_yard'&&m.to_site===site) movementNet+=hives;
   });
-  const baseHives=lv('hives');
-  // Also check movement diary entries for hive count (these have _movement:true)
   const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
-  // Use whichever source gives us data
-  let currentHives=0;
-  if(latestReal) currentHives=Math.max(0,baseHives+movementNet); // use diary entry (even if 0) + net movements
-  else if(latestMovementHives>0) currentHives=latestMovementHives;
-  else if(movementNet>0) currentHives=movementNet;
   const hasMovement=movementNet!==0||latestMovementHives>0;
 
   // Spring score avg
