@@ -2166,6 +2166,7 @@ function renderReportsScreen(){
       {label:'AFB inquiry timeline',custom:'afb'},
       {label:'Yield vs hive strength',custom:'scatter'},
       {label:'Movement log by driver',custom:'movements'},
+      {label:'Entries by person',custom:'people'},
     ];
     function backToCharts(){
       customArea.style.display='none';customArea.innerHTML='';
@@ -2185,6 +2186,7 @@ function renderReportsScreen(){
       else if(key==='deadalive') renderDeadAliveReport(body);
       else if(key==='yield') renderYieldByOperation(body);
       else if(key==='strength') renderHiveStrengthTrend(body);
+      else if(key==='people') renderEntriesByPerson(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -2951,6 +2953,69 @@ function renderReportsScreen(){
           topRow.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',flexShrink:'0'}},fmtDate(m.date)));
           card.appendChild(topRow);
           card.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'4px'}},(m.pallets||0)+'p · '+(m.singles||0)+'s'+(m.vehicle?' · '+m.vehicle:'')));
+          listWrap.appendChild(card);
+        });
+      }
+      sel.addEventListener('change',renderList);
+      renderList();
+    }
+
+    // ── Entries by person — pick who logged/edited it, see every matching entry across the fleet ──
+    function renderEntriesByPerson(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Entries by person'));
+
+      // Gather every real (non-movement) entry across every operation/batch/site, with metadata
+      const allEntries=[];
+      Object.keys(OPERATIONS).forEach(opName=>{
+        const yards=getYards(opName);
+        Object.entries(yards).forEach(([batchName,batch])=>{
+          batch.sites.forEach(site=>{
+            Object.keys(ROUNDS).forEach(rk=>{
+              (STATE.entries[eKey(opName,site,rk)]||[]).forEach(e=>{
+                if(e._movement) return;
+                allEntries.push({...e,_op:opName,_batch:batchName,_site:site,_rk:rk});
+              });
+            });
+          });
+        });
+      });
+      const people=[...new Set(allEntries.flatMap(e=>[e.logged_by,e.edited_by]).filter(Boolean))].sort();
+
+      const sel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',marginBottom:'12px'}});
+      sel.appendChild(h('option',{value:''},'— Select person —'));
+      people.forEach(p=>sel.appendChild(h('option',{value:p},p)));
+      container.appendChild(sel);
+
+      const listWrap=h('div',null);
+      container.appendChild(listWrap);
+
+      function renderList(){
+        listWrap.innerHTML='';
+        const person=sel.value;
+        if(!person){listWrap.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'Select a person to see their entries'));return;}
+        const mine=allEntries.filter(e=>e.logged_by===person||e.edited_by===person)
+          .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+        if(!mine.length){listWrap.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No entries for '+person));return;}
+        const loggedCount=mine.filter(e=>e.logged_by===person).length;
+        const editedCount=mine.filter(e=>e.edited_by===person&&e.logged_by!==person).length;
+        const summary=h('div',{style:{display:'flex',gap:'10px',marginBottom:'12px',fontSize:'12px',flexWrap:'wrap'}});
+        summary.appendChild(h('span',{style:{background:'#e6f2eb',color:'#3d7a4f',borderRadius:'8px',padding:'4px 10px',fontWeight:'700'}},loggedCount+' logged'));
+        if(editedCount>0) summary.appendChild(h('span',{style:{background:'#e3f2fb',color:'#1a6fb0',borderRadius:'8px',padding:'4px 10px',fontWeight:'700'}},editedCount+' edited'));
+        listWrap.appendChild(summary);
+        mine.forEach(e=>{
+          const wasEditor=e.edited_by===person&&e.logged_by!==person;
+          const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderLeft:'3px solid '+(wasEditor?'#1a6fb0':'#3d7a4f'),borderRadius:'8px',padding:'10px 12px',marginBottom:'7px',cursor:'pointer'}});
+          const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
+          const left=h('div',null);
+          left.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:wasEditor?'#1a6fb0':'#3d7a4f',background:(wasEditor?'#1a6fb0':'#3d7a4f')+'18',borderRadius:'8px',padding:'2px 7px',marginRight:'6px'}},wasEditor?'Edited':'Logged'));
+          left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px',marginTop:'4px'}},e._site+' · '+e._op));
+          left.appendChild(h('div',{style:{fontSize:'11px',color:'#888',marginTop:'2px'}},e._batch+' · '+(ROUNDS[e._rk]?.label||e._rk)));
+          topRow.appendChild(left);
+          topRow.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',flexShrink:'0'}},fmtDate(e.date)));
+          card.appendChild(topRow);
+          if(e.treatment) card.appendChild(h('div',{style:{fontSize:'12px',color:'#9b59b6',fontWeight:'600',marginTop:'4px'}},'Tx: '+e.treatment));
+          if(e.comments) card.appendChild(h('div',{style:{fontSize:'12px',color:'#666',marginTop:'4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},e.comments));
+          card.addEventListener('click',()=>setState({tab:'diary',op:e._op,run:e._batch,site:e._site,diaryView:'entries',round:e._rk}));
           listWrap.appendChild(card);
         });
       }
