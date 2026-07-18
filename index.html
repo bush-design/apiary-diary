@@ -941,6 +941,40 @@ function getSiteHiveState(opName,site,cutoffDate){
   };
   const out={lids_floors:lastVal('lids_floors')};
   HIVE_STATE_FIELDS.forEach(k=>{out[k]=lastVal(k);});
+
+  // 'hives' needs special handling: a hive-movement diary entry's own 'hives' field records
+  // the AMOUNT MOVED, not a new total — so naively carrying it forward (as lastVal above does)
+  // is wrong whenever a movement is the most recent thing logged. The correct total is the
+  // last REAL diary entry's count, adjusted by the net of any movements logged since then —
+  // matching the same logic the site's own detail page already uses correctly.
+  const realEntries=allSiteEntries.filter(e=>!e._movement);
+  const lastRealHives=(()=>{
+    for(const e of realEntries){
+      const raw=e.hives;
+      if(raw===undefined||raw===null||raw==='') continue;
+      const v=parseInt(raw);
+      if(!isNaN(v)) return v;
+    }
+    return null;
+  })();
+  const latestRealDate=realEntries[0]?.date||'';
+  const movementsSince=loadMovements().filter(m=>(!cutoffDate||m.date<=cutoffDate)&&(!latestRealDate||m.date>=latestRealDate));
+  let hivesNet=0;
+  movementsSince.forEach(m=>{
+    const amt=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+    if(m.direction==='to_orchard'&&m.from_site===site) hivesNet-=amt;
+    else if(m.direction==='from_orchard'&&m.to_site===site) hivesNet+=amt;
+    else if(m.direction==='yard_yard'&&m.from_site===site) hivesNet-=amt;
+    else if(m.direction==='yard_yard'&&m.to_site===site) hivesNet+=amt;
+  });
+  if(lastRealHives!==null){
+    out.hives=Math.max(0,lastRealHives+hivesNet);
+  } else {
+    // No real diary entry at all — fall back to whatever a movement entry itself recorded,
+    // or the raw movement-log net if that's all there is.
+    const movementEntryHives=parseInt(allSiteEntries.find(e=>e._movement)?.hives)||0;
+    out.hives=movementEntryHives>0?movementEntryHives:Math.max(0,hivesNet);
+  }
   return out;
 }
 
