@@ -897,9 +897,11 @@ function calcSummary(opName){
     on34+=lastVal('on_34');
     hcFdOn+=lastVal('honeycomb_fd');
     hcHdOn+=lastVal('honeycomb_hd');
-    // Breeders/finishers from most recent real spring entry
+    // Breeders — most recent entry in ANY round, not just Spring, so a breeder logged in
+    // Summer (or any other season) still counts toward the fleet total.
+    const breederCount=getSiteBreederCount(opName,site);
+    if(breederCount>0) breederSites.push({site,count:breederCount});
     const springForQ=latestEntry(opName,site,'spring');
-    if(parseInt(springForQ?.breeders)>0) breederSites.push({site,count:parseInt(springForQ.breeders)});
     if(parseInt(springForQ?.finishers)>0) finisherSites.push({site,count:parseInt(springForQ.finishers)});
     // Spring score from most recent spring entry
     const springE=latestEntry(opName,site,'spring');
@@ -909,6 +911,25 @@ function calcSummary(opName){
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(latestEntry(opName,site,'spring')?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
   return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
+}
+
+// ── Shared: current breeder count for a site — most recent entry (any round) that actually
+// has a 'breeders' value logged, even if that value is explicitly 0 (a real "no breeders left
+// now" reading should stick, not be skipped in favor of an older non-zero count).
+function getSiteBreederCount(op, site){
+  const allEntries=Object.keys(ROUNDS)
+    .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement))
+    .sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||'');
+      return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
+    });
+  for(const e of allEntries){
+    const raw=e.breeders;
+    if(raw===undefined||raw===null||raw==='') continue;
+    const v=parseInt(raw);
+    if(!isNaN(v)) return v;
+  }
+  return 0;
 }
 
 // ── Shared: exact current-hive-count calculation, factored out of the yard detail page so
@@ -4193,6 +4214,8 @@ function renderOverviewTab(){
           });
           left.appendChild(dWrap);
         }
+        const breederCount2=getSiteBreederCount(op,site);
+        if(breederCount2>0) left.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#7a4fa8',background:'#f3e8ff',borderRadius:'8px',padding:'1px 7px',display:'inline-block',marginTop:'3px'}},breederCount2+' Breeder'+(breederCount2!==1?'s':'')));
       }
       else left.appendChild(h('div',{style:{fontSize:'12px',color:'#bbb'}},'No entries yet'));
       row.appendChild(left);
@@ -4942,6 +4965,7 @@ function renderEntriesList(){
       {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
       {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
       {l:'Pollen fed',v:lv('pollen_hives_fed'),show:lv('pollen_hives_fed')>0},
+      {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
     ].filter(x=>x.show);
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
@@ -4987,7 +5011,7 @@ function renderEntriesList(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives'].forEach(key=>{
+        ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
           if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
         });
         // Pick round based on current month (Southern Hemisphere)
@@ -5937,6 +5961,7 @@ function renderEntriesList(){
       {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
       {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
       {l:'Pollen fed',v:lv('pollen_hives_fed'),show:lv('pollen_hives_fed')>0},
+      {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
     ].filter(x=>x.show);
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
@@ -5982,7 +6007,7 @@ function renderEntriesList(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives'].forEach(key=>{
+        ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
           if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
         });
         // Pick round based on current month (Southern Hemisphere)
