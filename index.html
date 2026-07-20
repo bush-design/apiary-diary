@@ -867,8 +867,10 @@ function calcSummary(opName){
     // This prevents empty fields in a new entry zeroing out previous counts
     const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     const HIVE_FIELDS_LV=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
-    // Fields where we want most recent non-zero (not just most recent entry)
-    const NON_ZERO_FIELDS=['singles','doubles','light','weak','lids_floors'];
+    // Only lids_floors wants "most recent non-zero" (a maintenance item genuinely may not have
+    // been checked this visit). singles/doubles/light/weak respect an explicit 0 — a hive count
+    // that correctly records no doubles left shouldn't be skipped for an older stale number.
+    const NON_ZERO_FIELDS=['lids_floors'];
     const lastVal=k=>{
       for(const e of allSiteEntries){
         const raw=e[k];
@@ -973,7 +975,7 @@ function computeCurrentHivesForSite(op, site){
 // ── Shared: carry-forward hive-state fields for a single site, as of an optional cutoff date ──
 // Mirrors calcSummary's per-field "last known value" logic so reports and the dashboard agree.
 const HIVE_STATE_FIELDS=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
-const HIVE_STATE_NONZERO_FIELDS=['singles','doubles','light','weak','lids_floors'];
+const HIVE_STATE_NONZERO_FIELDS=['lids_floors'];
 function getSiteHiveState(opName,site,cutoffDate){
   // Include movement entries here (unlike some other helpers) — calcSummary (the dashboard's
   // source of truth) does the same, since a movement can be the most recent thing that changed
@@ -4853,15 +4855,10 @@ function renderEntriesList(){
   )||null;
   const lv=k=>{
     if(HIVE_FIELDS3.includes(k)){
-      if(['hives','dead','weak','alive_hives','dead_hives'].includes(k)){
-        if(mostRecentWithHives){const raw=mostRecentWithHives[k];if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;return 0;}
-        return 0;
-      }
-      // singles/doubles/light: check movement entries too
-      for(const e of allSiteEntriesWithMov){
-        const raw=e[k];if(raw===undefined||raw===null||raw==='') continue;
-        const v=parseInt(raw);if(!isNaN(v)&&v>0) return v;
-      }
+      // hives/dead/singles/doubles/light/weak all come from the SAME most-recent hive-count
+      // visit — if that visit correctly recorded 0 doubles, that's current, not a reason to
+      // reach further back for an older non-zero number.
+      if(mostRecentWithHives){const raw=mostRecentWithHives[k];if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;return 0;}
       return 0;
     }
     for(const e of allSiteEntries){
@@ -5851,15 +5848,10 @@ function renderEntriesList(){
   const wholeYardOut2=mostRecentAnyE&&mostRecentAnyE._movement&&(parseInt(mostRecentAnyE.hives)||0)===0;
   const lv=k=>{
     if(wholeYardOut2&&['singles','doubles','light','weak','lids_floors'].includes(k)) return 0;
-    if(['singles','doubles','light','weak'].includes(k)){
-      // Check movement entries too for these fields
-      for(const e of allSiteEntriesWithMov){
-        const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;
-        const v=parseInt(raw);if(!isNaN(v)&&v>0)return v;
-      }
-      return 0;
-    }
     if(HIVE_FIELDS3.includes(k)){
+      // hives/dead/singles/doubles/light/weak all come from the SAME most-recent hive-count
+      // visit — if that visit correctly recorded 0 doubles, that's current, not a reason to
+      // reach further back for an older non-zero number.
       if(mostRecentWithHives){const raw=mostRecentWithHives[k];if(raw!==undefined&&raw!==null&&raw!=='')return parseInt(raw)||0;return 0;}
       return 0;
     }
