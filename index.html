@@ -496,6 +496,50 @@ async function setFlag(op,site,comment){
   }
 }
 
+// ── Pallet/singles split storage ─────────────────────────────────────────────
+// Tracks how many of a yard's hives currently sit on pallets vs. as loose, unpalletised
+// singles — separate from the diary's "singles/doubles" brood-chamber fields, which describe
+// hive box configuration, not transport packing. A yard can be mixed (e.g. mostly singles with
+// a few pallets just dropped in), so this is two independent counts, not a single either/or tag.
+//
+// Modelled as a manually-set BASELINE (set once per yard, or updated any time it drifts from
+// reality) plus the net of whatever movements have touched that yard since — the same
+// baseline-plus-movements-since pattern computeCurrentHivesForSite() uses, rather than a
+// running total that gets nudged on every movement. That matters: a nudge-on-every-event model
+// has no way to un-nudge itself if a movement is later edited or deleted, which is exactly the
+// class of bug that caused hive counts to drift earlier. Computing fresh every time means there
+// is nothing to forget to reverse.
+function loadPalletBaselines(){try{return JSON.parse(localStorage.getItem('apiary_pallet_baseline')||'{}');}catch(e){return{};}}
+function savePalletBaselines(s){try{localStorage.setItem('apiary_pallet_baseline',JSON.stringify(s));}catch(e){}}
+function palletBaselineKey(op,site){return `${op}__${site}__palletbase`;}
+async function setPalletBaseline(op,site,pallets,singles){
+  const s=loadPalletBaselines();
+  const k=palletBaselineKey(op,site);
+  const val={pallets:Math.max(0,pallets||0),singles:Math.max(0,Math.round(singles)||0),setAt:new Date().toISOString()};
+  s[k]=val;
+  savePalletBaselines(s);
+  await pushToSupabase(k,val).catch(e=>console.warn('Pallet baseline sync failed:',e));
+}
+// Current split = the last manually-set baseline, adjusted by the net of any movements logged
+// for this yard on or after the baseline was set. Computed fresh every call.
+function getCurrentPalletSplit(op,site){
+  const s=loadPalletBaselines();
+  const base=s[palletBaselineKey(op,site)]||null;
+  if(!base) return null; // never set for this yard — caller should prompt to set it
+  const cutoff=(base.setAt||'').slice(0,10);
+  let pallets=base.pallets,singles=base.singles;
+  loadMovements().forEach(m=>{
+    if(cutoff&&m.date<cutoff) return;
+    const mPallets=(parseInt(m.pallets)||0)+(m.half_pallet?0.5:0);
+    const mSingles=parseInt(m.singles)||0;
+    if(m.direction==='to_orchard'&&m.from_site===site){pallets-=mPallets;singles-=mSingles;}
+    else if(m.direction==='from_orchard'&&m.to_site===site){pallets+=mPallets;singles+=mSingles;}
+    else if(m.direction==='yard_yard'&&m.from_site===site){pallets-=mPallets;singles-=mSingles;}
+    else if(m.direction==='yard_yard'&&m.to_site===site){pallets+=mPallets;singles+=mSingles;}
+  });
+  return {pallets:Math.max(0,pallets),singles:Math.max(0,Math.round(singles))};
+}
+
 function loadPending(){try{return JSON.parse(localStorage.getItem('apiary_pending')||'[]');}catch(e){return[];}}
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -4971,6 +5015,12 @@ function renderEntriesList(){
       });
       summaryPanel.appendChild(eRow);
     }
+    // Pallet/singles split — tappable to set/edit
+    const palSplit=getCurrentPalletSplit(op,site);
+    const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',marginBottom:'8px',cursor:'pointer'}},
+      palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'s (transport)'):h('span',{style:{color:'rgba(255,255,255,0.5)'}},'Set pallets/singles →'));
+    palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
+    summaryPanel.appendChild(palPill);
     // Spring score circle
     if(avg!==null){
       summaryPanel.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginTop:'4px'}},
@@ -5942,6 +5992,12 @@ function renderEntriesList(){
       });
       summaryPanel.appendChild(eRow);
     }
+    // Pallet/singles split — tappable to set/edit
+    const palSplit=getCurrentPalletSplit(op,site);
+    const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',marginBottom:'8px',cursor:'pointer'}},
+      palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'s (transport)'):h('span',{style:{color:'rgba(255,255,255,0.5)'}},'Set pallets/singles →'));
+    palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
+    summaryPanel.appendChild(palPill);
     // Spring score circle
     if(avg!==null){
       summaryPanel.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginTop:'4px'}},
@@ -6346,6 +6402,48 @@ function showFlagModal(op, site){
 
   overlay.appendChild(card);
   // Tap outside to dismiss
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+function showPalletSplitModal(op, site){
+  const existing=document.getElementById('pallet-split-modal');
+  if(existing) existing.remove();
+
+  const current=getCurrentPalletSplit(op,site);
+  const overlay=h('div',{id:'pallet-split-modal',style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+  const card=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'24px',width:'100%',maxWidth:'320px'}});
+
+  card.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},site));
+  card.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'16px'}},
+    current?'Set the current split — this updates automatically from here as pallets/singles move in or out.':'Not set yet — enter what\'s actually at this yard right now to start tracking it.'));
+
+  const row=h('div',{style:{display:'flex',gap:'10px',marginBottom:'16px'}});
+  const palWrap=h('div',{style:{flex:'1'}});
+  palWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},'Pallets'));
+  const palInp2=h('input',{type:'number',inputmode:'numeric',min:'0',step:'0.5',value:current?current.pallets:'',placeholder:'0',className:'inp',style:{textAlign:'center',fontSize:'18px',fontWeight:'700'}});
+  palWrap.appendChild(palInp2);
+  const sinWrap=h('div',{style:{flex:'1'}});
+  sinWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},'Singles'));
+  const sinInp2=h('input',{type:'number',inputmode:'numeric',min:'0',value:current?current.singles:'',placeholder:'0',className:'inp',style:{textAlign:'center',fontSize:'18px',fontWeight:'700'}});
+  sinWrap.appendChild(sinInp2);
+  row.appendChild(palWrap);row.appendChild(sinWrap);
+  card.appendChild(row);
+
+  const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#7a4fa8',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>{
+      setPalletBaseline(op,site,parseFloat(palInp2.value)||0,parseFloat(sinInp2.value)||0).then(()=>setState({}));
+      showToast('Pallet/singles split updated');
+      overlay.remove();
+    }
+  },'Save'));
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+    onClick:()=>overlay.remove()
+  },'Cancel'));
+  card.appendChild(btnRow);
+
+  overlay.appendChild(card);
   overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
 }
@@ -7332,9 +7430,23 @@ function renderMovementsScreen(){
       const truckRow=h('div',{style:{marginBottom:'10px'}});
       truckRow.appendChild(h('label',{className:'lbl'},'Truck space'));
 
+      // Faded hints from the source yard's actual pallet/singles split (transport packing,
+      // not brood-chamber box count) — purely a placeholder, never overwrites what's typed.
+      let suggestedPallets='0',suggestedSingles='0';
+      if(pickupData.site&&pickupData.op){
+        const split=getCurrentPalletSplit(pickupData.op,pickupData.site);
+        if(split){
+          suggestedPallets=String(split.pallets);
+          suggestedSingles=String(split.singles);
+        } else {
+          truckRow.appendChild(h('div',{style:{fontSize:'11px',color:'#ef9f27',marginBottom:'6px'}},
+            '⚠ Pallet/singles split not set for this yard yet — set it on the yard summary tile for a hint here.'));
+        }
+      }
+
       // Pallets — big prominent input
       const palRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}});
-      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'10px 12px',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'22px',fontWeight:'800',background:'#fff',boxSizing:'border-box',color:'#1a1a1a',textAlign:'center'}});
+      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:suggestedPallets,style:{flex:'1',padding:'10px 12px',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'22px',fontWeight:'800',background:'#fff',boxSizing:'border-box',color:'#1a1a1a',textAlign:'center'}});
       if(pickupData.pallets) palInp.value=pickupData.pallets;
       palInp.addEventListener('input',e=>{pickupData.pallets=e.target.value;updateHiveTotal();});
       palRow.appendChild(palInp);
@@ -7353,7 +7465,7 @@ function renderMovementsScreen(){
 
       // Singles — smaller secondary input
       const singRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}});
-      const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'8px 12px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'16px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box',color:'#555',textAlign:'center'}});
+      const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:suggestedSingles,style:{flex:'1',padding:'8px 12px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'16px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box',color:'#555',textAlign:'center'}});
       if(pickupData.singles) sinInp.value=pickupData.singles;
       sinInp.addEventListener('input',e=>{pickupData.singles=e.target.value;updateHiveTotal();});
       singRow.appendChild(sinInp);
