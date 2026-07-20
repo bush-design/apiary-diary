@@ -5170,6 +5170,11 @@ function renderEntriesList(){
         if(entryToDelete&&entryToDelete._movement){
           const movs=loadMovements();
           const matchIdx=movs.findIndex(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
+          if(matchIdx<0){
+            // Couldn't find the matching record in the movements log — make this visible
+            // instead of silently leaving an orphaned entry that keeps affecting hive counts.
+            showToast('⚠ Could not find the matching movement record — check Hive Movements → History and remove it manually if it\'s still listed.',6000);
+          }
           if(matchIdx>=0){
             const mov=movs[matchIdx];
             const updatedMovs=movs.filter((_,i)=>i!==matchIdx);
@@ -6136,6 +6141,11 @@ function renderEntriesList(){
         if(entryToDelete&&entryToDelete._movement){
           const movs=loadMovements();
           const matchIdx=movs.findIndex(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
+          if(matchIdx<0){
+            // Couldn't find the matching record in the movements log — make this visible
+            // instead of silently leaving an orphaned entry that keeps affecting hive counts.
+            showToast('⚠ Could not find the matching movement record — check Hive Movements → History and remove it manually if it\'s still listed.',6000);
+          }
           if(matchIdx>=0){
             const mov=movs[matchIdx];
             const updatedMovs=movs.filter((_,i)=>i!==matchIdx);
@@ -6915,9 +6925,15 @@ function renderMovementsScreen(){
         const anyAssigned=pickups.some(p=>(p.splits||[]).length>0);
         if(anyAssigned){
           const label=allDone2?`Save load (${totalSplits} movement${totalSplits!==1?'s':''})`:`${pickups.filter(p=>remaining(p)>0).length} pickup${pickups.filter(p=>remaining(p)>0).length!==1?'s':''} still unassigned`;
-          pickupContainer.appendChild(h('button',{
+          let isSubmittingMovement=false; // guards against a double-tap firing this save twice
+          const saveLoadBtn=h('button',{
             style:{width:'100%',padding:'13px',background:allDone2?movColor:'#aaa',color:'#fff',border:'none',borderRadius:'8px',fontSize:'15px',fontWeight:'700',cursor:'pointer',marginTop:'8px'},
             onClick:async()=>{
+              if(isSubmittingMovement) return;
+              isSubmittingMovement=true;
+              saveLoadBtn.disabled=true;
+              saveLoadBtn.style.opacity='0.6';
+              try{
               if(!allDone2){
                 // Build a clear warning showing exactly which pickups have unassigned hives
                 const probs=pickups.filter(p=>remaining(p)>0);
@@ -6936,17 +6952,24 @@ function renderMovementsScreen(){
                 });
                 box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'14px'}},'Go back and assign them, or save anyway if the count was a mistake.'));
                 const btnRow3=h('div',{style:{display:'flex',gap:'8px'}});
+                let savingAnyway=false;
                 btnRow3.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
                   onClick:()=>warn.remove()},'Fix it'));
-                btnRow3.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
-                  onClick:async()=>{warn.remove();/* fall through to save */
+                const saveAnywayBtn=h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
+                  onClick:async()=>{
+                    if(savingAnyway) return;
+                    savingAnyway=true;
+                    saveAnywayBtn.disabled=true;
+                    saveAnywayBtn.style.opacity='0.6';
+                    warn.remove();/* fall through to save */
                     const ts2=Date.now();let j=0;
                     for(const p of pickups){for(const s of (p.splits||[])){
                       const isOutMov2=loadDirection.val==='to_orchard';const isYYMov2=loadDirection.val==='yard_yard';
                       await addMovement({direction:loadDirection.val,date:loadDate.val,notes:loadNotes.val,driver:loadDriver.val,vehicle:loadVehicle.val,from_site:(isOutMov2||isYYMov2)?p.site:'',from_op:(isOutMov2||isYYMov2)?p.op:'',to_orchard:isOutMov2?s.dest:'',from_orchard:(!isOutMov2&&!isYYMov2)?p.site:'',to_site:(!isOutMov2)?s.dest:'',to_op:(!isOutMov2)?s.dest_op:'',pallets:s.pallets,singles:s.singles,logged_by:STATE.userName||'Unknown',id:ts2+(j++),truckload_id:ts2});
                     }}
                     showToast(`${totalSplits} movements saved`);setState({tab:'orchards'});
-                  }},'Save anyway'));
+                  }},'Save anyway');
+                btnRow3.appendChild(saveAnywayBtn);
                 box.appendChild(btnRow3);
                 warn.appendChild(box);
                 warn.addEventListener('click',e=>{if(e.target===warn)warn.remove();});
@@ -6992,8 +7015,14 @@ function renderMovementsScreen(){
               }
               showToast(`${totalSplits} movement${totalSplits!==1?'s':''} saved`);
               setState({tab:'orchards'});
+              } finally {
+                isSubmittingMovement=false;
+                saveLoadBtn.disabled=false;
+                saveLoadBtn.style.opacity='';
+              }
             }
-          },label));
+          },label);
+          pickupContainer.appendChild(saveLoadBtn);
         }
       }
     }
