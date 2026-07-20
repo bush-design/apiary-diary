@@ -622,6 +622,12 @@ async function pullFromSupabase(){
           }
           return;
         }
+        if(row.entry_key.endsWith('__palletbase')){
+          const bases=loadPalletBaselines();
+          if(row.data&&!row.data.deleted){bases[row.entry_key]=row.data;}
+          else{delete bases[row.entry_key];}
+          savePalletBaselines(bases);return;
+        }
         if(row.entry_key.endsWith('__check')&&!row.entry_key.endsWith('__flag')){
           const checks=loadChecks();
           if(row.data&&!row.data.deleted){checks[row.entry_key]=row.data;}
@@ -670,7 +676,54 @@ async function flushPending(){
 function subscribeRealtime(){
   window._sb.channel('entries').on('postgres_changes',{event:'*',schema:'public',table:'entries'},payload=>{
     const {entry_key,data}=payload.new||{};
-    if(entry_key&&data){
+    if(!entry_key) return;
+    // Route each special data type to its own storage, exactly like pullFromSupabase does —
+    // without this, movements/flags/checks/etc. pushed from another device were silently being
+    // written into STATE.entries under the wrong key, so this device's live view never actually
+    // updated for them (only a full reload, which re-runs pullFromSupabase, would pick them up).
+    if(entry_key==='hive_movements'){
+      if(data&&Array.isArray(data)){
+        const local=loadMovements();
+        const remoteIds=new Set(data.map(m=>m.id));
+        const localOnly=local.filter(m=>!remoteIds.has(m.id));
+        saveMovements([...data,...localOnly]);
+        render();
+      }
+      return;
+    }
+    if(entry_key==='custom_orchards'){
+      if(data&&Array.isArray(data)) saveCustomOrchards(data);
+      render();
+      return;
+    }
+    if(entry_key==='custom_yards'){
+      if(data&&typeof data==='object') saveCustomYards(data);
+      render();
+      return;
+    }
+    if(entry_key.endsWith('__palletbase')){
+      const bases=loadPalletBaselines();
+      if(data&&!data.deleted) bases[entry_key]=data; else delete bases[entry_key];
+      savePalletBaselines(bases);
+      render();
+      return;
+    }
+    if(entry_key.endsWith('__check')&&!entry_key.endsWith('__flag')){
+      const checks=loadChecks();
+      if(data&&!data.deleted) checks[entry_key]=data; else delete checks[entry_key];
+      saveChecks(checks);
+      render();
+      return;
+    }
+    if(entry_key.endsWith('__flag')){
+      const flags=loadFlags();
+      if(data&&!data.deleted) flags[entry_key]=data; else delete flags[entry_key];
+      saveFlags(flags);
+      render();
+      return;
+    }
+    // Regular diary entries
+    if(data){
       STATE.entries[entry_key]=data;
       saveLocal(STATE.entries);
       render();
