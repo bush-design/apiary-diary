@@ -5160,60 +5160,35 @@ function renderEntriesList(){
           }
         }
 
-        // If deleting a movement entry, also clean up related movement record and source/dest yard entries
+        // If deleting a movement entry, also remove the matching movement-log record and the
+        // auto-generated diary entry from the OTHER site it touched. No "reversal" entry is
+        // created — computeCurrentHivesForSite() recalculates the current hive count fresh from
+        // the last real diary entry plus whatever movements remain in the log, every time, so
+        // there is nothing to manually undo. (An earlier version of this code DID try to bake in
+        // a manually-reversed total, which could compound into wrong numbers across repeated
+        // moves/deletes — that approach is intentionally removed.)
         if(entryToDelete&&entryToDelete._movement){
           const movs=loadMovements();
-          // Find matching movement by date and site
           const matchIdx=movs.findIndex(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
           if(matchIdx>=0){
             const mov=movs[matchIdx];
-            // Remove the movement record
             const updatedMovs=movs.filter((_,i)=>i!==matchIdx);
             saveMovements(updatedMovs);
             await pushToSupabase('hive_movements',updatedMovs);
 
-            // Work out how many hives were in this movement
-            const movedHives=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)||0)||
-              (parseInt(mov.pallets)||0)*4+(mov.half_pallet?2:0)+(parseInt(mov.singles)||0);
-            const movedDoubles=parseInt(mov.doubles)||0;
-            const movedSingles=parseInt(mov.singles_boxes)||0;
-            const movedLight=parseInt(mov.light)||0;
-
-            // Remove movement diary entries from ALL related yards and reverse the hive count
             const allRelated=[
-              {s:mov.from_site,o:mov.from_op||op,wasDeducted:true},
-              {s:mov.to_site,o:mov.to_op||op,wasDeducted:false}
+              {s:mov.from_site,o:mov.from_op||op},
+              {s:mov.to_site,o:mov.to_op||op}
             ].filter(r=>r.s&&r.s!==site);
 
             for(const rel of allRelated){
               for(const rk2 of Object.keys(ROUNDS)){
                 const rk2Key=eKey(rel.o,rel.s,rk2);
-                const relEntries=[...(updated[rk2Key]||STATE.entries[rk2Key]||[])];
-                // Find and remove the movement entry
+                const relEntries=updated[rk2Key]||STATE.entries[rk2Key]||[];
                 const filtered=relEntries.filter(e=>!(e._movement&&e.date===entryToDelete.date));
                 if(filtered.length!==relEntries.length){
-                  // Add a reversal entry to undo the hive count change
-                  const lastReal=filtered.find(e=>!e._movement)||null;
-                  const currentHives=parseInt(filtered[0]?.hives)||0;
-                  // Reverse: if this yard had hives deducted, add them back; if added, deduct them
-                  const reversedHives=rel.wasDeducted?currentHives+movedHives:Math.max(0,currentHives-movedHives);
-                  const reversedDoubles=rel.wasDeducted?(parseInt(lastReal?.doubles)||0)+movedDoubles:Math.max(0,(parseInt(lastReal?.doubles)||0)-movedDoubles);
-                  const reversedSingles=rel.wasDeducted?(parseInt(lastReal?.singles)||0)+movedSingles:Math.max(0,(parseInt(lastReal?.singles)||0)-movedSingles);
-                  const reversedLight=rel.wasDeducted?(parseInt(lastReal?.light)||0)+movedLight:Math.max(0,(parseInt(lastReal?.light)||0)-movedLight);
-                  const reversalEntry={
-                    date:entryToDelete.date,
-                    hives:String(reversedHives),
-                    doubles:reversedDoubles>0?String(reversedDoubles):'',
-                    singles:reversedSingles>0?String(reversedSingles):'',
-                    light:reversedLight>0?String(reversedLight):'',
-                    comments:'MOVEMENT DELETED — counts restored',
-                    logged_by:entryToDelete.logged_by||'',
-                    saved_at:new Date().toISOString(),
-                    _movement:true
-                  };
-                  const withReversal=[reversalEntry,...filtered];
-                  updated={...updated,[rk2Key]:withReversal};
-                  await pushToSupabase(rk2Key,withReversal);
+                  updated={...updated,[rk2Key]:filtered};
+                  await pushToSupabase(rk2Key,filtered);
                 }
               }
             }
@@ -6151,60 +6126,35 @@ function renderEntriesList(){
           }
         }
 
-        // If deleting a movement entry, also clean up related movement record and source/dest yard entries
+        // If deleting a movement entry, also remove the matching movement-log record and the
+        // auto-generated diary entry from the OTHER site it touched. No "reversal" entry is
+        // created — computeCurrentHivesForSite() recalculates the current hive count fresh from
+        // the last real diary entry plus whatever movements remain in the log, every time, so
+        // there is nothing to manually undo. (An earlier version of this code DID try to bake in
+        // a manually-reversed total, which could compound into wrong numbers across repeated
+        // moves/deletes — that approach is intentionally removed.)
         if(entryToDelete&&entryToDelete._movement){
           const movs=loadMovements();
-          // Find matching movement by date and site
           const matchIdx=movs.findIndex(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
           if(matchIdx>=0){
             const mov=movs[matchIdx];
-            // Remove the movement record
             const updatedMovs=movs.filter((_,i)=>i!==matchIdx);
             saveMovements(updatedMovs);
             await pushToSupabase('hive_movements',updatedMovs);
 
-            // Work out how many hives were in this movement
-            const movedHives=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)||0)||
-              (parseInt(mov.pallets)||0)*4+(mov.half_pallet?2:0)+(parseInt(mov.singles)||0);
-            const movedDoubles=parseInt(mov.doubles)||0;
-            const movedSingles=parseInt(mov.singles_boxes)||0;
-            const movedLight=parseInt(mov.light)||0;
-
-            // Remove movement diary entries from ALL related yards and reverse the hive count
             const allRelated=[
-              {s:mov.from_site,o:mov.from_op||op,wasDeducted:true},
-              {s:mov.to_site,o:mov.to_op||op,wasDeducted:false}
+              {s:mov.from_site,o:mov.from_op||op},
+              {s:mov.to_site,o:mov.to_op||op}
             ].filter(r=>r.s&&r.s!==site);
 
             for(const rel of allRelated){
               for(const rk2 of Object.keys(ROUNDS)){
                 const rk2Key=eKey(rel.o,rel.s,rk2);
-                const relEntries=[...(updated[rk2Key]||STATE.entries[rk2Key]||[])];
-                // Find and remove the movement entry
+                const relEntries=updated[rk2Key]||STATE.entries[rk2Key]||[];
                 const filtered=relEntries.filter(e=>!(e._movement&&e.date===entryToDelete.date));
                 if(filtered.length!==relEntries.length){
-                  // Add a reversal entry to undo the hive count change
-                  const lastReal=filtered.find(e=>!e._movement)||null;
-                  const currentHives=parseInt(filtered[0]?.hives)||0;
-                  // Reverse: if this yard had hives deducted, add them back; if added, deduct them
-                  const reversedHives=rel.wasDeducted?currentHives+movedHives:Math.max(0,currentHives-movedHives);
-                  const reversedDoubles=rel.wasDeducted?(parseInt(lastReal?.doubles)||0)+movedDoubles:Math.max(0,(parseInt(lastReal?.doubles)||0)-movedDoubles);
-                  const reversedSingles=rel.wasDeducted?(parseInt(lastReal?.singles)||0)+movedSingles:Math.max(0,(parseInt(lastReal?.singles)||0)-movedSingles);
-                  const reversedLight=rel.wasDeducted?(parseInt(lastReal?.light)||0)+movedLight:Math.max(0,(parseInt(lastReal?.light)||0)-movedLight);
-                  const reversalEntry={
-                    date:entryToDelete.date,
-                    hives:String(reversedHives),
-                    doubles:reversedDoubles>0?String(reversedDoubles):'',
-                    singles:reversedSingles>0?String(reversedSingles):'',
-                    light:reversedLight>0?String(reversedLight):'',
-                    comments:'MOVEMENT DELETED — counts restored',
-                    logged_by:entryToDelete.logged_by||'',
-                    saved_at:new Date().toISOString(),
-                    _movement:true
-                  };
-                  const withReversal=[reversalEntry,...filtered];
-                  updated={...updated,[rk2Key]:withReversal};
-                  await pushToSupabase(rk2Key,withReversal);
+                  updated={...updated,[rk2Key]:filtered};
+                  await pushToSupabase(rk2Key,filtered);
                 }
               }
             }
