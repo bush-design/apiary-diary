@@ -281,18 +281,44 @@ async function addMovement(mov){
     const lastReal=allSiteEntries.find(e=>!e._movement)||null;
     const lastHives = parseInt(lastAny?.hives)||0;
     const newHives = isDeduction ? Math.max(0,lastHives-hiveChange) : lastHives+hiveChange;
-    // Carry doubles and singles onto the destination/source yard's new total.
-    // Priority order:
-    //  1. The optional "Boxes in this load" fields, if the person filled them in explicitly —
-    //     the most precise source when available.
-    //  2. Truck Space pallets/singles — always present (required fields), and a reasonable
-    //     proxy since palletised hives are typically doubles and unpalletised loose hives are
-    //     typically singles. Crucially this works even when the source is an ORCHARD (no yard
-    //     to pull a "current total" from at all) and correctly reflects what was actually
-    //     moved rather than the source yard's whole current total.
-    const movDoubles=parseInt(mov.doubles)||(parseInt(mov.pallets)||0)+(mov.half_pallet?0.5:0);
-    const movSingles=parseInt(mov.singles_boxes)||parseInt(mov.singles)||0;
-    const movLight=parseInt(mov.light)||0;
+    // Determine how many doubles/singles/light this leg is moving. Priority:
+    //  1. Explicit "Boxes in this load" fields, if the person filled them in.
+    //  2. The actual source yard's OWN recorded doubles/singles — a yard with 6 doubles that
+    //     gets moved should transfer 6 doubles to the destination, full stop. This is the
+    //     yard's real hive-structure data (single vs double brood chamber), not the truck's
+    //     transport packing, which is a different thing entirely.
+    //  3. Only when there's no yard to check at all (moving from an orchard, which has no
+    //     doubles/singles data of its own) does this fall back to Truck Space pallets/singles
+    //     as a rough best-available guess.
+    let movDoubles=parseInt(mov.doubles)||0;
+    let movSingles=parseInt(mov.singles_boxes)||0;
+    let movLight=parseInt(mov.light)||0;
+    if(!movDoubles&&!movSingles&&!movLight){
+      if(isDeduction){
+        // Already looking at the source yard's own most recent real entry
+        movDoubles=parseInt(lastReal?.doubles)||0;
+        movSingles=parseInt(lastReal?.singles)||0;
+        movLight=parseInt(lastReal?.light)||0;
+      } else if(mov.from_site){
+        const srcOp=mov.from_op||opName;
+        const tryOps=srcOp?[srcOp]:Object.keys(OPERATIONS);
+        for(const tryOp of tryOps){
+          const srcEntries=Object.keys(ROUNDS).flatMap(rk2=>
+            (STATE.entries[eKey(tryOp,mov.from_site,rk2)]||[]).filter(e=>!e._movement)
+          ).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+          if(srcEntries.length){
+            movDoubles=parseInt(srcEntries[0]?.doubles)||0;
+            movSingles=parseInt(srcEntries[0]?.singles)||0;
+            movLight=parseInt(srcEntries[0]?.light)||0;
+            break;
+          }
+        }
+      }
+      if(!movDoubles&&!movSingles&&!movLight){
+        movDoubles=(parseInt(mov.pallets)||0)+(mov.half_pallet?0.5:0);
+        movSingles=parseInt(mov.singles)||0;
+      }
+    }
     // When merging into an in-progress truckload entry, build on ITS current totals (which
     // already include earlier legs of this same delivery) rather than resetting back to the
     // original real diary entry's values — otherwise each subsequent leg would silently
