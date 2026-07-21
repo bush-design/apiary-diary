@@ -7339,13 +7339,14 @@ function renderMovementsScreen(){
               h('div',{style:{fontSize:'12px',color:'#888'}},opName)
             ),
             h('button',{style:{background:'none',border:'none',color:movColor,fontSize:'12px',fontWeight:'600',cursor:'pointer'},
-              onClick:()=>{pickupData.site='';pickupData.op='';searchArea.style.display='block';selectedDisplay.style.display='none';}
+              onClick:()=>{pickupData.site='';pickupData.op='';searchArea.style.display='block';selectedDisplay.style.display='none';refreshTruckSpaceHints();}
             },'Change')
           ));
         }
         makeYardSearch(searchArea,(site,opName)=>{
           pickupData.site=site;pickupData.op=opName;
           showSelected(site,opName);
+          refreshTruckSpaceHints();
         }, null);
         // Pre-fill if editing
         if(pickupData.site) showSelected(pickupData.site,pickupData.op);
@@ -7510,21 +7511,13 @@ function renderMovementsScreen(){
 
       // Faded hints from the source yard's actual pallet/singles split (transport packing,
       // not brood-chamber box count) — purely a placeholder, never overwrites what's typed.
-      let suggestedPallets='0',suggestedSingles='0';
-      if(pickupData.site&&pickupData.op){
-        const split=getCurrentPalletSplit(pickupData.op,pickupData.site);
-        if(split){
-          suggestedPallets=String(split.pallets);
-          suggestedSingles=String(split.singles);
-        } else {
-          truckRow.appendChild(h('div',{style:{fontSize:'11px',color:'#ef9f27',marginBottom:'6px'}},
-            '⚠ Pallet/singles split not set for this yard yet — set it on the yard summary tile for a hint here.'));
-        }
-      }
+      const hintWarning=h('div',{style:{fontSize:'11px',color:'#ef9f27',marginBottom:'6px',display:'none'}},
+        '⚠ Pallet/singles split not set for this yard yet — set it on the yard summary tile for a hint here.');
+      truckRow.appendChild(hintWarning);
 
       // Pallets — big prominent input
       const palRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}});
-      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:suggestedPallets,style:{flex:'1',padding:'10px 12px',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'22px',fontWeight:'800',background:'#fff',boxSizing:'border-box',color:'#1a1a1a',textAlign:'center'}});
+      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'10px 12px',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'22px',fontWeight:'800',background:'#fff',boxSizing:'border-box',color:'#1a1a1a',textAlign:'center'}});
       if(pickupData.pallets) palInp.value=pickupData.pallets;
       palInp.addEventListener('input',e=>{pickupData.pallets=e.target.value;updateHiveTotal();});
       palRow.appendChild(palInp);
@@ -7543,12 +7536,35 @@ function renderMovementsScreen(){
 
       // Singles — smaller secondary input
       const singRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}});
-      const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:suggestedSingles,style:{flex:'1',padding:'8px 12px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'16px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box',color:'#555',textAlign:'center'}});
+      const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'8px 12px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'16px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box',color:'#555',textAlign:'center'}});
       if(pickupData.singles) sinInp.value=pickupData.singles;
       sinInp.addEventListener('input',e=>{pickupData.singles=e.target.value;updateHiveTotal();});
       singRow.appendChild(sinInp);
       singRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888',flexShrink:'0'}},'singles'));
       truckRow.appendChild(singRow);
+
+      // Re-reads the source yard's pallet/singles split and updates the placeholders live —
+      // called on initial build AND every time the pickup yard selection changes, since picking
+      // a yard from search only updates a small local display, not this whole section.
+      function refreshTruckSpaceHints(){
+        if(pickupData.site&&pickupData.op){
+          const split=getCurrentPalletSplit(pickupData.op,pickupData.site);
+          if(split){
+            palInp.placeholder=String(split.pallets);
+            sinInp.placeholder=String(split.singles);
+            hintWarning.style.display='none';
+          } else {
+            palInp.placeholder='0';
+            sinInp.placeholder='0';
+            hintWarning.style.display='block';
+          }
+        } else {
+          palInp.placeholder='0';
+          sinInp.placeholder='0';
+          hintWarning.style.display='none';
+        }
+      }
+      refreshTruckSpaceHints();
 
       // Live hive total
       const hiveTotal=h('div',{style:{textAlign:'center',fontSize:'12px',color:movColor,fontWeight:'600',marginBottom:'4px'}});
