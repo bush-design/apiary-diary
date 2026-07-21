@@ -198,26 +198,49 @@ function getAllOrchards(){
   return all;
 }
 
-// Movement storage — separate from diary entries
-function loadMovements(){try{return JSON.parse(localStorage.getItem('apiary_movements')||'[]');}catch(e){return[];}}
+// Movement storage — separate from diary entries.
+//
+// Deletions are soft (a {deleted:true} tombstone), not a hard removal from the array. This
+// matters for merge-safety: getMergedRemoteMovements() below has to combine this device's local
+// list with whatever's currently on the server, and it can't tell "a movement I haven't pushed
+// yet" apart from "a movement someone else already deleted, that my stale local cache just
+// hasn't caught up to removing" — both simply look like "present locally, absent from remote".
+// Treating that ambiguity as "keep it" (the natural default) would silently resurrect deleted
+// movements on whichever device's local cache was behind. A tombstone removes the ambiguity:
+// deletion becomes a fact that gets merged and synced like any other change, instead of an
+// absence that has to be inferred and can be un-inferred by accident.
+//
+// loadMovements() — used everywhere the app actually displays or computes from movements —
+// filters tombstones out, so nothing else in the app needs to know this exists.
+function loadMovements(){try{return JSON.parse(localStorage.getItem('apiary_movements')||'[]').filter(m=>!m.deleted);}catch(e){return[];}}
+// loadMovementsRaw() includes tombstones — only for the sync/merge machinery below.
+function loadMovementsRaw(){try{return JSON.parse(localStorage.getItem('apiary_movements')||'[]');}catch(e){return[];}}
 function saveMovements(m){try{localStorage.setItem('apiary_movements',JSON.stringify(m));}catch(e){}}
 
 // Fetches the CURRENT remote movements list (not this device's possibly-stale local cache) and
-// merges it with the local list by id. Movements are stored as one array under a single
-// Supabase key, so a plain "read local, modify, push" cycle silently loses anything another
-// device pushed in the meantime — whichever device pushes last just overwrites the other's
-// work. Reading fresh from remote right before every add/edit/delete closes most of that race
-// window (it isn't a true atomic transaction, but makes concurrent double-logging from two
+// merges it with the local list by id, tombstone-aware: if either side has a movement marked
+// deleted, the merged result keeps it deleted — a deletion is never silently undone by an older
+// non-deleted copy on the other side. Returns the RAW array (tombstones included); callers that
+// write should save/push this directly, callers that read for display should go through
+// loadMovements() instead. Movements are stored as one array under a single Supabase key, so a
+// plain "read local, modify, push" cycle would otherwise silently lose anything another device
+// pushed in the meantime — reading fresh from remote right before every add/edit/delete closes
+// most of that race window (not a true atomic transaction, but makes concurrent edits from two
 // phones at once very unlikely to lose data, versus certain before this fix).
 async function getMergedRemoteMovements(){
-  const local=loadMovements();
+  const local=loadMovementsRaw();
   if(!navigator.onLine||!window._sb) return local;
   try{
     const {data,error}=await window._sb.from('entries').select('data').eq('entry_key','hive_movements').maybeSingle();
     if(error||!data||!Array.isArray(data.data)) return local;
-    const remoteIds=new Set(data.data.map(m=>m.id));
-    const localOnly=local.filter(m=>!remoteIds.has(m.id));
-    return [...data.data,...localOnly];
+    const byId={};
+    data.data.forEach(m=>{byId[m.id]=m;});
+    local.forEach(m=>{
+      const existing=byId[m.id];
+      if(!existing) byId[m.id]=m; // local-only, not yet synced
+      else if(m.deleted&&!existing.deleted) byId[m.id]={...existing,...m,deleted:true}; // local deletion wins
+    });
+    return Object.values(byId);
   }catch(e){
     return local; // offline or fetch failed — fall back to local cache rather than blocking
   }
@@ -629,12 +652,19 @@ async function pullFromSupabase(){
       const mergedFlags=loadFlags();
       data.forEach(row=>{
         if(row.entry_key==='hive_movements'){
-          // Merge: keep local movements not in Supabase (in case of offline additions)
+          // Tombstone-aware merge — see getMergedRemoteMovements for why this can't just be
+          // "remote wins" or "keep anything local not on remote": a local deletion not yet
+          // pushed would otherwise look identical to a local addition not yet pushed.
           if(row.data&&Array.isArray(row.data)){
-            const local=loadMovements();
-            const remoteIds=new Set(row.data.map(m=>m.id));
-            const localOnly=local.filter(m=>!remoteIds.has(m.id));
-            saveMovements([...row.data,...localOnly]);
+            const local=loadMovementsRaw();
+            const byId={};
+            row.data.forEach(m=>{byId[m.id]=m;});
+            local.forEach(m=>{
+              const existing=byId[m.id];
+              if(!existing) byId[m.id]=m;
+              else if(m.deleted&&!existing.deleted) byId[m.id]={...existing,...m,deleted:true};
+            });
+            saveMovements(Object.values(byId));
           }
           return;
         }
@@ -716,10 +746,15 @@ function subscribeRealtime(){
     // updated for them (only a full reload, which re-runs pullFromSupabase, would pick them up).
     if(entry_key==='hive_movements'){
       if(data&&Array.isArray(data)){
-        const local=loadMovements();
-        const remoteIds=new Set(data.map(m=>m.id));
-        const localOnly=local.filter(m=>!remoteIds.has(m.id));
-        saveMovements([...data,...localOnly]);
+        const local=loadMovementsRaw();
+        const byId={};
+        data.forEach(m=>{byId[m.id]=m;});
+        local.forEach(m=>{
+          const existing=byId[m.id];
+          if(!existing) byId[m.id]=m;
+          else if(m.deleted&&!existing.deleted) byId[m.id]={...existing,...m,deleted:true};
+        });
+        saveMovements(Object.values(byId));
         render();
       }
       return;
@@ -5315,7 +5350,7 @@ function renderEntriesList(){
           }
           if(matchIdx>=0){
             const mov=movs[matchIdx];
-            const updatedMovs=movs.filter((_,i)=>i!==matchIdx);
+            const updatedMovs=movs.map((x,i)=>i===matchIdx?{...x,deleted:true,deletedAt:new Date().toISOString()}:x);
             saveMovements(updatedMovs);
             await pushToSupabase('hive_movements',updatedMovs);
 
@@ -6294,7 +6329,7 @@ function renderEntriesList(){
           }
           if(matchIdx>=0){
             const mov=movs[matchIdx];
-            const updatedMovs=movs.filter((_,i)=>i!==matchIdx);
+            const updatedMovs=movs.map((x,i)=>i===matchIdx?{...x,deleted:true,deletedAt:new Date().toISOString()}:x);
             saveMovements(updatedMovs);
             await pushToSupabase('hive_movements',updatedMovs);
 
@@ -8082,7 +8117,7 @@ function renderMovementsScreen(){
             btnRow2.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
               onClick:async()=>{
                 // Delete movement from list
-                const updated=(await getMergedRemoteMovements()).filter(x=>x.id!==m.id);
+                const updated=(await getMergedRemoteMovements()).map(x=>x.id===m.id?{...x,deleted:true,deletedAt:new Date().toISOString()}:x);
                 saveMovements(updated);
                 await pushToSupabase('hive_movements',updated);
                 // Delete matching diary entries from affected yard sites
