@@ -1136,54 +1136,24 @@ function getSiteBreederCount(op, site){
 // every screen that needs "how many hives are at this site right now" uses this literal same
 // code path — no separate reimplementation that could quietly drift out of sync.
 function computeCurrentHivesForSite(op, site){
-  const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>
-    (STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map((e,i)=>({...e,_arrIdx:i}))
-  ).sort((a,b)=>{
-    const dc=(b.date||'').localeCompare(a.date||'');
-    if(dc!==0) return dc;
-    const sc=(b.saved_at||'').localeCompare(a.saved_at||'');
-    if(sc!==0) return sc;
-    return a._arrIdx-b._arrIdx;
+  // Every entry — a real hive check OR an auto-generated movement entry — already stores its
+  // own correct resulting hive count at the moment it was created (logToSite computes
+  // "whatever was there before + this movement's change" once, when the movement happens).
+  // So the current count is simply whichever entry is most recent; there's no need to re-do
+  // that addition every time this gets read. Re-adding movements at read time is exactly what
+  // kept going wrong — it requires correctly figuring out same-day ordering, timezones, and
+  // what's already been reflected, every single time, instead of once at write time.
+  const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]));
+  if(!allEntries.length) return 0;
+  const sorted=[...allEntries].sort((a,b)=>{
+    const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
+    const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
+    const tc=tsB.localeCompare(tsA);
+    if(tc!==0) return tc;
+    return (b.date||'').localeCompare(a.date||'');
   });
-  const mostRecentWithHives=allSiteEntries.find(e=>
-    e.hives!==undefined&&e.hives!==null&&e.hives!==''
-  )||null;
-  const latestReal=allSiteEntries[0]||null;
-  const allMovements=loadMovements();
-  // Use real timestamps rather than calendar dates alone — two things dated the same day still
-  // have a genuine order (e.g. a movement logged in the morning, then a hive check that same
-  // afternoon that already shows the post-move count). Both saved_at/logged_at and recorded_at
-  // are stored in UTC via toISOString(), so they compare safely — but for older movements saved
-  // before recorded_at existed, there's no time-of-day to compare at all. Guessing a fixed local
-  // time like "noon" for those doesn't work: it'd be compared as a raw string against a real UTC
-  // timestamp, and NZ being 12+ hours ahead of UTC means that comparison can come out backwards
-  // depending on time of day. So when there's no real timestamp to compare, a same-day movement
-  // is instead treated as already reflected in the real entry — matching the far more common
-  // real workflow (move hives, then do the hive check and write down what's actually there) —
-  // rather than risking double-counting it.
-  const latestRealTimestamp=latestReal?(latestReal.saved_at||latestReal.logged_at||null):null;
-  const latestRealDateOnly=latestReal?.date||'';
-  let movementNet=0;
-  allMovements.forEach(m=>{
-    if(latestRealTimestamp&&m.recorded_at){
-      if(m.recorded_at<latestRealTimestamp) return; // precise comparison, both real timestamps
-    } else if(latestRealDateOnly){
-      if(m.date<=latestRealDateOnly) return; // no reliable time-of-day — same-day/earlier treated as already reflected
-    }
-    const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
-    if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
-    else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
-    else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
-    else if(m.direction==='yard_yard'&&m.to_site===site) movementNet+=hives;
-  });
-  const baseHives=mostRecentWithHives?(parseInt(mostRecentWithHives.hives)||0):0;
-  const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
-  let currentHives=0;
-  if(latestReal) currentHives=Math.max(0,baseHives+movementNet);
-  else if(latestMovementHives>0) currentHives=latestMovementHives;
-  else if(movementNet>0) currentHives=movementNet;
-  return currentHives;
+  const mostRecentWithHives=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
+  return mostRecentWithHives?Math.max(0,parseInt(mostRecentWithHives.hives)||0):0;
 }
 
 // ── Shared: carry-forward hive-state fields for a single site, as of an optional cutoff date ──
@@ -1217,45 +1187,12 @@ function getSiteHiveState(opName,site,cutoffDate){
   const out={lids_floors:lastVal('lids_floors')};
   HIVE_STATE_FIELDS.forEach(k=>{out[k]=lastVal(k);});
 
-  // 'hives' uses the exact same calculation as the site's own detail page (not a
-  // reimplementation) — when there's no cutoff date, call it directly so there is only one
-  // real implementation of "current hive count" anywhere in the app.
-  if(!cutoffDate){
-    out.hives=computeCurrentHivesForSite(opName,site);
-  } else {
-    const realEntries=allSiteEntries.filter(e=>!e._movement);
-    const lastRealHives=(()=>{
-      for(const e of realEntries){
-        const raw=e.hives;
-        if(raw===undefined||raw===null||raw==='') continue;
-        const v=parseInt(raw);
-        if(!isNaN(v)) return v;
-      }
-      return null;
-    })();
-    const latestRealTimestamp=realEntries[0]?(realEntries[0].saved_at||realEntries[0].logged_at||null):null;
-    const latestRealDateOnly=realEntries[0]?.date||'';
-    const movementsSince=loadMovements().filter(m=>{
-      if(m.date>cutoffDate) return false;
-      if(latestRealTimestamp&&m.recorded_at) return m.recorded_at>=latestRealTimestamp; // precise, both real timestamps
-      if(latestRealDateOnly) return m.date>latestRealDateOnly; // no reliable time-of-day — same-day treated as already reflected
-      return true; // no real entry to compare against at all
-    });
-    let hivesNet=0;
-    movementsSince.forEach(m=>{
-      const amt=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
-      if(m.direction==='to_orchard'&&m.from_site===site) hivesNet-=amt;
-      else if(m.direction==='from_orchard'&&m.to_site===site) hivesNet+=amt;
-      else if(m.direction==='yard_yard'&&m.from_site===site) hivesNet-=amt;
-      else if(m.direction==='yard_yard'&&m.to_site===site) hivesNet+=amt;
-    });
-    if(lastRealHives!==null){
-      out.hives=Math.max(0,lastRealHives+hivesNet);
-    } else {
-      const movementEntryHives=parseInt(allSiteEntries.find(e=>e._movement)?.hives)||0;
-      out.hives=movementEntryHives>0?movementEntryHives:Math.max(0,hivesNet);
-    }
-  }
+  // 'hives' comes from lastVal('hives') above like every other field — allSiteEntries already
+  // includes movement entries, is sorted by real timestamp, and respects cutoffDate, so there's
+  // nothing further to reconstruct here. (An earlier version of this function re-added up
+  // movements manually for the cutoff case; that's what kept causing ordering/timezone bugs,
+  // and turned out to be entirely unnecessary — the line above already produces the same,
+  // correct answer.)
   return out;
 }
 
@@ -6857,17 +6794,58 @@ function showEditMovementModal(m){
           e.comments.includes(m.from_site||'')
         ));
         if(entryIdx===-1) return;
-        // Rebuild the description with new values
-        const hiveChange=((parseInt(newMov2.pallets)||0)*4+(newMov2.half_pallet?2:0)+(parseInt(newMov2.singles)||0));
-        const truckStr=(parseInt(newMov2.pallets)||0)+(newMov2.half_pallet?'½':'')+'p'+(parseInt(newMov2.singles)>0?' + '+newMov2.singles+'s':'');
+        const targetEntry=existing[entryIdx];
         const isOut=newMov2.direction==='to_orchard';
         const isYY=newMov2.direction==='yard_yard';
+        const isDeduction=isOut||(isYY&&siteKey===newMov2.from_site);
+
+        // Recompute the actual stored totals, not just the description — this entry's hives/
+        // doubles/singles/light need to reflect the EDITED amounts, based on whatever the count
+        // was immediately before this movement (excluding the entry being edited itself).
+        const otherEntries=Object.keys(ROUNDS).flatMap(rk2=>{
+          const list=STATE.entries[eKey(opName,siteKey,rk2)]||[];
+          return rk2===(roundForDate(oldDate)||'spring')?list.filter(e=>e!==targetEntry):list;
+        }).sort((a,b)=>{
+          const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
+          const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
+          return tsB.localeCompare(tsA);
+        });
+        const base=otherEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+        const baseHives=base?(parseInt(base.hives)||0):0;
+        const baseDoubles=base?(parseInt(base.doubles)||0):0;
+        const baseSingles=base?(parseInt(base.singles)||0):0;
+        const baseLight=base?(parseInt(base.light)||0):0;
+
+        const hiveChange=((parseInt(newMov2.pallets)||0)*4+(newMov2.half_pallet?2:0)+(parseInt(newMov2.singles)||0));
+        let movDoubles=parseInt(newMov2.doubles)||0;
+        let movSingles=parseInt(newMov2.singles_boxes)||0;
+        let movLight=parseInt(newMov2.light)||0;
+        if(!movDoubles&&!movSingles&&!movLight){
+          movDoubles=(parseInt(newMov2.pallets)||0)+(newMov2.half_pallet?0.5:0);
+          movSingles=parseInt(newMov2.singles)||0;
+        }
+        const newHives=isDeduction?Math.max(0,baseHives-hiveChange):baseHives+hiveChange;
+        const newDoubles=isDeduction?Math.max(0,baseDoubles-movDoubles):baseDoubles+movDoubles;
+        const newSingles=isDeduction?Math.max(0,baseSingles-movSingles):baseSingles+movSingles;
+        const newLight=isDeduction?Math.max(0,baseLight-movLight):baseLight+movLight;
+
+        // Rebuild the description with new values
+        const truckStr=(parseInt(newMov2.pallets)||0)+(newMov2.half_pallet?'½':'')+'p'+(parseInt(newMov2.singles)>0?' + '+newMov2.singles+'s':'');
         let desc;
         if(isOut) desc=`MOVEMENT OUT: ${truckStr} → ${newMov2.to_orchard}`;
         else if(!isOut&&!isYY) desc=`MOVEMENT IN: ${truckStr} ← ${newMov2.from_orchard}`;
         else if(isYY&&siteKey===newMov2.from_site) desc=`MOVED OUT: ${truckStr} → ${newMov2.to_site}`;
         else desc=`MOVED IN: ${truckStr} ← ${newMov2.from_site}`;
-        const updatedEntry={...existing[entryIdx],date:newMov2.date,comments:desc,saved_at:new Date().toISOString()};
+        const updatedEntry={
+          ...targetEntry,
+          date:newMov2.date,
+          hives:String(newHives),
+          doubles:newDoubles>0?String(newDoubles):'',
+          singles:newSingles>0?String(newSingles):'',
+          light:newLight>0?String(newLight):'',
+          comments:desc,
+          saved_at:new Date().toISOString()
+        };
         const updatedList=[...existing];
         updatedList[entryIdx]=updatedEntry;
         const updEntries={...STATE.entries,[k]:updatedList};
