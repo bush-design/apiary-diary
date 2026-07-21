@@ -202,8 +202,29 @@ function getAllOrchards(){
 function loadMovements(){try{return JSON.parse(localStorage.getItem('apiary_movements')||'[]');}catch(e){return[];}}
 function saveMovements(m){try{localStorage.setItem('apiary_movements',JSON.stringify(m));}catch(e){}}
 
+// Fetches the CURRENT remote movements list (not this device's possibly-stale local cache) and
+// merges it with the local list by id. Movements are stored as one array under a single
+// Supabase key, so a plain "read local, modify, push" cycle silently loses anything another
+// device pushed in the meantime — whichever device pushes last just overwrites the other's
+// work. Reading fresh from remote right before every add/edit/delete closes most of that race
+// window (it isn't a true atomic transaction, but makes concurrent double-logging from two
+// phones at once very unlikely to lose data, versus certain before this fix).
+async function getMergedRemoteMovements(){
+  const local=loadMovements();
+  if(!navigator.onLine||!window._sb) return local;
+  try{
+    const {data,error}=await window._sb.from('entries').select('data').eq('entry_key','hive_movements').maybeSingle();
+    if(error||!data||!Array.isArray(data.data)) return local;
+    const remoteIds=new Set(data.data.map(m=>m.id));
+    const localOnly=local.filter(m=>!remoteIds.has(m.id));
+    return [...data.data,...localOnly];
+  }catch(e){
+    return local; // offline or fetch failed — fall back to local cache rather than blocking
+  }
+}
+
 async function addMovement(mov){
-  const movements=[...loadMovements(),mov];
+  const movements=[...(await getMergedRemoteMovements()),mov];
   saveMovements(movements);
   await pushToSupabase('hive_movements',movements);
   // Auto-log movement entries into yard site diaries
@@ -5271,7 +5292,7 @@ function renderEntriesList(){
         // a manually-reversed total, which could compound into wrong numbers across repeated
         // moves/deletes — that approach is intentionally removed.)
         if(entryToDelete&&entryToDelete._movement){
-          const movs=loadMovements();
+          const movs=await getMergedRemoteMovements();
           const matchIdx=movs.findIndex(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
           if(matchIdx<0){
             // Couldn't find the matching record in the movements log — make this visible
@@ -5879,10 +5900,10 @@ function renderForm(){
         const oldEntry=existing[STATE.editing];
         const oldDate=oldEntry?.date;const newDate=entry.date;
         if(oldDate&&newDate&&oldDate!==newDate){
-          const movs=loadMovements();
+          const movs=await getMergedRemoteMovements();
           const updatedMovs=movs.map(m=>{const matchesSite=(m.from_site===site||m.to_site===site);if(matchesSite&&m.date===oldDate)return{...m,date:newDate};return m;});
           saveMovements(updatedMovs);
-          pushToSupabase('hive_movements',updatedMovs).catch(e=>console.warn('Movement sync failed:',e));
+          await pushToSupabase('hive_movements',updatedMovs).catch(e=>console.warn('Movement sync failed:',e));
         }
       }
     }
@@ -6248,7 +6269,7 @@ function renderEntriesList(){
         // a manually-reversed total, which could compound into wrong numbers across repeated
         // moves/deletes — that approach is intentionally removed.)
         if(entryToDelete&&entryToDelete._movement){
-          const movs=loadMovements();
+          const movs=await getMergedRemoteMovements();
           const matchIdx=movs.findIndex(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
           if(matchIdx<0){
             // Couldn't find the matching record in the movements log — make this visible
@@ -6618,7 +6639,7 @@ function showEditMovementModal(m){
     onClick:async()=>{
       // Update movement in list
       const newMov={...m,...vals};
-      const updated=loadMovements().map(x=>x.id===m.id?newMov:x);
+      const updated=(await getMergedRemoteMovements()).map(x=>x.id===m.id?newMov:x);
       saveMovements(updated);
       await pushToSupabase('hive_movements',updated);
 
@@ -8029,7 +8050,7 @@ function renderMovementsScreen(){
             btnRow2.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#c0392b',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
               onClick:async()=>{
                 // Delete movement from list
-                const updated=loadMovements().filter(x=>x.id!==m.id);
+                const updated=(await getMergedRemoteMovements()).filter(x=>x.id!==m.id);
                 saveMovements(updated);
                 await pushToSupabase('hive_movements',updated);
                 // Delete matching diary entries from affected yard sites
