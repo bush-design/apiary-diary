@@ -255,10 +255,13 @@ async function addMovement(mov){
   const movements=[...(await getMergedRemoteMovements()),mov];
   saveMovements(movements);
   await pushToSupabase('hive_movements',movements);
-  // Auto-log movement entries into yard site diaries
-  // Alive and dead need to be tracked separately — "Hives" is an alive-only count throughout
-  // this app, so a movement where some hives arrived dead must only add the alive portion to
-  // Hives, and add the dead portion to Dead separately, not lump both into Hives.
+  // Auto-log movement entries into yard site diaries.
+  // Alive/dead and doubles/singles/light are taken directly from what's in the form — which is
+  // now pre-filled from the source yard's own real current numbers the moment it's selected
+  // (same numbers shown on that yard's summary tile). There's no guessing here about whether
+  // this is a "whole yard" or "partial" move: the person sees the actual numbers up front and
+  // either confirms them (whole move) or edits them down (partial move) themselves. Whatever
+  // ends up in the fields is exactly what gets used.
   const totalOnLoad=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)||0);
   const aliveChange = totalOnLoad>0 ? (parseInt(mov.alive_hives)||0) : mov.hives ? parseInt(mov.hives)||0 : (parseInt(mov.pallets)||0)*4+(mov.half_pallet?2:0)+(parseInt(mov.singles)||0);
   const deadChange = parseInt(mov.dead_hives)||0;
@@ -287,57 +290,26 @@ async function addMovement(mov){
         return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
       });
     const lastAny = allSiteEntries[0]||null; // most recent entry of any kind (incl. movements) — hive count stacks across movements
-    // Get last real entry for current doubles/singles
     const lastReal=allSiteEntries.find(e=>!e._movement)||null;
     const lastHives = parseInt(lastAny?.hives)||0;
     const lastDead = parseInt((mergeTarget||lastAny)?.dead)||0;
+    const lastDoubles=parseInt((mergeTarget||lastReal)?.doubles)||0;
+    const lastSingles=parseInt((mergeTarget||lastReal)?.singles)||0;
+    const lastLight=parseInt((mergeTarget||lastReal)?.light)||0;
     const newHives = isDeduction ? Math.max(0,lastHives-aliveChange) : lastHives+aliveChange;
     const newDead = isDeduction ? Math.max(0,lastDead-deadChange) : lastDead+deadChange;
-    // Determine how many doubles/singles/light this leg is moving. Priority:
-    //  1. Explicit "Boxes in this load" fields, if the person filled them in.
-    //  2. The actual source yard's OWN recorded doubles/singles — a yard with 6 doubles that
-    //     gets moved should transfer 6 doubles to the destination, full stop. This is the
-    //     yard's real hive-structure data (single vs double brood chamber), not the truck's
-    //     transport packing, which is a different thing entirely.
-    //  3. Only when there's no yard to check at all (moving from an orchard, which has no
-    //     doubles/singles data of its own) does this fall back to Truck Space pallets/singles
-    //     as a rough best-available guess.
+
+    // Doubles/singles/light — directly from the "Boxes in this load" fields (pre-filled from
+    // the source yard's real numbers, or edited by the person). Only falls back to Truck Space
+    // packing if genuinely nothing was entered there at all — e.g. moving from an orchard,
+    // which has no yard-level composition to pre-fill from in the first place.
     let movDoubles=parseInt(mov.doubles)||0;
     let movSingles=parseInt(mov.singles_boxes)||0;
     let movLight=parseInt(mov.light)||0;
     if(!movDoubles&&!movSingles&&!movLight){
-      if(isDeduction){
-        // Already looking at the source yard's own most recent real entry
-        movDoubles=parseInt(lastReal?.doubles)||0;
-        movSingles=parseInt(lastReal?.singles)||0;
-        movLight=parseInt(lastReal?.light)||0;
-      } else if(mov.from_site){
-        const srcOp=mov.from_op||opName;
-        const tryOps=srcOp?[srcOp]:Object.keys(OPERATIONS);
-        for(const tryOp of tryOps){
-          const srcEntries=Object.keys(ROUNDS).flatMap(rk2=>
-            (STATE.entries[eKey(tryOp,mov.from_site,rk2)]||[]).filter(e=>!e._movement)
-          ).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-          if(srcEntries.length){
-            movDoubles=parseInt(srcEntries[0]?.doubles)||0;
-            movSingles=parseInt(srcEntries[0]?.singles)||0;
-            movLight=parseInt(srcEntries[0]?.light)||0;
-            break;
-          }
-        }
-      }
-      if(!movDoubles&&!movSingles&&!movLight){
-        movDoubles=(parseInt(mov.pallets)||0)+(mov.half_pallet?0.5:0);
-        movSingles=parseInt(mov.singles)||0;
-      }
+      movDoubles=(parseInt(mov.pallets)||0)+(mov.half_pallet?0.5:0);
+      movSingles=parseInt(mov.singles)||0;
     }
-    // When merging into an in-progress truckload entry, build on ITS current totals (which
-    // already include earlier legs of this same delivery) rather than resetting back to the
-    // original real diary entry's values — otherwise each subsequent leg would silently
-    // discard the ones logged before it in the same load.
-    const lastDoubles=parseInt((mergeTarget||lastReal)?.doubles)||0;
-    const lastSingles=parseInt((mergeTarget||lastReal)?.singles)||0;
-    const lastLight=parseInt((mergeTarget||lastReal)?.light)||0;
 
     let newDoubles,newSingles,newLight;
     if(isDeduction){
@@ -7548,7 +7520,17 @@ function renderMovementsScreen(){
               h('div',{style:{fontSize:'12px',color:'#888'}},opName)
             ),
             h('button',{style:{background:'none',border:'none',color:movColor,fontSize:'12px',fontWeight:'600',cursor:'pointer'},
-              onClick:()=>{pickupData.site='';pickupData.op='';searchArea.style.display='block';selectedDisplay.style.display='none';refreshTruckSpaceHints();}
+              onClick:()=>{
+                pickupData.site='';pickupData.op='';searchArea.style.display='block';selectedDisplay.style.display='none';
+                // Clear anything pulled in from the previous yard — starting fresh for whichever gets picked next
+                ['doubles','singles_boxes','light','alive_hives','dead_hives'].forEach(k=>{pickupData[k]='';});
+                if(boxInputs.doubles) boxInputs.doubles.value='';
+                if(boxInputs.singles_boxes) boxInputs.singles_boxes.value='';
+                if(boxInputs.light) boxInputs.light.value='';
+                if(hiveInputs.alive_hives) hiveInputs.alive_hives.value='';
+                if(hiveInputs.dead_hives) hiveInputs.dead_hives.value='';
+                refreshTruckSpaceHints();
+              }
             },'Change')
           ));
         }
@@ -7556,6 +7538,7 @@ function renderMovementsScreen(){
           pickupData.site=site;pickupData.op=opName;
           showSelected(site,opName);
           refreshTruckSpaceHints();
+          if(isOut||isYY) refreshCompositionFromYard();
         }, null);
         // Pre-fill if editing
         if(pickupData.site) showSelected(pickupData.site,pickupData.op);
@@ -7785,35 +7768,57 @@ function renderMovementsScreen(){
       truckRow.appendChild(hiveTotal);
       addBody.appendChild(truckRow);
 
-      // Doubles and singles boxes in this load
+      // Doubles and singles boxes in this load — pre-filled from the source yard's own
+      // current numbers (same numbers shown on its yard summary tile), refreshed whenever the
+      // yard selection changes. Whatever ends up in these fields — pre-filled or edited — is
+      // used exactly as entered; nothing gets guessed or inferred afterward.
       const boxRow=h('div',{style:{marginBottom:'8px'}});
       boxRow.appendChild(h('label',{className:'lbl',style:{display:'block',marginBottom:'4px'}},'Boxes in this load'));
       const boxGrid2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}});
+      const boxInputs={};
       [{label:'Doubles',key:'doubles'},{label:'Singles (box)',key:'singles_boxes'},{label:'Light',key:'light'}].forEach(({label,key})=>{
         const wrap2=h('div',null);
         wrap2.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},label));
         const bi=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
         bi.value=pickupData[key]||'';
         bi.addEventListener('input',e=>pickupData[key]=e.target.value);
+        boxInputs[key]=bi;
         wrap2.appendChild(bi);boxGrid2.appendChild(wrap2);
       });
       boxRow.appendChild(boxGrid2);
       addBody.appendChild(boxRow);
 
-      // Hive count row — alive + dead
+      // Hive count row — alive + dead — same pre-fill treatment
       const hiveRow=h('div',{style:{marginBottom:'10px'}});
       hiveRow.appendChild(h('label',{className:'lbl'},'Hives on this pickup'));
       const hiveGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+      const hiveInputs={};
       [{label:'Alive',key:'alive_hives',color:'#3d7a4f'},{label:'Dead',key:'dead_hives',color:'#e24b4a'}].forEach(({label,key,color})=>{
         const nw=h('div',null);
         nw.appendChild(h('label',{style:{fontSize:'10px',color:color,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
         const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:`.5px solid ${color}55`,borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
         if(pickupData[key]) ni.value=pickupData[key];
         ni.addEventListener('input',e=>pickupData[key]=e.target.value);
+        hiveInputs[key]=ni;
         nw.appendChild(ni);hiveGrid.appendChild(nw);
       });
       hiveRow.appendChild(hiveGrid);
       addBody.appendChild(hiveRow);
+
+      // Pull the source yard's real current numbers straight in — no guessing about whole vs
+      // partial moves; the person sees exactly what's there and can edit if only moving some of
+      // it. Runs once now, and again whenever the yard selection changes (see refreshTruckSpaceHints's
+      // caller sites, which this piggybacks on).
+      function refreshCompositionFromYard(){
+        if(!(pickupData.site&&pickupData.op)) return;
+        const yardState=getSiteHiveState(pickupData.op,pickupData.site,null);
+        if(!pickupData.doubles) { boxInputs.doubles.value=yardState.doubles||''; pickupData.doubles=yardState.doubles||''; }
+        if(!pickupData.singles_boxes) { boxInputs.singles_boxes.value=yardState.singles||''; pickupData.singles_boxes=yardState.singles||''; }
+        if(!pickupData.light) { boxInputs.light.value=yardState.light||''; pickupData.light=yardState.light||''; }
+        if(!pickupData.alive_hives) { hiveInputs.alive_hives.value=yardState.hives||''; pickupData.alive_hives=yardState.hives||''; }
+        if(!pickupData.dead_hives) { hiveInputs.dead_hives.value=yardState.dead||''; pickupData.dead_hives=yardState.dead||''; }
+      }
+      if(isOut||isYY) refreshCompositionFromYard();
 
       addBody.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'rgba(155,89,182,0.1)',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'13px',fontWeight:'700',color:movColor,cursor:'pointer'},
         onClick:()=>{
