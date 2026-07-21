@@ -5089,12 +5089,6 @@ function renderEntriesList(){
       });
       summaryPanel.appendChild(eRow);
     }
-    // Pallet/singles split — tappable to set/edit
-    const palSplit=getCurrentPalletSplit(op,site);
-    const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',marginBottom:'8px',cursor:'pointer'}},
-      palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'s (transport)'):h('span',{style:{color:'rgba(255,255,255,0.5)'}},'Set pallets/singles →'));
-    palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
-    summaryPanel.appendChild(palPill);
     // Spring score circle
     if(avg!==null){
       summaryPanel.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginTop:'4px'}},
@@ -5107,6 +5101,14 @@ function renderEntriesList(){
     if(tx) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#c39bd3',marginTop:'6px','fontWeight':'600'}},'Tx: '+tx));
   }
   wrap.appendChild(summaryPanel);
+  // Pallet/singles split — tappable to set/edit. Deliberately OUTSIDE the has-diary-data
+  // block above: this is independent of whether the site has ever had a hive-check entry
+  // logged, so it must still show (and be settable) even for a brand new, never-visited yard.
+  const palSplit=getCurrentPalletSplit(op,site);
+  const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'3px 8px',marginBottom:'10px',cursor:'pointer'}},
+    palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'s (transport)'):h('span',{style:{color:'#999'}},'Set pallets/singles →'));
+  palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
+  wrap.appendChild(palPill);
 
   // Flag if present (urgent — amber)
   const flag=getFlag(op,site);
@@ -6066,12 +6068,6 @@ function renderEntriesList(){
       });
       summaryPanel.appendChild(eRow);
     }
-    // Pallet/singles split — tappable to set/edit
-    const palSplit=getCurrentPalletSplit(op,site);
-    const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',marginBottom:'8px',cursor:'pointer'}},
-      palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'s (transport)'):h('span',{style:{color:'rgba(255,255,255,0.5)'}},'Set pallets/singles →'));
-    palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
-    summaryPanel.appendChild(palPill);
     // Spring score circle
     if(avg!==null){
       summaryPanel.appendChild(h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginTop:'4px'}},
@@ -6084,6 +6080,14 @@ function renderEntriesList(){
     if(tx) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#c39bd3',marginTop:'6px','fontWeight':'600'}},'Tx: '+tx));
   }
   wrap.appendChild(summaryPanel);
+  // Pallet/singles split — tappable to set/edit. Deliberately OUTSIDE the has-diary-data
+  // block above: this is independent of whether the site has ever had a hive-check entry
+  // logged, so it must still show (and be settable) even for a brand new, never-visited yard.
+  const palSplit=getCurrentPalletSplit(op,site);
+  const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'3px 8px',marginBottom:'10px',cursor:'pointer'}},
+    palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'s (transport)'):h('span',{style:{color:'#999'}},'Set pallets/singles →'));
+  palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
+  wrap.appendChild(palPill);
 
   // Flag if present (urgent — amber)
   const flag=getFlag(op,site);
