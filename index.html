@@ -1152,14 +1152,24 @@ function computeCurrentHivesForSite(op, site){
   const allMovements=loadMovements();
   // Use real timestamps rather than calendar dates alone — two things dated the same day still
   // have a genuine order (e.g. a movement logged in the morning, then a hive check that same
-  // afternoon that already shows the post-move count). Falls back to midday-on-that-date for
-  // older records saved before timestamps were tracked, which preserves the old same-day
-  // "still counts" behavior for legacy data.
-  const latestRealTimestamp=latestReal?(latestReal.saved_at||latestReal.logged_at||latestReal.date+'T12:00:00'):'';
+  // afternoon that already shows the post-move count). Both saved_at/logged_at and recorded_at
+  // are stored in UTC via toISOString(), so they compare safely — but for older movements saved
+  // before recorded_at existed, there's no time-of-day to compare at all. Guessing a fixed local
+  // time like "noon" for those doesn't work: it'd be compared as a raw string against a real UTC
+  // timestamp, and NZ being 12+ hours ahead of UTC means that comparison can come out backwards
+  // depending on time of day. So when there's no real timestamp to compare, a same-day movement
+  // is instead treated as already reflected in the real entry — matching the far more common
+  // real workflow (move hives, then do the hive check and write down what's actually there) —
+  // rather than risking double-counting it.
+  const latestRealTimestamp=latestReal?(latestReal.saved_at||latestReal.logged_at||null):null;
+  const latestRealDateOnly=latestReal?.date||'';
   let movementNet=0;
   allMovements.forEach(m=>{
-    const movTimestamp=m.recorded_at||(m.date+'T12:00:00');
-    if(latestRealTimestamp&&movTimestamp<latestRealTimestamp) return; // already reflected in the real entry's own numbers
+    if(latestRealTimestamp&&m.recorded_at){
+      if(m.recorded_at<latestRealTimestamp) return; // precise comparison, both real timestamps
+    } else if(latestRealDateOnly){
+      if(m.date<=latestRealDateOnly) return; // no reliable time-of-day — same-day/earlier treated as already reflected
+    }
     const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
     if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
@@ -1223,11 +1233,13 @@ function getSiteHiveState(opName,site,cutoffDate){
       }
       return null;
     })();
-    const latestRealTimestamp=realEntries[0]?(realEntries[0].saved_at||realEntries[0].logged_at||realEntries[0].date+'T12:00:00'):'';
+    const latestRealTimestamp=realEntries[0]?(realEntries[0].saved_at||realEntries[0].logged_at||null):null;
+    const latestRealDateOnly=realEntries[0]?.date||'';
     const movementsSince=loadMovements().filter(m=>{
       if(m.date>cutoffDate) return false;
-      const movTimestamp=m.recorded_at||(m.date+'T12:00:00');
-      return !latestRealTimestamp||movTimestamp>=latestRealTimestamp;
+      if(latestRealTimestamp&&m.recorded_at) return m.recorded_at>=latestRealTimestamp; // precise, both real timestamps
+      if(latestRealDateOnly) return m.date>latestRealDateOnly; // no reliable time-of-day — same-day treated as already reflected
+      return true; // no real entry to compare against at all
     });
     let hivesNet=0;
     movementsSince.forEach(m=>{
