@@ -1818,9 +1818,10 @@ function renderReportsScreen(){
     return Object.values(siteMap).filter(v=>v>0);
   }
   function getDeadPct(entries){
-    // Use most recent entry per site only
+    // Use most recent entry per site only — including movement entries, which now carry
+    // accurate hives/dead data and can legitimately be the most recent thing that happened.
     const siteMap={};
-    const sorted=[...entries].filter(e=>!e._movement).sort((a,b)=>{
+    const sorted=[...entries].sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||'');
       return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
     });
@@ -1835,7 +1836,8 @@ function renderReportsScreen(){
   }
 
   function getDeadAlive(entries, useAllTime){
-    // Use most recent entry per site
+    // Use most recent entry per site — including movement entries, which now carry accurate
+    // hives/dead data and can legitimately be the most recent thing that happened to a site.
     const siteMap={};
     // If useAllTime, get truly most recent across all entries not just season
     let pool=entries;
@@ -1846,7 +1848,7 @@ function renderReportsScreen(){
         Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
           batch.sites.forEach(site=>{
             Object.keys(ROUNDS).forEach(rk=>{
-              (STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement).forEach(e=>{
+              (STATE.entries[eKey(opName,site,rk)]||[]).forEach(e=>{
                 allE.push({...e,_op:opName,_batch:batchName,_site:site});
               });
             });
@@ -1855,7 +1857,7 @@ function renderReportsScreen(){
       });
       pool=allE;
     }
-    const sorted=[...pool].filter(e=>!e._movement).sort((a,b)=>{
+    const sorted=[...pool].sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||'');
       return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
     });
@@ -3957,7 +3959,7 @@ function showStatModal(opName, fieldKey, label, color){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
     // For hive fields use mostRecentWithHives logic, for others use last non-zero
     const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives','lids_floors'];
     let val=0;
@@ -4010,7 +4012,7 @@ function showFormicModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
     const fe=allE.find(e=>(e.treatment||'').includes('Formic Pro'));
     if(!fe) return;
     const fm=fe.treatment.match(/Formic Pro\s*·\s*(\d+)/);
@@ -4046,7 +4048,7 @@ function showDeadHivesModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const lfSites=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
     const withLF=allE.find(e=>parseInt(e.lids_floors)>0);
     if(!withLF) return;
     lfSites.push({site,lf:parseInt(withLF.lids_floors),date:withLF.date});
@@ -4091,7 +4093,7 @@ function showDeadHivesModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const deadSites=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||'');
       return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');
     });
@@ -4453,7 +4455,7 @@ function calcBatchSummary(op, batch, sites){
   let breeders=0,finishers=0;
   let flagCount=0,checkCount=0;
   const lv=(site,k)=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||'')); // includes movements — they now carry accurate hive-composition data
     for(const e of allE){const v=parseInt(e[k]);if(!isNaN(v)&&v>0)return v;}return 0;
   };
   sites.forEach(site=>{
@@ -4463,7 +4465,7 @@ function calcBatchSummary(op, batch, sites){
     hcFdOn+=lv(site,'honeycomb_fd');hcHdOn+=lv(site,'honeycomb_hd');
     fdHarv+=lv(site,'fd_harv');harv34+=lv(site,'harv_34');
     const sp=latestEntry(op,site,'spring');
-    breeders+=parseInt(sp?.breeders)||0;
+    breeders+=getSiteBreederCount(op,site);
     finishers+=parseInt(sp?.finishers)||0;
     if(getFlag(op,site)) flagCount++;
     if(getCheck(op,site)) checkCount++;
@@ -5209,7 +5211,7 @@ function renderEntriesList(){
   topRow.appendChild(h('div',{className:'section-label',style:{marginBottom:'0'}},realEntries.length===0?'No entries':`${realEntries.length} entr${realEntries.length===1?'y':'ies'}`));
   topRow.appendChild(h('button',{style:{background:opData.color,color:'#fff',border:'none',borderRadius:'20px',padding:'7px 14px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
     onClick:()=>{
-        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');}); // includes movement entries — they now carry accurate hives/doubles/singles too
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
         ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
@@ -6192,7 +6194,7 @@ function renderEntriesList(){
   topRow.appendChild(h('div',{className:'section-label',style:{marginBottom:'0'}},realEntries.length===0?'No entries':`${realEntries.length} entr${realEntries.length===1?'y':'ies'}`));
   topRow.appendChild(h('button',{style:{background:opData.color,color:'#fff',border:'none',borderRadius:'20px',padding:'7px 14px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
     onClick:()=>{
-        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');}); // includes movement entries — they now carry accurate hives/doubles/singles too
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
         ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
@@ -6438,7 +6440,7 @@ function renderRoundPicker(){
   Object.entries(ROUNDS).forEach(([k,r])=>{
     const btn=h('button',{style:{width:'100%',padding:'14px 16px',background:'#fff',border:`.5px solid ${r.color}33`,borderLeft:`4px solid ${r.color}`,borderRadius:'10px',marginBottom:'10px',cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'},
       onClick:()=>{
-        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movement entries — they now carry accurate hives/doubles/singles too
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
         ['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'].forEach(key=>{
