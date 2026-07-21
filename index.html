@@ -247,6 +247,11 @@ async function getMergedRemoteMovements(){
 }
 
 async function addMovement(mov){
+  // A real timestamp for when this was actually entered — distinct from mov.date (the
+  // business date the person picked, which can match a same-day diary entry's date exactly).
+  // Needed so computeCurrentHivesForSite can tell whether a movement happened before or after
+  // a same-day real diary entry, instead of only being able to compare calendar dates.
+  if(!mov.recorded_at) mov.recorded_at=new Date().toISOString();
   const movements=[...(await getMergedRemoteMovements()),mov];
   saveMovements(movements);
   await pushToSupabase('hive_movements',movements);
@@ -1145,10 +1150,16 @@ function computeCurrentHivesForSite(op, site){
   )||null;
   const latestReal=allSiteEntries[0]||null;
   const allMovements=loadMovements();
-  const latestDiaryDate2=allSiteEntries[0]?.date||'';
+  // Use real timestamps rather than calendar dates alone — two things dated the same day still
+  // have a genuine order (e.g. a movement logged in the morning, then a hive check that same
+  // afternoon that already shows the post-move count). Falls back to midday-on-that-date for
+  // older records saved before timestamps were tracked, which preserves the old same-day
+  // "still counts" behavior for legacy data.
+  const latestRealTimestamp=latestReal?(latestReal.saved_at||latestReal.logged_at||latestReal.date+'T12:00:00'):'';
   let movementNet=0;
   allMovements.forEach(m=>{
-    if(latestDiaryDate2&&m.date<latestDiaryDate2) return;
+    const movTimestamp=m.recorded_at||(m.date+'T12:00:00');
+    if(latestRealTimestamp&&movTimestamp<latestRealTimestamp) return; // already reflected in the real entry's own numbers
     const hives=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
     if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
@@ -1212,8 +1223,12 @@ function getSiteHiveState(opName,site,cutoffDate){
       }
       return null;
     })();
-    const latestRealDate=realEntries[0]?.date||'';
-    const movementsSince=loadMovements().filter(m=>m.date<=cutoffDate&&(!latestRealDate||m.date>=latestRealDate));
+    const latestRealTimestamp=realEntries[0]?(realEntries[0].saved_at||realEntries[0].logged_at||realEntries[0].date+'T12:00:00'):'';
+    const movementsSince=loadMovements().filter(m=>{
+      if(m.date>cutoffDate) return false;
+      const movTimestamp=m.recorded_at||(m.date+'T12:00:00');
+      return !latestRealTimestamp||movTimestamp>=latestRealTimestamp;
+    });
     let hivesNet=0;
     movementsSince.forEach(m=>{
       const amt=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
@@ -2457,6 +2472,7 @@ function renderReportsScreen(){
       {label:'Yield vs hive strength',custom:'scatter'},
       {label:'Movement log by driver',custom:'movements'},
       {label:'Entries by person',custom:'people'},
+      {label:'Pollination hives by orchard',custom:'pollination'},
     ];
     function backToCharts(){
       customArea.style.display='none';customArea.innerHTML='';
@@ -2477,6 +2493,7 @@ function renderReportsScreen(){
       else if(key==='yield') renderYieldByOperation(body);
       else if(key==='strength') renderHiveStrengthTrend(body);
       else if(key==='people') renderEntriesByPerson(body);
+      else if(key==='pollination') renderPollinationReport(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -3311,6 +3328,83 @@ function renderReportsScreen(){
       }
       sel.addEventListener('change',renderList);
       renderList();
+    }
+
+    // ── Pollination hives by orchard — grouped by destination orchard, with a Crop toggle ──
+    function renderPollinationReport(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Pollination Hives by Orchard'));
+      if(!years.length){container.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Add a seasonal year to see this report'));return;}
+
+      const selRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'10px'}});
+      const yearSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      [...years].sort((a,b)=>b.startYear-a.startYear).forEach(yr=>yearSel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      selRow.appendChild(yearSel);
+      container.appendChild(selRow);
+
+      const cropRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'14px'}});
+      let cropFilter='all';
+      const cropBtns={};
+      [['all','Both'],['Cherries','Cherries'],['Carrots','Carrots']].forEach(([val,label])=>{
+        const btn=h('button',{type:'button',style:{flex:'1',padding:'8px',borderRadius:'8px',border:'1.5px solid #ddd',background:'#fff',color:'#555',fontWeight:'600',fontSize:'13px',cursor:'pointer'}},label);
+        btn.addEventListener('click',()=>{cropFilter=val;Object.entries(cropBtns).forEach(([v,b])=>{const active=v===val;b.style.border='1.5px solid '+(active?'#7a4fa8':'#ddd');b.style.background=active?'#f3e8ff':'#fff';b.style.color=active?'#7a4fa8':'#555';});draw();});
+        cropBtns[val]=btn;
+        cropRow.appendChild(btn);
+      });
+      cropBtns['all'].style.border='1.5px solid #7a4fa8';cropBtns['all'].style.background='#f3e8ff';cropBtns['all'].style.color='#7a4fa8';
+      container.appendChild(cropRow);
+
+      const listArea=h('div',null);
+      container.appendChild(listArea);
+
+      function draw(){
+        const yr=years.find(y=>String(y.startYear)===String(yearSel.value))||years[0];
+        const ranges=getSeasonRanges(yr);
+        const yearStart=ranges.winter.start,yearEnd=ranges.autumn.end;
+        const movs=loadMovements().filter(m=>
+          m.to_orchard&&m.date>=yearStart&&m.date<=yearEnd&&
+          (cropFilter==='all'||m.crop===cropFilter)
+        );
+        const byOrchard={};
+        movs.forEach(m=>{
+          const pallets=(parseInt(m.pallets)||0)+(m.half_pallet?0.5:0);
+          const singles=parseInt(m.singles)||0;
+          const hives=Math.round(pallets*4+singles);
+          if(!byOrchard[m.to_orchard]) byOrchard[m.to_orchard]={pallets:0,singles:0,hives:0};
+          byOrchard[m.to_orchard].pallets+=pallets;
+          byOrchard[m.to_orchard].singles+=singles;
+          byOrchard[m.to_orchard].hives+=hives;
+        });
+        const orchardNames=Object.keys(byOrchard).sort((a,b)=>byOrchard[b].hives-byOrchard[a].hives);
+
+        listArea.innerHTML='';
+        if(!orchardNames.length){
+          listArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'20px 0',textAlign:'center'}},'No pollination movements logged for this selection yet'));
+          return;
+        }
+        const grandTotal={pallets:0,singles:0,hives:0};
+        orchardNames.forEach(orchard=>{
+          const o=byOrchard[orchard];
+          grandTotal.pallets+=o.pallets;grandTotal.singles+=o.singles;grandTotal.hives+=o.hives;
+          const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'10px',padding:'12px 14px',marginBottom:'8px'}});
+          const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline'}});
+          topRow.appendChild(h('div',{style:{fontWeight:'700',fontSize:'14px'}},orchard));
+          topRow.appendChild(h('div',{style:{fontWeight:'800',fontSize:'18px',color:'#7a4fa8'}},o.hives+' hives'));
+          card.appendChild(topRow);
+          card.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},
+            (o.pallets%1===0?o.pallets:o.pallets.toFixed(1))+' pallets · '+o.singles+' singles'));
+          listArea.appendChild(card);
+        });
+
+        const totalCard=h('div',{style:{background:'#7a4fa8',borderRadius:'10px',padding:'14px',marginTop:'6px'}});
+        totalCard.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'rgba(255,255,255,0.7)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'4px'}},
+          'Total into pollination'+(cropFilter!=='all'?' · '+cropFilter:'')));
+        totalCard.appendChild(h('div',{style:{fontWeight:'800',fontSize:'24px',color:'#fff'}},grandTotal.hives+' hives'));
+        totalCard.appendChild(h('div',{style:{fontSize:'13px',color:'rgba(255,255,255,0.85)',marginTop:'2px'}},
+          (grandTotal.pallets%1===0?grandTotal.pallets:grandTotal.pallets.toFixed(1))+' pallets · '+grandTotal.singles+' singles'));
+        listArea.appendChild(totalCard);
+      }
+      yearSel.addEventListener('change',draw);
+      draw();
     }
 
     function getValsFn(entries){
