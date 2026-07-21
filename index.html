@@ -250,53 +250,33 @@ async function addMovement(mov){
     const lastReal=allSiteEntries.find(e=>!e._movement)||null;
     const lastHives = parseInt(lastAny?.hives)||0;
     const newHives = isDeduction ? Math.max(0,lastHives-hiveChange) : lastHives+hiveChange;
-    // Carry doubles and singles
-    // If no doubles/singles specified in movement form, pull from source yard's last entry
-    const movDoubles=parseInt(mov.doubles)||0;
-    const movSingles=parseInt(mov.singles_boxes)||0;
+    // Carry doubles and singles onto the destination/source yard's new total.
+    // Priority order:
+    //  1. The optional "Boxes in this load" fields, if the person filled them in explicitly —
+    //     the most precise source when available.
+    //  2. Truck Space pallets/singles — always present (required fields), and a reasonable
+    //     proxy since palletised hives are typically doubles and unpalletised loose hives are
+    //     typically singles. Crucially this works even when the source is an ORCHARD (no yard
+    //     to pull a "current total" from at all) and correctly reflects what was actually
+    //     moved rather than the source yard's whole current total.
+    const movDoubles=parseInt(mov.doubles)||(parseInt(mov.pallets)||0)+(mov.half_pallet?0.5:0);
+    const movSingles=parseInt(mov.singles_boxes)||parseInt(mov.singles)||0;
     const movLight=parseInt(mov.light)||0;
     const lastDoubles=parseInt(lastReal?.doubles)||0;
     const lastSingles=parseInt(lastReal?.singles)||0;
     const lastLight=parseInt(lastReal?.light)||0;
 
-    // Always look up source yard's last real entry for doubles/singles/light
-    // This covers both the deduction (source) and addition (destination) cases
-    const srcYardKey=mov.from_site||'';
-    const srcOpKey=mov.from_op||opName;
-    let srcDoubles=0,srcSingles=0,srcLight=0;
-    if(srcYardKey){
-      // Search across all ops for the source yard
-      const tryOps=srcOpKey?[srcOpKey]:Object.keys(OPERATIONS);
-      for(const tryOp of tryOps){
-        const srcEntries=Object.keys(ROUNDS).flatMap(rk=>
-          (STATE.entries[eKey(tryOp,srcYardKey,rk)]||[]).filter(e=>!e._movement)
-        ).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-        if(srcEntries.length){
-          srcDoubles=parseInt(srcEntries[0]?.doubles)||0;
-          srcSingles=parseInt(srcEntries[0]?.singles)||0;
-          srcLight=parseInt(srcEntries[0]?.light)||0;
-          break;
-        }
-      }
-    }
-
     let newDoubles,newSingles,newLight;
     if(isDeduction){
-      // Source yard: deduct what was moved (manual entry) or all doubles/singles if whole yard
-      const deductDoubles=movDoubles>0?movDoubles:lastDoubles;
-      const deductSingles=movSingles>0?movSingles:lastSingles;
-      const deductLight=movLight>0?movLight:lastLight;
-      newDoubles=Math.max(0,lastDoubles-deductDoubles);
-      newSingles=Math.max(0,lastSingles-deductSingles);
-      newLight=Math.max(0,lastLight-deductLight);
+      // Source yard: deduct what was actually moved
+      newDoubles=Math.max(0,lastDoubles-movDoubles);
+      newSingles=Math.max(0,lastSingles-movSingles);
+      newLight=Math.max(0,lastLight-movLight);
     } else {
-      // Destination yard: add manually entered values, or pull from source yard
-      const addDoubles=movDoubles>0?movDoubles:srcDoubles;
-      const addSingles=movSingles>0?movSingles:srcSingles;
-      const addLight=movLight>0?movLight:srcLight;
-      newDoubles=lastDoubles+addDoubles;
-      newSingles=lastSingles+addSingles;
-      newLight=lastLight+addLight;
+      // Destination yard: add what was actually moved
+      newDoubles=lastDoubles+movDoubles;
+      newSingles=lastSingles+movSingles;
+      newLight=lastLight+movLight;
     }
     let desc;
     const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'s':'');
