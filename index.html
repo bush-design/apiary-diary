@@ -256,8 +256,13 @@ async function addMovement(mov){
   saveMovements(movements);
   await pushToSupabase('hive_movements',movements);
   // Auto-log movement entries into yard site diaries
+  // Alive and dead need to be tracked separately — "Hives" is an alive-only count throughout
+  // this app, so a movement where some hives arrived dead must only add the alive portion to
+  // Hives, and add the dead portion to Dead separately, not lump both into Hives.
   const totalOnLoad=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)||0);
-  const hiveChange = totalOnLoad>0 ? totalOnLoad : mov.hives ? parseInt(mov.hives)||0 : (parseInt(mov.pallets)||0)*4+(mov.half_pallet?2:0)+(parseInt(mov.singles)||0);
+  const aliveChange = totalOnLoad>0 ? (parseInt(mov.alive_hives)||0) : mov.hives ? parseInt(mov.hives)||0 : (parseInt(mov.pallets)||0)*4+(mov.half_pallet?2:0)+(parseInt(mov.singles)||0);
+  const deadChange = parseInt(mov.dead_hives)||0;
+  const hiveChange = totalOnLoad>0 ? totalOnLoad : aliveChange; // gross total moved, for the "N hives moved" display label only
 
   async function logToSite(siteKey, opName, isDeduction){
     if(!siteKey||!opName) return;
@@ -285,7 +290,9 @@ async function addMovement(mov){
     // Get last real entry for current doubles/singles
     const lastReal=allSiteEntries.find(e=>!e._movement)||null;
     const lastHives = parseInt(lastAny?.hives)||0;
-    const newHives = isDeduction ? Math.max(0,lastHives-hiveChange) : lastHives+hiveChange;
+    const lastDead = parseInt((mergeTarget||lastAny)?.dead)||0;
+    const newHives = isDeduction ? Math.max(0,lastHives-aliveChange) : lastHives+aliveChange;
+    const newDead = isDeduction ? Math.max(0,lastDead-deadChange) : lastDead+deadChange;
     // Determine how many doubles/singles/light this leg is moving. Priority:
     //  1. Explicit "Boxes in this load" fields, if the person filled them in.
     //  2. The actual source yard's OWN recorded doubles/singles — a yard with 6 doubles that
@@ -359,6 +366,7 @@ async function addMovement(mov){
       const mergedEntry={
         ...mergeTarget,
         hives: String(newHives),
+        dead: newDead>0?String(newDead):'',
         hivesMoved: String((parseInt(mergeTarget.hivesMoved)||0)+hiveChange),
         doubles: newDoubles>0?String(newDoubles):'',
         singles: newSingles>0?String(newSingles):'',
@@ -375,6 +383,7 @@ async function addMovement(mov){
     const movEntry = {
       date: mov.date,
       hives: String(newHives),
+      dead: newDead>0?String(newDead):'',
       hivesMoved: String(hiveChange),
       doubles: newDoubles>0?String(newDoubles):'',
       singles: newSingles>0?String(newSingles):'',
