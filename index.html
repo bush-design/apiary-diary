@@ -5309,33 +5309,36 @@ function renderEntriesList(){
     }
     if(entry.comments){
       if(entry._movement){
-        // Parse destination/source yard from movement comment and make it tappable
+        // Parse EVERY source/destination yard mentioned in the comment and make each one
+        // tappable — a collated multi-pickup entry ("MOVED IN: 3p ← A, 3p ← B, 2p ← C") has
+        // several, not just one, so this can'''t stop at the first/last match like it used to.
         const commentDiv=h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}});
-        // Match "→ YardName" or "← YardName" at end of comment
-        // Match yard name after → or ← arrow
-        const movMatch=entry.comments.match(/[→←]\s*([^→←]+)$/);
-        if(movMatch){
-          const arrow=entry.comments.includes('→')?'→':'←';
-          const targetYard=movMatch[1].trim();
-          const prefix=entry.comments.slice(0,entry.comments.lastIndexOf(arrow));
-          commentDiv.appendChild(document.createTextNode(prefix+arrow+' '));
-          // Find which op this yard belongs to
-          let targetOp=null,targetBatch=null;
-          Object.entries(OPERATIONS).forEach(([opName])=>{
-            Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
-              if(batch.sites.includes(targetYard)){targetOp=opName;targetBatch=batchName;}
+        const arrowMatches=[...entry.comments.matchAll(/([→←])\s*([^,→←]+?)(?=,|$)/g)];
+        if(arrowMatches.length){
+          let lastIdx=0;
+          arrowMatches.forEach(m=>{
+            const arrow=m[1],targetYard=m[2].trim(),matchStart=m.index,matchEnd=matchStart+m[0].length;
+            commentDiv.appendChild(document.createTextNode(entry.comments.slice(lastIdx,matchStart)));
+            commentDiv.appendChild(document.createTextNode(arrow+' '));
+            let targetOp=null,targetBatch=null;
+            Object.entries(OPERATIONS).forEach(([opName])=>{
+              Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+                if(batch.sites.includes(targetYard)){targetOp=opName;targetBatch=batchName;}
+              });
             });
+            if(targetOp){
+              const link=h('span',{style:{color:'#1a6fb0',fontWeight:'600',cursor:'pointer',textDecoration:'underline'}},targetYard);
+              link.addEventListener('click',e=>{
+                e.stopPropagation();
+                setState({op:targetOp,tab:'diary',run:targetBatch,site:targetYard,diaryView:'entries'});
+              });
+              commentDiv.appendChild(link);
+            } else {
+              commentDiv.appendChild(document.createTextNode(targetYard));
+            }
+            lastIdx=matchEnd;
           });
-          if(targetOp){
-            const link=h('span',{style:{color:'#1a6fb0',fontWeight:'600',cursor:'pointer',textDecoration:'underline'}},targetYard);
-            link.addEventListener('click',e=>{
-              e.stopPropagation();
-              setState({op:targetOp,tab:'diary',run:targetBatch,site:targetYard,diaryView:'entries'});
-            });
-            commentDiv.appendChild(link);
-          } else {
-            commentDiv.appendChild(document.createTextNode(targetYard));
-          }
+          commentDiv.appendChild(document.createTextNode(entry.comments.slice(lastIdx)));
         } else {
           commentDiv.appendChild(document.createTextNode(entry.comments));
         }
@@ -6289,33 +6292,36 @@ function renderEntriesList(){
     }
     if(entry.comments){
       if(entry._movement){
-        // Parse destination/source yard from movement comment and make it tappable
+        // Parse EVERY source/destination yard mentioned in the comment and make each one
+        // tappable — a collated multi-pickup entry ("MOVED IN: 3p ← A, 3p ← B, 2p ← C") has
+        // several, not just one, so this can'''t stop at the first/last match like it used to.
         const commentDiv=h('div',{style:{marginTop:'10px',background:'#f8f8f6',borderRadius:'6px',padding:'8px 10px',fontSize:'13px',color:'#444'}});
-        // Match "→ YardName" or "← YardName" at end of comment
-        // Match yard name after → or ← arrow
-        const movMatch=entry.comments.match(/[→←]\s*([^→←]+)$/);
-        if(movMatch){
-          const arrow=entry.comments.includes('→')?'→':'←';
-          const targetYard=movMatch[1].trim();
-          const prefix=entry.comments.slice(0,entry.comments.lastIndexOf(arrow));
-          commentDiv.appendChild(document.createTextNode(prefix+arrow+' '));
-          // Find which op this yard belongs to
-          let targetOp=null,targetBatch=null;
-          Object.entries(OPERATIONS).forEach(([opName])=>{
-            Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
-              if(batch.sites.includes(targetYard)){targetOp=opName;targetBatch=batchName;}
+        const arrowMatches=[...entry.comments.matchAll(/([→←])\s*([^,→←]+?)(?=,|$)/g)];
+        if(arrowMatches.length){
+          let lastIdx=0;
+          arrowMatches.forEach(m=>{
+            const arrow=m[1],targetYard=m[2].trim(),matchStart=m.index,matchEnd=matchStart+m[0].length;
+            commentDiv.appendChild(document.createTextNode(entry.comments.slice(lastIdx,matchStart)));
+            commentDiv.appendChild(document.createTextNode(arrow+' '));
+            let targetOp=null,targetBatch=null;
+            Object.entries(OPERATIONS).forEach(([opName])=>{
+              Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+                if(batch.sites.includes(targetYard)){targetOp=opName;targetBatch=batchName;}
+              });
             });
+            if(targetOp){
+              const link=h('span',{style:{color:'#1a6fb0',fontWeight:'600',cursor:'pointer',textDecoration:'underline'}},targetYard);
+              link.addEventListener('click',e=>{
+                e.stopPropagation();
+                setState({op:targetOp,tab:'diary',run:targetBatch,site:targetYard,diaryView:'entries'});
+              });
+              commentDiv.appendChild(link);
+            } else {
+              commentDiv.appendChild(document.createTextNode(targetYard));
+            }
+            lastIdx=matchEnd;
           });
-          if(targetOp){
-            const link=h('span',{style:{color:'#1a6fb0',fontWeight:'600',cursor:'pointer',textDecoration:'underline'}},targetYard);
-            link.addEventListener('click',e=>{
-              e.stopPropagation();
-              setState({op:targetOp,tab:'diary',run:targetBatch,site:targetYard,diaryView:'entries'});
-            });
-            commentDiv.appendChild(link);
-          } else {
-            commentDiv.appendChild(document.createTextNode(targetYard));
-          }
+          commentDiv.appendChild(document.createTextNode(entry.comments.slice(lastIdx)));
         } else {
           commentDiv.appendChild(document.createTextNode(entry.comments));
         }
