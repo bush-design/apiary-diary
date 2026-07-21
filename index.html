@@ -354,6 +354,7 @@ async function addMovement(mov){
       const mergedEntry={
         ...mergeTarget,
         hives: String(newHives),
+        hivesMoved: String((parseInt(mergeTarget.hivesMoved)||0)+hiveChange),
         doubles: newDoubles>0?String(newDoubles):'',
         singles: newSingles>0?String(newSingles):'',
         light: newLight>0?String(newLight):'',
@@ -369,6 +370,7 @@ async function addMovement(mov){
     const movEntry = {
       date: mov.date,
       hives: String(newHives),
+      hivesMoved: String(hiveChange),
       doubles: newDoubles>0?String(newDoubles):'',
       singles: newSingles>0?String(newSingles):'',
       light: newLight>0?String(newLight):'',
@@ -5041,7 +5043,10 @@ function renderEntriesList(){
   const allSiteEntriesWithMov=Object.keys(ROUNDS).flatMap(rk=>
     (STATE.entries[eKey(op,site,rk)]||[]).map((e,i)=>({...e,_arrIdx:i}))
   ).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
-  const mostRecentWithHives=allSiteEntries.find(e=>
+  // Includes movement entries here (unlike computeCurrentHivesForSite's internal baseline) —
+  // a hive-movement entry now correctly carries its own accurate hives/doubles/singles/light,
+  // so it should count as the most recent visit for display purposes just like a real one.
+  const mostRecentWithHives=allSiteEntriesWithMov.find(e=>
     e.hives!==undefined&&e.hives!==null&&e.hives!==''
   )||null;
   const lv=k=>{
@@ -5233,7 +5238,8 @@ function renderEntriesList(){
     const roundBg=entry._movement?'#e3f2fb':rd.bg||'#eee';
     const roundColor=entry._movement?'#1a6fb0':rd.color;
     hl.appendChild(h('span',{style:{fontSize:'11px',background:roundBg,color:roundColor,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},roundLabel));
-    if(entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
+    if(entry._movement&&entry.hivesMoved)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hivesMoved+' hives moved'));
+    else if(!entry._movement&&entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
     if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
     if(!entry._movement&&rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
@@ -6022,7 +6028,7 @@ function renderEntriesList(){
   });
   const allSiteEntriesWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map((e,i)=>({...e,_arrIdx:i}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
-  const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+  const mostRecentWithHives=allSiteEntriesWithMov.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
   const mostRecentAnyE=allSiteEntriesWithMov[0]||null;
   const wholeYardOut2=mostRecentAnyE&&mostRecentAnyE._movement&&(parseInt(mostRecentAnyE.hives)||0)===0;
   const lv=k=>{
@@ -6212,7 +6218,8 @@ function renderEntriesList(){
     const roundBg=entry._movement?'#e3f2fb':rd.bg||'#eee';
     const roundColor=entry._movement?'#1a6fb0':rd.color;
     hl.appendChild(h('span',{style:{fontSize:'11px',background:roundBg,color:roundColor,borderRadius:'10px',padding:'2px 8px',fontWeight:'600'}},roundLabel));
-    if(entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
+    if(entry._movement&&entry.hivesMoved)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hivesMoved+' hives moved'));
+    else if(!entry._movement&&entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
     if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
     if(!entry._movement&&rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
