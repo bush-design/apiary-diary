@@ -6711,6 +6711,9 @@ function showEditMovementModal(m){
     {l:'Vehicle',k:'vehicle',type:'text'},
     {l:'Notes',k:'notes',type:'text'},
   ];
+  if(['to_orchard','from_orchard','orchard_orchard'].includes(m.direction)){
+    fields.push({l:'Crop',k:'crop',type:'text'});
+  }
   const vals={...m};
 
   const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}});
@@ -6819,6 +6822,7 @@ function renderMovementsScreen(){
     const loadNotes={val:''};
     const loadDriver={val:''};
     const loadVehicle={val:''};
+    const loadCrop={val:''};
     // pickups: [{id, site, op, pallets, singles, splits:[{dest, dest_op, pallets, singles}]}]
     const pickups=[];
     let nextId=1;
@@ -6842,7 +6846,7 @@ function renderMovementsScreen(){
     }
     [['to_orchard','Yard → Orchard'],['from_orchard','Orchard → Yard'],['yard_yard','Yard → Yard'],['orchard_orchard','Orchard → Orchard']].forEach(([val,label])=>{
       dirRow.appendChild(h('button',{style:{padding:'8px 6px',borderRadius:'8px',border:'2px solid '+(loadDirection.val===val?movColor:'#ddd'),background:loadDirection.val===val?'#f3e8ff':'#fff',color:loadDirection.val===val?movColor:'#555',fontWeight:'600',fontSize:'12px',cursor:'pointer'},
-        onClick:()=>{loadDirection.val=val;pickups.length=0;updateDirBtns();rebuildAll();}}
+        onClick:()=>{loadDirection.val=val;pickups.length=0;if(!['to_orchard','from_orchard','orchard_orchard'].includes(val))loadCrop.val='';updateDirBtns();refreshCropPill();rebuildAll();}}
       ,label));
     });
 
@@ -6854,6 +6858,29 @@ function renderMovementsScreen(){
     headerCard.appendChild(di);
     headerCard.appendChild(h('div',{className:'lbl',style:{marginBottom:'6px'}},'Direction'));
     headerCard.appendChild(dirRow);
+
+    // Crop pill — only relevant when an orchard is involved on either end. Lives in its own
+    // container that gets refreshed explicitly on direction change, since rebuildAll() (called
+    // by the direction buttons) only touches the pickups section below, not this header card.
+    const cropPillContainer=h('div',null);
+    headerCard.appendChild(cropPillContainer);
+    function refreshCropPill(){
+      cropPillContainer.innerHTML='';
+      if(!['to_orchard','from_orchard','orchard_orchard'].includes(loadDirection.val)) return;
+      cropPillContainer.appendChild(h('label',{className:'lbl',style:{marginTop:'12px'}},'Crop (optional)'));
+      const cropRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'12px'}});
+      ['Cherries','Carrots'].forEach(crop=>{
+        const active=loadCrop.val===crop;
+        const btn=h('button',{type:'button',style:{flex:'1',padding:'9px',borderRadius:'8px',border:'1.5px solid '+(active?movColor:'#ddd'),background:active?'#f3e8ff':'#fff',color:active?movColor:'#555',fontWeight:'600',fontSize:'13px',cursor:'pointer'}},crop);
+        btn.addEventListener('click',()=>{
+          loadCrop.val=loadCrop.val===crop?'':crop; // tap again to clear
+          refreshCropPill();
+        });
+        cropRow.appendChild(btn);
+      });
+      cropPillContainer.appendChild(cropRow);
+    }
+    refreshCropPill();
 
     // Driver + vehicle row
     const dvRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'12px',marginTop:'12px'}});
@@ -7227,7 +7254,7 @@ function renderMovementsScreen(){
                     const ts2=Date.now();let j=0;
                     for(const p of pickups){for(const s of (p.splits||[])){
                       const isOutMov2=loadDirection.val==='to_orchard';const isYYMov2=loadDirection.val==='yard_yard';
-                      await addMovement({direction:loadDirection.val,date:loadDate.val,notes:loadNotes.val,driver:loadDriver.val,vehicle:loadVehicle.val,from_site:(isOutMov2||isYYMov2)?p.site:'',from_op:(isOutMov2||isYYMov2)?p.op:'',to_orchard:isOutMov2?s.dest:'',from_orchard:(!isOutMov2&&!isYYMov2)?p.site:'',to_site:(!isOutMov2)?s.dest:'',to_op:(!isOutMov2)?s.dest_op:'',pallets:s.pallets,singles:s.singles,logged_by:STATE.userName||'Unknown',id:ts2+(j++),truckload_id:ts2});
+                      await addMovement({direction:loadDirection.val,date:loadDate.val,notes:loadNotes.val,driver:loadDriver.val,vehicle:loadVehicle.val,crop:loadCrop.val,from_site:(isOutMov2||isYYMov2)?p.site:'',from_op:(isOutMov2||isYYMov2)?p.op:'',to_orchard:isOutMov2?s.dest:'',from_orchard:(!isOutMov2&&!isYYMov2)?p.site:'',to_site:(!isOutMov2)?s.dest:'',to_op:(!isOutMov2)?s.dest_op:'',pallets:s.pallets,singles:s.singles,logged_by:STATE.userName||'Unknown',id:ts2+(j++),truckload_id:ts2});
                     }}
                     showToast(`${totalSplits} movements saved`);setState({tab:'orchards'});
                   }},'Save anyway');
@@ -7252,6 +7279,7 @@ function renderMovementsScreen(){
                     notes:loadNotes.val,
                     driver:loadDriver.val,
                     vehicle:loadVehicle.val,
+                    crop:loadCrop.val,
                     from_site:(isOutMov||isYYMov)?p.site:'',
                     from_op:(isOutMov||isYYMov)?p.op:'',
                     to_orchard:(isOutMov||isOOMov)?s.dest:'',
@@ -8127,7 +8155,10 @@ function renderMovementsScreen(){
         const card=h('div',{style:{background:'#fff',border:`.5px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}33`,borderLeft:`3px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}`,borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',overflow:'hidden'}});
         const mainRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}});
         mainRow.appendChild(h('div',{style:{flex:'1'}},
-          h('div',{style:{fontWeight:'600',fontSize:'14px'}},title),
+          h('div',{style:{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}},
+            h('div',{style:{fontWeight:'600',fontSize:'14px'}},title),
+            m.crop?h('span',{style:{fontSize:'10px',fontWeight:'700',color:m.crop==='Cherries'?'#c0392b':'#ef9f27',background:m.crop==='Cherries'?'#fde8e8':'#fff3d9',borderRadius:'8px',padding:'2px 7px'}},m.crop):null
+          ),
           h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},sub+(meta?' · '+meta:'')),
           fromYardsStr?h('div',{style:{fontSize:'12px',color:'#7a4fa8',marginTop:'2px'}},fromYardsStr):null,
           m.notes?h('div',{style:{fontSize:'12px',color:'#555',marginTop:'4px',background:'#f8f8f6',borderRadius:'5px',padding:'4px 8px'}},m.notes):null
