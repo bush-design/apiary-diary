@@ -236,6 +236,14 @@ async function addMovement(mov){
     const rk = roundForDate(mov.date) || STATE.round || 'spring';
     const k = eKey(opName, siteKey, rk);
     const existing = STATE.entries[k]||[];
+
+    // If this is a delivery (not a pickup) and it's part of a truckload with other pickups
+    // already logged to this same yard, merge into that entry instead of stacking a new one —
+    // several yards' worth collected on one truck run should show as a single delivery at the
+    // destination. Pickups logged separately (no shared truckload, e.g. one-off movements)
+    // always get their own entry, same as before.
+    const mergeTarget = (!isDeduction && mov.truckload_id && existing[0]?._movement && existing[0]?.truckload_id===mov.truckload_id) ? existing[0] : null;
+
     // Look across ALL rounds (not just this one) for the most recent state as of the
     // movement date, so movements/entries logged in different seasonal buckets still
     // carry forward correctly instead of resetting when a movement lands in a new season.
@@ -262,9 +270,13 @@ async function addMovement(mov){
     const movDoubles=parseInt(mov.doubles)||(parseInt(mov.pallets)||0)+(mov.half_pallet?0.5:0);
     const movSingles=parseInt(mov.singles_boxes)||parseInt(mov.singles)||0;
     const movLight=parseInt(mov.light)||0;
-    const lastDoubles=parseInt(lastReal?.doubles)||0;
-    const lastSingles=parseInt(lastReal?.singles)||0;
-    const lastLight=parseInt(lastReal?.light)||0;
+    // When merging into an in-progress truckload entry, build on ITS current totals (which
+    // already include earlier legs of this same delivery) rather than resetting back to the
+    // original real diary entry's values — otherwise each subsequent leg would silently
+    // discard the ones logged before it in the same load.
+    const lastDoubles=parseInt((mergeTarget||lastReal)?.doubles)||0;
+    const lastSingles=parseInt((mergeTarget||lastReal)?.singles)||0;
+    const lastLight=parseInt((mergeTarget||lastReal)?.light)||0;
 
     let newDoubles,newSingles,newLight;
     if(isDeduction){
@@ -278,14 +290,33 @@ async function addMovement(mov){
       newSingles=lastSingles+movSingles;
       newLight=lastLight+movLight;
     }
-    let desc;
     const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'s':'');
     const hiveStr=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)>0?` alive, ${mov.dead_hives} dead`+' hives':' alive hives');
     const hiveDetail=parseInt(mov.alive_hives)>0?' ('+hiveStr+')':'';
-    if(mov.direction==='to_orchard') desc=`MOVEMENT OUT: ${truckStr}${hiveDetail} → ${mov.to_orchard}`;
-    else if(mov.direction==='from_orchard') desc=`MOVEMENT IN: ${truckStr}${hiveDetail} ← ${mov.from_orchard}`;
-    else if(isDeduction) desc=`MOVED OUT: ${truckStr}${hiveDetail} → ${mov.to_site}`;
-    else desc=`MOVED IN: ${truckStr}${hiveDetail} ← ${mov.from_site}`;
+    // legDesc is just this pickup's own contribution (no "MOVED IN:" prefix) — reused whether
+    // it starts a new entry or gets appended onto a merged one.
+    let legDesc,desc;
+    if(mov.direction==='to_orchard'){ legDesc=`${truckStr}${hiveDetail} → ${mov.to_orchard}`; desc=`MOVEMENT OUT: ${legDesc}`; }
+    else if(mov.direction==='from_orchard'){ legDesc=`${truckStr}${hiveDetail} ← ${mov.from_orchard}`; desc=`MOVEMENT IN: ${legDesc}`; }
+    else if(isDeduction){ legDesc=`${truckStr}${hiveDetail} → ${mov.to_site}`; desc=`MOVED OUT: ${legDesc}`; }
+    else { legDesc=`${truckStr}${hiveDetail} ← ${mov.from_site}`; desc=`MOVED IN: ${legDesc}`; }
+
+    if(mergeTarget){
+      const mergedEntry={
+        ...mergeTarget,
+        hives: String(newHives),
+        doubles: newDoubles>0?String(newDoubles):'',
+        singles: newSingles>0?String(newSingles):'',
+        light: newLight>0?String(newLight):'',
+        comments: mergeTarget.comments+', '+legDesc,
+        saved_at: new Date().toISOString(),
+      };
+      const updated = {...STATE.entries, [k]: [mergedEntry, ...existing.slice(1)]};
+      saveLocal(updated);
+      await pushToSupabase(k, updated[k]);
+      STATE.entries = updated;
+      return;
+    }
     const movEntry = {
       date: mov.date,
       hives: String(newHives),
@@ -295,6 +326,7 @@ async function addMovement(mov){
       comments: desc,
       logged_by: mov.logged_by,
       saved_at: new Date().toISOString(),
+      truckload_id: mov.truckload_id,
       _movement: true
     };
     const updated = {...STATE.entries, [k]: [movEntry, ...existing]};
