@@ -1740,7 +1740,30 @@ function renderOpSelector(){
   ));
   wrap.appendChild(nucCard);
 
-  wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'20px',color:'#fff',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
+  const lastExportIso=getLastExportTimestamp();
+  const exportCard=h('button',{className:'op-card',style:{background:'#2e1f3a',border:'1.5px solid #9b59b633',marginTop:'10px'},onClick:()=>setState({op:'__export__'})});
+  exportCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    h('div',null,
+      h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Export Data'),
+      h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},
+        lastExportIso?'Last export: '+new Date(lastExportIso).toLocaleDateString():'Spreadsheet exports · Google Sheets')
+    ),
+    h('div',{style:{fontSize:'22px',color:'#c39bd3',opacity:'0.8'}},'›')
+  ));
+  wrap.appendChild(exportCard);
+  return wrap;
+}
+
+// ── Dedicated Export Data screen — every export/download option lives here, off the main
+// landing page, so it doesn't compete for space with the things people tap every day.
+function renderExportScreen(){
+  const wrap=h('div',{style:{minHeight:'100vh',background:'#111',padding:'20px 20px 40px'}});
+  const topRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'20px'}});
+  topRow.appendChild(h('button',{style:{background:'none',border:'none',fontSize:'22px',cursor:'pointer',color:'#fff',padding:'0'},onClick:()=>setState({op:null})},'←'));
+  topRow.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'800',color:'#fff',letterSpacing:'-.01em'}},'Export Data'));
+  wrap.appendChild(topRow);
+
+  wrap.appendChild(h('button',{style:{width:'100%',marginTop:'6px',padding:'10px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'20px',color:'#fff',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
     onClick:()=>{
       // One file per operation, spaced out — triggering all three downloads in the same
       // instant gets most browsers (especially on mobile) to treat everything after the first
@@ -1751,7 +1774,7 @@ function renderOpSelector(){
       showToast('Exporting '+Object.keys(OPERATIONS).length+' files (one per operation) — allow a few seconds between each');
     }
   },'Export all data (one file per operation, tab per season)'));
-  wrap.appendChild(h('button',{style:{marginTop:'8px',padding:'8px 20px',background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'12px',fontWeight:'600',cursor:'pointer',textDecoration:'underline'},onClick:()=>{
+  wrap.appendChild(h('button',{style:{width:'100%',marginTop:'8px',padding:'8px 20px',background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'12px',fontWeight:'600',cursor:'pointer',textDecoration:'underline'},onClick:()=>{
     // Space these out — triggering all three downloads in the same instant gets most browsers
     // (especially on mobile) to treat everything after the first as popup/download spam and
     // silently block it, even though each one is a legitimate result of this same tap.
@@ -1760,7 +1783,7 @@ function renderOpSelector(){
     });
     showToast('Exporting '+Object.keys(OPERATIONS).length+' separate files — allow a few seconds between each download prompt');
   }},'or, simple flat CSV per operation'));
-  wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.4)',borderRadius:'20px',color:'#c39bd3',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
+  wrap.appendChild(h('button',{style:{width:'100%',marginTop:'16px',padding:'10px 20px',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.4)',borderRadius:'20px',color:'#c39bd3',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
     onClick:()=>exportMovementsAsWorkbook()
   },'Export hive movements (tab per season)'));
 
@@ -1768,7 +1791,7 @@ function renderOpSelector(){
   wrap.appendChild(h('div',{style:{marginTop:'18px',paddingTop:'14px',borderTop:'1px solid rgba(255,255,255,0.12)'}},
     h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'6px'}},
       lastExportIso?'Last "since last export" run: '+new Date(lastExportIso).toLocaleString():'No incremental export has been run yet'),
-    h('button',{style:{padding:'10px 20px',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.4)',borderRadius:'20px',color:'#c39bd3',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
+    h('button',{style:{width:'100%',padding:'10px 20px',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.4)',borderRadius:'20px',color:'#c39bd3',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
       onClick:()=>exportSinceLastExport()
     },'Export new/changed since last export')
   ));
@@ -6437,7 +6460,7 @@ function renderForm(){
         const oldDate=oldEntry?.date;const newDate=entry.date;
         if(oldDate&&newDate&&oldDate!==newDate){
           const movs=await getMergedRemoteMovements();
-          const updatedMovs=movs.map(m=>{const matchesSite=(m.from_site===site||m.to_site===site);if(matchesSite&&m.date===oldDate)return{...m,date:newDate};return m;});
+          const updatedMovs=movs.map(m=>{const matchesSite=(m.from_site===site||m.to_site===site);if(matchesSite&&m.date===oldDate)return{...m,date:newDate,recorded_at:new Date().toISOString()};return m;});
           saveMovements(updatedMovs);
           await pushToSupabase('hive_movements',updatedMovs).catch(e=>console.warn('Movement sync failed:',e));
         }
@@ -7183,7 +7206,7 @@ function showEditMovementModal(m){
   btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
     onClick:async()=>{
       // Update movement in list
-      const newMov={...m,...vals};
+      const newMov={...m,...vals,recorded_at:new Date().toISOString()};
       const updated=(await getMergedRemoteMovements()).map(x=>x.id===m.id?newMov:x);
       saveMovements(updated);
       await pushToSupabase('hive_movements',updated);
@@ -8873,6 +8896,7 @@ function renderApp(){
   if(op==='__movements__') return renderMovementsScreen();
   if(op==='__reports__') return renderReportsScreen();
   if(op==='__nucs__') return renderNucsScreen();
+  if(op==='__export__') return renderExportScreen();
 
   const opData=OPERATIONS[op];
   document.documentElement.style.setProperty('--op-color',opData.color);
