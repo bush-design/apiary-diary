@@ -1054,6 +1054,13 @@ function exportCSV(opName){
 // Every column the app tracks is included on every season tab, rather than trying to guess
 // which fields apply to which season — a field that's irrelevant for a given round just shows
 // blank there, which is harmless in a spreadsheet.
+// Wraps a field's get() call so a single unexpectedly-shaped value on one entry (e.g. an old
+// record with a field stored in a different format than expected) can't throw and take the
+// whole export down with it — it just shows blank for that one cell instead.
+function safeFieldGet(f,item){
+  try{ const v=f.get(item); return v===null||v===undefined?'':v; }
+  catch(err){ return ''; }
+}
 // Every optional column the app can track, as {label, get(entry)} — Site and Date are always
 // included separately as the base identifying columns; everything below only makes it into a
 // given season's tab if at least one entry that season actually has it filled in.
@@ -1127,7 +1134,7 @@ function buildSeasonExportRows(opName, seasonKey){
     });
   });
   const activeFields=EXPORT_FIELD_DEFS.filter(f=>allSeasonEntries.some(e=>{
-    const v=f.get(e);
+    const v=safeFieldGet(f,e);
     return v!==''&&v!==null&&v!==undefined;
   }));
 
@@ -1137,7 +1144,7 @@ function buildSeasonExportRows(opName, seasonKey){
   const blankCols=new Array(header.length-1).fill('');
 
   function entryToRow(site,e){
-    return [site,e.date||'',...activeFields.map(f=>f.get(e))];
+    return [site,e.date||'',...activeFields.map(f=>safeFieldGet(f,e))];
   }
 
   Object.entries(yards).forEach(([batchName,batch])=>{
@@ -1217,7 +1224,7 @@ const MOVEMENT_FIELD_DEFS=[
 function buildYardYardMovementRows(){
   const movs=loadMovements().filter(m=>m.direction==='yard_yard');
   const activeFields=MOVEMENT_FIELD_DEFS.filter(f=>f.label!=='Crop'&&movs.some(m=>{
-    const v=f.get(m);
+    const v=safeFieldGet(f,m);
     return v!==''&&v!==null&&v!==undefined;
   }));
   const header=['Date','From','From Op','To','To Op',...activeFields.map(f=>f.label)];
@@ -1227,7 +1234,7 @@ function buildYardYardMovementRows(){
   });
   const rows=[header,...sorted.map(m=>[
     m.date||'',movementFrom(m)||'',m.from_op||'',movementTo(m)||'',m.to_op||'',
-    ...activeFields.map(f=>f.get(m))
+    ...activeFields.map(f=>safeFieldGet(f,m))
   ])];
   return {rows,boldRows:[0]};
 }
@@ -1274,7 +1281,7 @@ function buildOrchardMovementRows(cropFilter){
 
   // Detail list — every movement, both directions
   const activeFields=MOVEMENT_FIELD_DEFS.filter(f=>f.label!=='Crop'&&orchardMovs.some(m=>{
-    const v=f.get(m);
+    const v=safeFieldGet(f,m);
     return v!==''&&v!==null&&v!==undefined;
   }));
   const detailHeader=['Date','Direction','From','From Op','To','To Op',...activeFields.map(f=>f.label)];
@@ -1288,7 +1295,7 @@ function buildOrchardMovementRows(cropFilter){
     rows.push([
       m.date||'',DIRECTION_LABELS[m.direction]||m.direction||'',
       movementFrom(m)||'',m.from_op||'',movementTo(m)||'',m.to_op||'',
-      ...activeFields.map(f=>f.get(m))
+      ...activeFields.map(f=>safeFieldGet(f,m))
     ]);
   });
   return {rows,boldRows};
@@ -1350,7 +1357,7 @@ function buildIncrementalEntryRows(sinceIso){
             if(e._movement) return;
             const ts=e.saved_at||e.logged_at||'';
             if(sinceIso&&ts<=sinceIso) return;
-            dataRows.push([opName,batchName,site,ROUNDS[rk].label,e.id||'',ts,...activeFields.map(f=>f.get(e))]);
+            dataRows.push([opName,batchName,site,ROUNDS[rk].label,e.id||'',ts,...activeFields.map(f=>safeFieldGet(f,e))]);
           });
         });
       });
@@ -1370,7 +1377,7 @@ function buildIncrementalMovementRows(sinceIso){
   const rows=[header,...sorted.map(m=>[
     m.date||'',DIRECTION_LABELS[m.direction]||m.direction||'',
     movementFrom(m)||'',m.from_op||'',movementTo(m)||'',m.to_op||'',m.recorded_at||'',
-    ...MOVEMENT_FIELD_DEFS.map(f=>f.get(m))
+    ...MOVEMENT_FIELD_DEFS.map(f=>safeFieldGet(f,m))
   ])];
   return rows;
 }
@@ -1381,19 +1388,19 @@ async function exportSinceLastExport(){
     _exceljsLibLoaded=await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js');
     if(!_exceljsLibLoaded){ showToast('⚠ Could not load spreadsheet library — check your connection and try again'); return; }
   }
-  const sinceIso=getLastExportTimestamp();
-  const entryRows=buildIncrementalEntryRows(sinceIso);
-  const movRows=buildIncrementalMovementRows(sinceIso);
-  if(entryRows.length<=1&&movRows.length<=1){
-    showToast(sinceIso?'Nothing new since your last export':'No data to export yet');
-    return;
-  }
   try{
+    const sinceIso=getLastExportTimestamp();
+    const entryRows=buildIncrementalEntryRows(sinceIso);
+    const movRows=buildIncrementalMovementRows(sinceIso);
+    if(entryRows.length<=1&&movRows.length<=1){
+      showToast(sinceIso?'Nothing new since your last export':'No data to export yet');
+      return;
+    }
     const wb=new window.ExcelJS.Workbook();
-    const ws1=wb.addWorksheet('New/Changed Entries');
+    const ws1=wb.addWorksheet('New-Changed Entries');
     entryRows.forEach((r,i)=>{const row=ws1.addRow(r);if(i===0)row.font={bold:true};});
     ws1.columns.forEach(col=>{col.width=13;});
-    const ws2=wb.addWorksheet('New/Changed Movements');
+    const ws2=wb.addWorksheet('New-Changed Movements');
     movRows.forEach((r,i)=>{const row=ws2.addRow(r);if(i===0)row.font={bold:true};});
     ws2.columns.forEach(col=>{col.width=13;});
     const filename=`apiary_since_${sinceIso?sinceIso.slice(0,10):'start'}_to_${todayStr()}.xlsx`;
