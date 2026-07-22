@@ -1042,13 +1042,98 @@ function exportCSV(opName){
 // rows, one row per site — the most recent visit shows the site name, any earlier visits that
 // season appear on the rows directly below with the site name left blank, matching how a
 // hand-kept sheet distinguishes repeat visits without repeating the name each time.
+//
+// Every column the app tracks is included on every season tab, rather than trying to guess
+// which fields apply to which season — a field that's irrelevant for a given round just shows
+// blank there, which is harmless in a spreadsheet.
+// Every optional column the app can track, as {label, get(entry)} — Site and Date are always
+// included separately as the base identifying columns; everything below only makes it into a
+// given season's tab if at least one entry that season actually has it filled in.
+const EXPORT_FIELD_DEFS=[
+  {label:'Hives',get:e=>e.hives||''},
+  {label:'Singles',get:e=>e.singles||''},
+  {label:'Doubles',get:e=>e.doubles||''},
+  {label:'Light',get:e=>e.light||''},
+  {label:'Dead',get:e=>e.dead||''},
+  {label:'Lids & Floors',get:e=>e.lids_floors||''},
+  {label:'Check',get:e=>e.check||''},
+  {label:'Diseases',get:e=>(e.diseases||'').split(',').map(s=>s.trim()).filter(Boolean).join(', ')},
+  {label:'Varroa (DFW/PMS)',get:e=>{
+    const diseaseList=(e.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
+    if(!diseaseList.includes('Varroa')) return '';
+    return [e.disease_count_varroa||'',(e.disease_tags_varroa||'').trim()].filter(Boolean).join(' ');
+  }},
+  {label:'Treatment',get:e=>e.treatment||''},
+  {label:'Score0',get:e=>(e.score_breakdown||{})[0]||''},
+  {label:'Score1',get:e=>(e.score_breakdown||{})[1]||''},
+  {label:'Score2',get:e=>(e.score_breakdown||{})[2]||''},
+  {label:'Score3',get:e=>(e.score_breakdown||{})[3]||''},
+  {label:'Score4',get:e=>(e.score_breakdown||{})[4]||''},
+  {label:'Score5',get:e=>(e.score_breakdown||{})[5]||''},
+  {label:'Score6',get:e=>(e.score_breakdown||{})[6]||''},
+  {label:'Avg Score',get:e=>{
+    const bd=e.score_breakdown||{};
+    let st=0,sc=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){st+=n*v;sc+=v;}});
+    return sc>0?(st/sc).toFixed(1):'';
+  }},
+  {label:'POL Pallet',get:e=>e.pol_pallet||''},
+  {label:'Part Pallet',get:e=>e.part_pallet||''},
+  {label:'Pol Singles',get:e=>e.pol_singles||''},
+  {label:'QR',get:e=>e.qr||''},
+  {label:'Virgin',get:e=>e.virgin||''},
+  {label:'Cell Needed',get:e=>e.cell_needed||''},
+  {label:'Tops',get:e=>e.tops||''},
+  {label:'Splits',get:e=>e.splits||''},
+  {label:'Carrot Pallets',get:e=>e.carrot||''},
+  {label:'Carrot Score',get:e=>e.carrot_score||''},
+  {label:'Breeders',get:e=>e.breeders||''},
+  {label:'Finishers',get:e=>e.finishers||''},
+  {label:'FD Harv',get:e=>e.fd_harv||''},
+  {label:'3/4 Harv',get:e=>e.harv_34||''},
+  {label:'3/4 on',get:e=>e.on_34||''},
+  {label:'FD on',get:e=>e.fd_on||''},
+  {label:'Honeycomb FD',get:e=>e.honeycomb_fd||''},
+  {label:'Honeycomb HD',get:e=>e.honeycomb_hd||''},
+  {label:'Harvest Type',get:e=>e.harvest_flower||''},
+  {label:'Sugar Hives Fed',get:e=>e.hives_fed||''},
+  {label:'Sugar Litres Fed',get:e=>e.litres_fed||''},
+  {label:'Honey Type',get:e=>e.honey_fed_type||''},
+  {label:'Honey Hives Fed',get:e=>e.honey_hives_fed||''},
+  {label:'Pollen Hives Fed',get:e=>e.pollen_hives_fed||''},
+  {label:'Pollen Amount',get:e=>e.pollen_amount||''},
+  {label:'Comments',get:e=>e.comments||''},
+];
+
 function buildSeasonExportRows(opName, seasonKey){
   const yards=getYards(opName);
-  const header=['Site','Date','Hives','Singles','Doubles','Light','Dead','Check','Comments'];
+
+  // Gather every real entry for this operation+season first, so we know which columns are
+  // actually used before building the header — a field nobody filled in this season (Score, say,
+  // in Winter) doesn't get a column at all, rather than showing up blank everywhere.
+  const allSeasonEntries=[];
+  Object.values(yards).forEach(batch=>{
+    batch.sites.forEach(site=>{
+      (STATE.entries[eKey(opName,site,seasonKey)]||[]).forEach(e=>{
+        if(!e._movement) allSeasonEntries.push(e);
+      });
+    });
+  });
+  const activeFields=EXPORT_FIELD_DEFS.filter(f=>allSeasonEntries.some(e=>{
+    const v=f.get(e);
+    return v!==''&&v!==null&&v!==undefined;
+  }));
+
+  const header=['Site','Date',...activeFields.map(f=>f.label)];
   const rows=[header];
   const boldRows=[0]; // header row is bold too
+  const blankCols=new Array(header.length-1).fill('');
+
+  function entryToRow(site,e){
+    return [site,e.date||'',...activeFields.map(f=>f.get(e))];
+  }
+
   Object.entries(yards).forEach(([batchName,batch])=>{
-    rows.push([batchName,'','','','','','','','']);
+    rows.push([batchName,...blankCols]);
     boldRows.push(rows.length-1);
     batch.sites.forEach(site=>{
       const entries=[...(STATE.entries[eKey(opName,site,seasonKey)]||[])]
@@ -1058,14 +1143,12 @@ function buildSeasonExportRows(opName, seasonKey){
           return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
         });
       if(!entries.length){
-        rows.push([site,'','','','','','','','']);
+        rows.push([site,...blankCols]);
       } else {
-        entries.forEach((e,i)=>{
-          rows.push([i===0?site:'',e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',e.comments||'']);
-        });
+        entries.forEach((e,i)=>rows.push(entryToRow(i===0?site:'',e)));
       }
     });
-    rows.push(['','','','','','','','','']); // blank separator between batches
+    rows.push([...blankCols,'']); // blank separator between batches
   });
   return {rows,boldRows};
 }
