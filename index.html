@@ -353,6 +353,7 @@ async function addMovement(mov){
       return;
     }
     const movEntry = {
+      id: genEntryId(),
       date: mov.date,
       hives: String(newHives),
       dead: newDead>0?String(newDead):'',
@@ -458,6 +459,13 @@ const todayStr = () => {
   return `${y}-${m}-${day}`;
 };
 const daysBetween = d => d?Math.floor((Date.now()-new Date(d).getTime())/86400000):null;
+// Stable, permanent ID assigned once when a diary entry is first saved — survives every future
+// edit (editing copies the whole entry, id included, back into the form before re-saving it),
+// so it can be used to tell a genuinely new entry apart from an edit of something already
+// exported, and to find/replace the right row later.
+function genEntryId(){
+  return (crypto.randomUUID?crypto.randomUUID():Date.now()+'-'+Math.random().toString(36).slice(2,10));
+}
 // Map a YYYY-MM-DD date string to its seasonal round key (Southern Hemisphere calendar)
 const roundForDate = dateStr => {
   const mo=parseInt((dateStr||'').split('-')[1]);
@@ -1322,6 +1330,88 @@ async function exportMovementsAsWorkbook(){
   }
 }
 
+// ── "Since last export" — only what's new or changed, so it can be appended to an existing
+// sheet without re-adding everything you've already saved there. Every row includes a stable
+// ID and Saved At timestamp, so if a row is an edit to something already in your sheet, you can
+// find that ID and swap the old row for this one instead of ending up with a duplicate.
+function getLastExportTimestamp(){ return localStorage.getItem('apiary_last_export')||null; }
+function setLastExportTimestamp(iso){ try{localStorage.setItem('apiary_last_export',iso);}catch(e){} }
+
+function buildIncrementalEntryRows(sinceIso){
+  const rows=[['Operation','Batch','Site','Round','ID','Saved At',...EXPORT_FIELD_DEFS.map(f=>f.label).filter(l=>l!=='Comments'),'Comments']];
+  const activeFields=EXPORT_FIELD_DEFS; // include every field here regardless of use — this list is usually short, so no need to trim
+  const dataRows=[];
+  Object.keys(OPERATIONS).forEach(opName=>{
+    const yards=getYards(opName);
+    Object.entries(yards).forEach(([batchName,batch])=>{
+      batch.sites.forEach(site=>{
+        Object.keys(ROUNDS).forEach(rk=>{
+          (STATE.entries[eKey(opName,site,rk)]||[]).forEach(e=>{
+            if(e._movement) return;
+            const ts=e.saved_at||e.logged_at||'';
+            if(sinceIso&&ts<=sinceIso) return;
+            dataRows.push([opName,batchName,site,ROUNDS[rk].label,e.id||'',ts,...activeFields.map(f=>f.get(e))]);
+          });
+        });
+      });
+    });
+  });
+  dataRows.sort((a,b)=>(b[5]||'').localeCompare(a[5]||'')); // most recently saved first
+  return [rows[0],...dataRows];
+}
+
+function buildIncrementalMovementRows(sinceIso){
+  const header=['Date','Direction','From','From Op','To','To Op','Recorded At',...MOVEMENT_FIELD_DEFS.map(f=>f.label)];
+  const movs=loadMovements().filter(m=>{
+    const ts=m.recorded_at||'';
+    return !sinceIso||ts>sinceIso;
+  });
+  const sorted=[...movs].sort((a,b)=>(b.recorded_at||'').localeCompare(a.recorded_at||''));
+  const rows=[header,...sorted.map(m=>[
+    m.date||'',DIRECTION_LABELS[m.direction]||m.direction||'',
+    movementFrom(m)||'',m.from_op||'',movementTo(m)||'',m.to_op||'',m.recorded_at||'',
+    ...MOVEMENT_FIELD_DEFS.map(f=>f.get(m))
+  ])];
+  return rows;
+}
+
+async function exportSinceLastExport(){
+  if(!_exceljsLibLoaded){
+    showToast('Loading spreadsheet library…');
+    _exceljsLibLoaded=await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js');
+    if(!_exceljsLibLoaded){ showToast('⚠ Could not load spreadsheet library — check your connection and try again'); return; }
+  }
+  const sinceIso=getLastExportTimestamp();
+  const entryRows=buildIncrementalEntryRows(sinceIso);
+  const movRows=buildIncrementalMovementRows(sinceIso);
+  if(entryRows.length<=1&&movRows.length<=1){
+    showToast(sinceIso?'Nothing new since your last export':'No data to export yet');
+    return;
+  }
+  try{
+    const wb=new window.ExcelJS.Workbook();
+    const ws1=wb.addWorksheet('New/Changed Entries');
+    entryRows.forEach((r,i)=>{const row=ws1.addRow(r);if(i===0)row.font={bold:true};});
+    ws1.columns.forEach(col=>{col.width=13;});
+    const ws2=wb.addWorksheet('New/Changed Movements');
+    movRows.forEach((r,i)=>{const row=ws2.addRow(r);if(i===0)row.font={bold:true};});
+    ws2.columns.forEach(col=>{col.width=13;});
+    const filename=`apiary_since_${sinceIso?sinceIso.slice(0,10):'start'}_to_${todayStr()}.xlsx`;
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=filename;a.style.display='none';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    const nowIso=new Date().toISOString();
+    setLastExportTimestamp(nowIso);
+    showToast('Downloaded '+filename+' — '+(entryRows.length-1)+' entries, '+(movRows.length-1)+' movements');
+  }catch(e){
+    showToast('⚠ Export failed: '+e.message);
+  }
+}
+
 // ── Summary calc ──────────────────────────────────────────────────────────────
 function calcSummary(opName){
   const sites=allSitesFor(opName);
@@ -1673,6 +1763,15 @@ function renderOpSelector(){
   wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.4)',borderRadius:'20px',color:'#c39bd3',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
     onClick:()=>exportMovementsAsWorkbook()
   },'Export hive movements (tab per season)'));
+
+  const lastExportIso=getLastExportTimestamp();
+  wrap.appendChild(h('div',{style:{marginTop:'18px',paddingTop:'14px',borderTop:'1px solid rgba(255,255,255,0.12)'}},
+    h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',marginBottom:'6px'}},
+      lastExportIso?'Last "since last export" run: '+new Date(lastExportIso).toLocaleString():'No incremental export has been run yet'),
+    h('button',{style:{padding:'10px 20px',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.4)',borderRadius:'20px',color:'#c39bd3',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
+      onClick:()=>exportSinceLastExport()
+    },'Export new/changed since last export')
+  ));
   return wrap;
 }
 
@@ -6262,6 +6361,10 @@ function renderForm(){
       const originalLoggedBy=formData.logged_by||STATE.userName||'Unknown';
       const entry={
         ...formData,
+        // Assigned once, the first time an entry is ever saved — formData already carries the
+        // existing id forward on every edit (since editing starts by copying the whole entry
+        // into the form), so this only ever fires for a genuinely new entry.
+        id:formData.id||genEntryId(),
         logged_by:originalLoggedBy,
         ...(STATE.editing!==null&&originalLoggedBy!==STATE.userName?{edited_by:STATE.userName||'Unknown',edited_at:new Date().toISOString()}:{}),
         saved_at:new Date().toISOString(),
