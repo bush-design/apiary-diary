@@ -1407,6 +1407,7 @@ async function exportSinceLastExport(){
     const nowIso=new Date().toISOString();
     setLastExportTimestamp(nowIso);
     showToast('Downloaded '+filename+' — '+(entryRows.length-1)+' entries, '+(movRows.length-1)+' movements');
+    render(); // refresh the "Last... run" display on screen right away, not just next time it's opened
   }catch(e){
     showToast('⚠ Export failed: '+e.message);
   }
