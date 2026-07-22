@@ -987,7 +987,8 @@ async function maybeQuarterlyBackup(){
 function buildExportRows(opName){
   const sites=allSitesFor(opName);
   const yards=OPERATIONS[opName].yards;
-  const rows=[['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','Pol Singles','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments']];
+  const header=['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','Pol Singles','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
+  const dataRows=[];
   sites.forEach(site=>{
     const batch=Object.entries(yards).find(([,d])=>d.sites.includes(site))?.[0]||'';
     Object.keys(ROUNDS).forEach(rk=>{
@@ -996,11 +997,20 @@ function buildExportRows(opName){
         const bd=e.score_breakdown||{};
         let st=0,sc=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){st+=n*v;sc+=v;}});
         const avg=sc>0?(st/sc).toFixed(1):'';
-        rows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.qr||'',e.virgin||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
+        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.qr||'',e.virgin||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
       });
     });
   });
-  return rows;
+  // Most recent entry first, across the whole operation (Date is column index 4) — blank
+  // dates sort to the end rather than the top.
+  dataRows.sort((a,b)=>{
+    const da=a[4]||'',db=b[4]||'';
+    if(!da&&!db) return 0;
+    if(!da) return 1;
+    if(!db) return -1;
+    return db.localeCompare(da);
+  });
+  return [header,...dataRows];
 }
 
 function exportCSV(opName){
