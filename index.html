@@ -1185,6 +1185,143 @@ async function exportOperationAsSeasonalWorkbook(opName){
   }
 }
 
+// Every optional movement column — same "only include it if actually used" approach as the
+// diary export. Date/Direction/From/To are always shown since a movement is meaningless
+// without them; everything else only appears on a season's tab if at least one movement that
+// season actually has it filled in.
+const DIRECTION_LABELS={to_orchard:'Yard → Orchard',from_orchard:'Orchard → Yard',yard_yard:'Yard → Yard',orchard_orchard:'Orchard → Orchard'};
+function movementFrom(m){ return (m.direction==='to_orchard'||m.direction==='yard_yard') ? m.from_site : m.from_orchard; }
+function movementTo(m){ return (m.direction==='from_orchard'||m.direction==='yard_yard') ? m.to_site : m.to_orchard; }
+const MOVEMENT_FIELD_DEFS=[
+  {label:'Pallets',get:m=>{const p=parseInt(m.pallets)||0;return p||m.half_pallet?(p+(m.half_pallet?0.5:0)):'';}},
+  {label:'Singles (transport)',get:m=>m.singles||''},
+  {label:'Alive',get:m=>m.alive_hives||''},
+  {label:'Dead',get:m=>m.dead_hives||''},
+  {label:'Doubles (boxes)',get:m=>m.doubles||''},
+  {label:'Singles (box)',get:m=>m.singles_boxes||''},
+  {label:'Light',get:m=>m.light||''},
+  {label:'Crop',get:m=>m.crop||''},
+  {label:'Driver',get:m=>m.driver||''},
+  {label:'Vehicle',get:m=>m.vehicle||''},
+  {label:'Notes',get:m=>m.notes||''},
+];
+
+function buildYardYardMovementRows(){
+  const movs=loadMovements().filter(m=>m.direction==='yard_yard');
+  const activeFields=MOVEMENT_FIELD_DEFS.filter(f=>f.label!=='Crop'&&movs.some(m=>{
+    const v=f.get(m);
+    return v!==''&&v!==null&&v!==undefined;
+  }));
+  const header=['Date','From','From Op','To','To Op',...activeFields.map(f=>f.label)];
+  const sorted=[...movs].sort((a,b)=>{
+    const dc=(b.date||'').localeCompare(a.date||'');
+    return dc!==0?dc:(b.recorded_at||'').localeCompare(a.recorded_at||'');
+  });
+  const rows=[header,...sorted.map(m=>[
+    m.date||'',movementFrom(m)||'',m.from_op||'',movementTo(m)||'',m.to_op||'',
+    ...activeFields.map(f=>f.get(m))
+  ])];
+  return {rows,boldRows:[0]};
+}
+
+// One tab per crop (or for movements touching an orchard with no crop tag at all) — shows a
+// per-orchard hive-total summary first (same calculation as the Pollination Hives by Orchard
+// report), then every individual movement in or out of an orchard for that crop, both
+// directions, newest first.
+function buildOrchardMovementRows(cropFilter){
+  // cropFilter: 'Cherries' | 'Carrots' | null (null = touches an orchard, no crop tag set)
+  const orchardMovs=loadMovements().filter(m=>
+    (m.to_orchard||m.from_orchard) &&
+    (cropFilter===null ? !m.crop : m.crop===cropFilter)
+  );
+
+  // Per-orchard totals — moving IN adds, moving OUT subtracts, matching the Pollination report
+  const totals={};
+  orchardMovs.forEach(m=>{
+    const pallets=(parseInt(m.pallets)||0)+(m.half_pallet?0.5:0);
+    const singles=parseInt(m.singles)||0;
+    const hives=Math.round(pallets*4+singles);
+    if(m.to_orchard){
+      if(!totals[m.to_orchard]) totals[m.to_orchard]={in:0,out:0};
+      totals[m.to_orchard].in+=hives;
+    }
+    if(m.from_orchard){
+      if(!totals[m.from_orchard]) totals[m.from_orchard]={in:0,out:0};
+      totals[m.from_orchard].out+=hives;
+    }
+  });
+  const orchardNames=Object.keys(totals).sort((a,b)=>totals[b].in-totals[a].in);
+
+  const summaryHeader=['Orchard','Total Hives In','Total Hives Out','Net Currently There'];
+  const rows=[summaryHeader];
+  const boldRows=[0];
+  orchardNames.forEach(o=>{
+    rows.push([o,totals[o].in,totals[o].out,totals[o].in-totals[o].out]);
+  });
+  const grandIn=orchardNames.reduce((s,o)=>s+totals[o].in,0);
+  const grandOut=orchardNames.reduce((s,o)=>s+totals[o].out,0);
+  rows.push(['TOTAL',grandIn,grandOut,grandIn-grandOut]);
+  boldRows.push(rows.length-1);
+  rows.push([]); // blank separator before detail list
+
+  // Detail list — every movement, both directions
+  const activeFields=MOVEMENT_FIELD_DEFS.filter(f=>f.label!=='Crop'&&orchardMovs.some(m=>{
+    const v=f.get(m);
+    return v!==''&&v!==null&&v!==undefined;
+  }));
+  const detailHeader=['Date','Direction','From','From Op','To','To Op',...activeFields.map(f=>f.label)];
+  rows.push(detailHeader);
+  boldRows.push(rows.length-1);
+  const sorted=[...orchardMovs].sort((a,b)=>{
+    const dc=(b.date||'').localeCompare(a.date||'');
+    return dc!==0?dc:(b.recorded_at||'').localeCompare(a.recorded_at||'');
+  });
+  sorted.forEach(m=>{
+    rows.push([
+      m.date||'',DIRECTION_LABELS[m.direction]||m.direction||'',
+      movementFrom(m)||'',m.from_op||'',movementTo(m)||'',m.to_op||'',
+      ...activeFields.map(f=>f.get(m))
+    ]);
+  });
+  return {rows,boldRows};
+}
+
+async function exportMovementsAsWorkbook(){
+  if(!_exceljsLibLoaded){
+    showToast('Loading spreadsheet library…');
+    _exceljsLibLoaded=await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js');
+    if(!_exceljsLibLoaded){ showToast('⚠ Could not load spreadsheet library — check your connection and try again'); return; }
+  }
+  try{
+    const wb=new window.ExcelJS.Workbook();
+    const tabs=[
+      ['Yard to Yard',buildYardYardMovementRows()],
+      ['Cherries',buildOrchardMovementRows('Cherries')],
+      ['Carrots',buildOrchardMovementRows('Carrots')],
+      ['Other Orchard',buildOrchardMovementRows(null)], // touches an orchard but no crop tag set
+    ];
+    tabs.forEach(([name,{rows,boldRows}])=>{
+      const ws=wb.addWorksheet(name);
+      rows.forEach((r,i)=>{
+        const row=ws.addRow(r);
+        if(boldRows.includes(i)) row.font={bold:true};
+      });
+      ws.columns.forEach(col=>{col.width=14;});
+    });
+    const filename=`hive_movements_${todayStr()}.xlsx`;
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=filename;a.style.display='none';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    showToast('Downloaded '+filename);
+  }catch(e){
+    showToast('⚠ Export failed: '+e.message);
+  }
+}
+
 // ── Summary calc ──────────────────────────────────────────────────────────────
 function calcSummary(opName){
   const sites=allSitesFor(opName);
@@ -1533,6 +1670,9 @@ function renderOpSelector(){
     });
     showToast('Exporting '+Object.keys(OPERATIONS).length+' separate files — allow a few seconds between each download prompt');
   }},'or, simple flat CSV per operation'));
+  wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.4)',borderRadius:'20px',color:'#c39bd3',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
+    onClick:()=>exportMovementsAsWorkbook()
+  },'Export hive movements (tab per season)'));
   return wrap;
 }
 
