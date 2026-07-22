@@ -1038,31 +1038,67 @@ function exportCSV(opName){
   },300);
 }
 
-// Builds ONE .xlsx workbook with one sheet (tab) per operation — same data as exportCSV, just
-// bundled together so Google Sheets/Excel shows A2Bee, DH Alex, DH MM as separate tabs in a
-// single file, instead of three separate CSV downloads that mobile browsers tend to block after
-// the first one anyway.
-let _xlsxLibLoaded=false;
-async function exportAllAsWorkbook(){
-  if(!_xlsxLibLoaded){
+// Builds the rows for ONE season (round) of ONE operation, grouped by batch with bold header
+// rows, one row per site — the most recent visit shows the site name, any earlier visits that
+// season appear on the rows directly below with the site name left blank, matching how a
+// hand-kept sheet distinguishes repeat visits without repeating the name each time.
+function buildSeasonExportRows(opName, seasonKey){
+  const yards=getYards(opName);
+  const header=['Site','Date','Hives','Singles','Doubles','Light','Dead','Check','Comments'];
+  const rows=[header];
+  const boldRows=[0]; // header row is bold too
+  Object.entries(yards).forEach(([batchName,batch])=>{
+    rows.push([batchName,'','','','','','','','']);
+    boldRows.push(rows.length-1);
+    batch.sites.forEach(site=>{
+      const entries=[...(STATE.entries[eKey(opName,site,seasonKey)]||[])]
+        .filter(e=>!e._movement)
+        .sort((a,b)=>{
+          const dc=(b.date||'').localeCompare(a.date||'');
+          return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
+        });
+      if(!entries.length){
+        rows.push([site,'','','','','','','','']);
+      } else {
+        entries.forEach((e,i)=>{
+          rows.push([i===0?site:'',e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',e.comments||'']);
+        });
+      }
+    });
+    rows.push(['','','','','','','','','']); // blank separator between batches
+  });
+  return {rows,boldRows};
+}
+
+let _exceljsLibLoaded=false;
+async function exportOperationAsSeasonalWorkbook(opName){
+  if(!_exceljsLibLoaded){
     showToast('Loading spreadsheet library…');
-    _xlsxLibLoaded=await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-    if(!_xlsxLibLoaded){ showToast('⚠ Could not load spreadsheet library — check your connection and try again'); return; }
+    _exceljsLibLoaded=await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js');
+    if(!_exceljsLibLoaded){ showToast('⚠ Could not load spreadsheet library — check your connection and try again'); return; }
   }
   try{
-    const wb=window.XLSX.utils.book_new();
-    Object.keys(OPERATIONS).forEach(opName=>{
-      const rows=buildExportRows(opName);
-      const ws=window.XLSX.utils.aoa_to_sheet(rows);
-      // Sheet/tab names can't exceed 31 characters or contain : \ / ? * [ ]
-      const safeName=opName.replace(/[:\\/?*\[\]]/g,'').slice(0,31);
-      window.XLSX.utils.book_append_sheet(wb,ws,safeName);
+    const wb=new window.ExcelJS.Workbook();
+    Object.entries(ROUNDS).forEach(([seasonKey,seasonDef])=>{
+      const {rows,boldRows}=buildSeasonExportRows(opName,seasonKey);
+      const ws=wb.addWorksheet(seasonDef.label.slice(0,31));
+      rows.forEach((r,i)=>{
+        const row=ws.addRow(r);
+        if(boldRows.includes(i)) row.font={bold:true};
+      });
+      ws.columns.forEach(col=>{col.width=14;});
+      ws.getColumn(1).width=18; // Site/batch names tend to run longer
     });
-    const filename=`apiary_diary_${todayStr()}.xlsx`;
-    window.XLSX.writeFile(wb,filename);
-    showToast('Downloaded '+filename+' — '+Object.keys(OPERATIONS).length+' tabs, one per operation');
+    const filename=`${opName.replace(/\s+/g,'_')}_apiary_${todayStr()}.xlsx`;
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=filename;a.style.display='none';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
   }catch(e){
-    showToast('⚠ Export failed: '+e.message);
+    showToast('⚠ Export failed for '+opName+': '+e.message);
   }
 }
 
@@ -1395,8 +1431,16 @@ function renderOpSelector(){
   wrap.appendChild(nucCard);
 
   wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'20px',color:'#fff',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
-    onClick:()=>exportAllAsWorkbook()
-  },'Export all data (one file, tab per operation)'));
+    onClick:()=>{
+      // One file per operation, spaced out — triggering all three downloads in the same
+      // instant gets most browsers (especially on mobile) to treat everything after the first
+      // as popup/download spam and silently block it, even though each is legitimate.
+      Object.keys(OPERATIONS).forEach((op,i)=>{
+        setTimeout(()=>exportOperationAsSeasonalWorkbook(op), i*1500);
+      });
+      showToast('Exporting '+Object.keys(OPERATIONS).length+' files (one per operation) — allow a few seconds between each');
+    }
+  },'Export all data (one file per operation, tab per season)'));
   wrap.appendChild(h('button',{style:{marginTop:'8px',padding:'8px 20px',background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'12px',fontWeight:'600',cursor:'pointer',textDecoration:'underline'},onClick:()=>{
     // Space these out — triggering all three downloads in the same instant gets most browsers
     // (especially on mobile) to treat everything after the first as popup/download spam and
@@ -1405,7 +1449,7 @@ function renderOpSelector(){
       setTimeout(()=>exportCSV(op), i*1200);
     });
     showToast('Exporting '+Object.keys(OPERATIONS).length+' separate files — allow a few seconds between each download prompt');
-  }},'or, separate CSV per operation'));
+  }},'or, simple flat CSV per operation'));
   return wrap;
 }
 
