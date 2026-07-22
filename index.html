@@ -982,7 +982,9 @@ async function maybeQuarterlyBackup(){
 }
 
 // ── Export CSV ────────────────────────────────────────────────────────────────
-function exportCSV(opName){
+// Shared row-builder — used by both the per-operation CSV export and the multi-sheet workbook
+// export, so both stay in sync with exactly the same columns.
+function buildExportRows(opName){
   const sites=allSitesFor(opName);
   const yards=OPERATIONS[opName].yards;
   const rows=[['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','Pol Singles','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments']];
@@ -998,6 +1000,11 @@ function exportCSV(opName){
       });
     });
   });
+  return rows;
+}
+
+function exportCSV(opName){
+  const rows=buildExportRows(opName);
   const q='"';const dq=q+q;const csv=rows.map(r=>r.map(cell=>q+String(cell).split(q).join(dq)+q).join(',')).join('\n');
   const filename=`${opName.replace(/\s+/g,'_')}_apiary_${todayStr()}.csv`;
   // Use data URI for mobile/tiiny.host compatibility
@@ -1019,6 +1026,34 @@ function exportCSV(opName){
       w.document.title=filename;
     }
   },300);
+}
+
+// Builds ONE .xlsx workbook with one sheet (tab) per operation — same data as exportCSV, just
+// bundled together so Google Sheets/Excel shows A2Bee, DH Alex, DH MM as separate tabs in a
+// single file, instead of three separate CSV downloads that mobile browsers tend to block after
+// the first one anyway.
+let _xlsxLibLoaded=false;
+async function exportAllAsWorkbook(){
+  if(!_xlsxLibLoaded){
+    showToast('Loading spreadsheet library…');
+    _xlsxLibLoaded=await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+    if(!_xlsxLibLoaded){ showToast('⚠ Could not load spreadsheet library — check your connection and try again'); return; }
+  }
+  try{
+    const wb=window.XLSX.utils.book_new();
+    Object.keys(OPERATIONS).forEach(opName=>{
+      const rows=buildExportRows(opName);
+      const ws=window.XLSX.utils.aoa_to_sheet(rows);
+      // Sheet/tab names can't exceed 31 characters or contain : \ / ? * [ ]
+      const safeName=opName.replace(/[:\\/?*\[\]]/g,'').slice(0,31);
+      window.XLSX.utils.book_append_sheet(wb,ws,safeName);
+    });
+    const filename=`apiary_diary_${todayStr()}.xlsx`;
+    window.XLSX.writeFile(wb,filename);
+    showToast('Downloaded '+filename+' — '+Object.keys(OPERATIONS).length+' tabs, one per operation');
+  }catch(e){
+    showToast('⚠ Export failed: '+e.message);
+  }
 }
 
 // ── Summary calc ──────────────────────────────────────────────────────────────
@@ -1349,7 +1384,18 @@ function renderOpSelector(){
   ));
   wrap.appendChild(nucCard);
 
-  wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'20px',color:'#fff',fontSize:'13px',fontWeight:'600',cursor:'pointer'},onClick:()=>{Object.keys(OPERATIONS).forEach(op=>exportCSV(op));}},'Export all data (CSV)'));
+  wrap.appendChild(h('button',{style:{marginTop:'16px',padding:'10px 20px',background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:'20px',color:'#fff',fontSize:'13px',fontWeight:'600',cursor:'pointer'},
+    onClick:()=>exportAllAsWorkbook()
+  },'Export all data (one file, tab per operation)'));
+  wrap.appendChild(h('button',{style:{marginTop:'8px',padding:'8px 20px',background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'12px',fontWeight:'600',cursor:'pointer',textDecoration:'underline'},onClick:()=>{
+    // Space these out — triggering all three downloads in the same instant gets most browsers
+    // (especially on mobile) to treat everything after the first as popup/download spam and
+    // silently block it, even though each one is a legitimate result of this same tap.
+    Object.keys(OPERATIONS).forEach((op,i)=>{
+      setTimeout(()=>exportCSV(op), i*1200);
+    });
+    showToast('Exporting '+Object.keys(OPERATIONS).length+' separate files — allow a few seconds between each download prompt');
+  }},'or, separate CSV per operation'));
   return wrap;
 }
 
