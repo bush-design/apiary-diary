@@ -7523,6 +7523,7 @@ function renderMovementsScreen(){
               onClick:()=>{
                 pickupData.site='';pickupData.op='';searchArea.style.display='block';selectedDisplay.style.display='none';
                 // Clear anything pulled in from the previous yard — starting fresh for whichever gets picked next
+                compositionTouched=false;
                 ['doubles','singles_boxes','light','alive_hives','dead_hives'].forEach(k=>{pickupData[k]='';});
                 if(boxInputs.doubles) boxInputs.doubles.value='';
                 if(boxInputs.singles_boxes) boxInputs.singles_boxes.value='';
@@ -7769,19 +7770,23 @@ function renderMovementsScreen(){
       addBody.appendChild(truckRow);
 
       // Doubles and singles boxes in this load — pre-filled from the source yard's own
-      // current numbers (same numbers shown on its yard summary tile), refreshed whenever the
-      // yard selection changes. Whatever ends up in these fields — pre-filled or edited — is
-      // used exactly as entered; nothing gets guessed or inferred afterward.
+      // current numbers, but adjusted for whether the pallets entered cover the WHOLE yard or
+      // only PART of it: a whole-yard move carries the real mix across as-is (dead included —
+      // a dead hive sits on a pallet the same as any other). A partial move (not everything)
+      // defaults to all doubles, all alive — a partial pallet-load pull is virtually always the
+      // actively productive stock, not the dead-outs. This is just the starting suggestion:
+      // editing any of these fields yourself stops it from being overwritten further.
       const boxRow=h('div',{style:{marginBottom:'8px'}});
       boxRow.appendChild(h('label',{className:'lbl',style:{display:'block',marginBottom:'4px'}},'Boxes in this load'));
       const boxGrid2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}});
       const boxInputs={};
+      let compositionTouched=false;
       [{label:'Doubles',key:'doubles'},{label:'Singles (box)',key:'singles_boxes'},{label:'Light',key:'light'}].forEach(({label,key})=>{
         const wrap2=h('div',null);
         wrap2.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},label));
         const bi=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
         bi.value=pickupData[key]||'';
-        bi.addEventListener('input',e=>pickupData[key]=e.target.value);
+        bi.addEventListener('input',e=>{pickupData[key]=e.target.value;compositionTouched=true;});
         boxInputs[key]=bi;
         wrap2.appendChild(bi);boxGrid2.appendChild(wrap2);
       });
@@ -7798,27 +7803,43 @@ function renderMovementsScreen(){
         nw.appendChild(h('label',{style:{fontSize:'10px',color:color,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
         const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:`.5px solid ${color}55`,borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
         if(pickupData[key]) ni.value=pickupData[key];
-        ni.addEventListener('input',e=>pickupData[key]=e.target.value);
+        ni.addEventListener('input',e=>{pickupData[key]=e.target.value;compositionTouched=true;});
         hiveInputs[key]=ni;
         nw.appendChild(ni);hiveGrid.appendChild(nw);
       });
       hiveRow.appendChild(hiveGrid);
       addBody.appendChild(hiveRow);
 
-      // Pull the source yard's real current numbers straight in — no guessing about whole vs
-      // partial moves; the person sees exactly what's there and can edit if only moving some of
-      // it. Runs once now, and again whenever the yard selection changes (see refreshTruckSpaceHints's
-      // caller sites, which this piggybacks on).
+      // Suggests Doubles/Singles/Light/Alive/Dead based on the source yard's real numbers and
+      // however many pallets/singles are currently entered — re-run whenever either changes.
+      // Stops overwriting anything the person has actually typed into these fields themselves.
       function refreshCompositionFromYard(){
+        if(compositionTouched) return;
         if(!(pickupData.site&&pickupData.op)) return;
         const yardState=getSiteHiveState(pickupData.op,pickupData.site,null);
-        if(!pickupData.doubles) { boxInputs.doubles.value=yardState.doubles||''; pickupData.doubles=yardState.doubles||''; }
-        if(!pickupData.singles_boxes) { boxInputs.singles_boxes.value=yardState.singles||''; pickupData.singles_boxes=yardState.singles||''; }
-        if(!pickupData.light) { boxInputs.light.value=yardState.light||''; pickupData.light=yardState.light||''; }
-        if(!pickupData.alive_hives) { hiveInputs.alive_hives.value=yardState.hives||''; pickupData.alive_hives=yardState.hives||''; }
-        if(!pickupData.dead_hives) { hiveInputs.dead_hives.value=yardState.dead||''; pickupData.dead_hives=yardState.dead||''; }
+        const yardTotal=(yardState.hives||0)+(yardState.dead||0);
+        const truckCapacity=(parseInt(pickupData.pallets)||0)*4+(pickupData.half_pallet?2:0)+(parseInt(pickupData.singles)||0);
+        const isWholeMove=yardTotal>0&&truckCapacity>=yardTotal;
+        let sDoubles,sSingles,sLight,sAlive,sDead;
+        if(isWholeMove){
+          sDoubles=yardState.doubles||'';sSingles=yardState.singles||'';sLight=yardState.light||'';
+          sAlive=yardState.hives||'';sDead=yardState.dead||'';
+        } else if(truckCapacity>0){
+          sDoubles=truckCapacity;sSingles='';sLight='';
+          sAlive=truckCapacity;sDead='';
+        } else {
+          sDoubles='';sSingles='';sLight='';sAlive='';sDead='';
+        }
+        boxInputs.doubles.value=sDoubles;pickupData.doubles=sDoubles;
+        boxInputs.singles_boxes.value=sSingles;pickupData.singles_boxes=sSingles;
+        boxInputs.light.value=sLight;pickupData.light=sLight;
+        hiveInputs.alive_hives.value=sAlive;pickupData.alive_hives=sAlive;
+        hiveInputs.dead_hives.value=sDead;pickupData.dead_hives=sDead;
       }
       if(isOut||isYY) refreshCompositionFromYard();
+      // Re-suggest whenever the truck space changes too, not just when the yard is picked
+      palInp.addEventListener('input',()=>{if(isOut||isYY) refreshCompositionFromYard();});
+      sinInp.addEventListener('input',()=>{if(isOut||isYY) refreshCompositionFromYard();});
 
       addBody.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'rgba(155,89,182,0.1)',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'13px',fontWeight:'700',color:movColor,cursor:'pointer'},
         onClick:()=>{
