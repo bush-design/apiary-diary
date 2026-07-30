@@ -5150,17 +5150,57 @@ function makeYardSearchGlobal(container, onSelect){
   container.appendChild(inp);container.appendChild(results);
 }
 
-function showApplyScopeChoice(label,count,onJustThis,onAll){
+function showApplyScopeChoice(label,count,onJustThis,onAll,onSelect){
   const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'250',padding:'16px'}});
   const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
   box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'6px'}},'Apply "'+label+'"'));
-  box.appendChild(h('div',{style:{fontSize:'13px',color:'#666',marginBottom:'16px'}},'Just this nuc, or all '+count+' in this batch?'));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#666',marginBottom:'16px'}},'Just this nuc, all '+count+' in this batch, or pick which ones?'));
   box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
     onClick:()=>{overlay.remove();onJustThis();}
   },'Just this nuc'));
   box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
     onClick:()=>{overlay.remove();onAll();}
   },'All '+count+' nucs'));
+  if(onSelect){
+    box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#fff',color:'#9b59b6',border:'1.5px solid #9b59b6',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+      onClick:()=>{overlay.remove();onSelect();}
+    },'Pick which nucs...'));
+  }
+  box.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'none',color:'#888',border:'none',borderRadius:'8px',fontSize:'13px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
+  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+// Checklist for applying a status to a hand-picked subset of nucs in a batch — nucs already
+// failed or transferred are left out, since a new status wouldn't apply to them anyway.
+function showSelectNucsModal(nucLabel,nucs,label,preselectIdx,onApply){
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'250',padding:'16px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px',maxHeight:'80vh',overflowY:'auto'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Apply "'+label+'" to...'));
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'14px'}},'Select which nucs this applies to'));
+  const selected=new Set(preselectIdx!==null&&preselectIdx!==undefined?[preselectIdx]:[]);
+  const list=h('div',{style:{marginBottom:'16px'}});
+  nucs.forEach((n,i)=>{
+    if(n.status==='failed'||n.transferredTo) return; // wouldn't make sense to re-apply a status here
+    const row=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',padding:'9px 4px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'}});
+    const box2=h('div',{style:{width:'20px',height:'20px',borderRadius:'5px',border:'2px solid '+(selected.has(i)?'#9b59b6':'#ccc'),background:selected.has(i)?'#9b59b6':'#fff',flexShrink:'0',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:'13px',fontWeight:'700'}},selected.has(i)?'✓':'');
+    row.appendChild(box2);
+    row.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'600'}},nucLabel+' '+(i+1)+(n.status?' · '+n.status:'')));
+    row.addEventListener('click',()=>{
+      if(selected.has(i)){selected.delete(i);box2.style.border='2px solid #ccc';box2.style.background='#fff';box2.textContent='';}
+      else{selected.add(i);box2.style.border='2px solid #9b59b6';box2.style.background='#9b59b6';box2.textContent='✓';}
+      applyBtn.textContent='Apply to '+selected.size+' selected';
+    });
+    list.appendChild(row);
+  });
+  box.appendChild(list);
+  const applyBtn=h('button',{style:{width:'100%',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+    onClick:()=>{
+      if(!selected.size){showToast('Select at least one nuc');return;}
+      overlay.remove();onApply([...selected]);
+    }
+  },'Apply to '+selected.size+' selected');
+  box.appendChild(applyBtn);
   box.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'none',color:'#888',border:'none',borderRadius:'8px',fontSize:'13px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
   overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
@@ -5197,9 +5237,19 @@ function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
           });
           saveNucYards(all);overlay.remove();onSave();
         };
+        const applyToSelected=(idxs)=>{
+          idxs.forEach(i=>{
+            const n=batchForNuc.nucs[i];
+            n.status=key;
+            const dk=key+'Date';
+            if(!n[dk]) n[dk]=todayStr();
+          });
+          saveNucYards(all);overlay.remove();onSave();
+        };
         // Only worth asking if there's actually more than one nuc in this batch
         if(batchForNuc.nucs.length>1){
-          showApplyScopeChoice(label,batchForNuc.nucs.length,applyJustThis,applyToAll);
+          showApplyScopeChoice(label,batchForNuc.nucs.length,applyJustThis,applyToAll,
+            ()=>{overlay.remove();showSelectNucsModal(batchForNuc.sourceYard,batchForNuc.nucs,label,nucIdx,applyToSelected);});
         } else {
           applyJustThis();
         }
@@ -5304,6 +5354,35 @@ function showBatchUpdateModal(op,nucYardKey,batchIdx,onSave){
     statusGrid.appendChild(btn);
   });
   box.appendChild(statusGrid);
+  box.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'#fff',color:'#9b59b6',border:'1.5px solid #9b59b6',borderRadius:'8px',fontSize:'13px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+    onClick:()=>{
+      // Ask which status first, then which nucs it applies to
+      const pickStatus=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'220',padding:'16px'}});
+      const pbox=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
+      pbox.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'14px'}},'Pick which nucs — for which status?'));
+      const pGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'10px'}});
+      [{label:'Cell In',key:'cell'},{label:'Virgin',key:'virgin'},{label:'DL',key:'dl'},{label:'Mated',key:'mated'},{label:'Failed',key:'failed'}].forEach(({label,key})=>{
+        pGrid.appendChild(h('button',{style:{padding:'10px',borderRadius:'8px',border:'.5px solid #ddd',background:'#fff',color:'#555',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
+          onClick:()=>{
+            pickStatus.remove();
+            showSelectNucsModal(batch.sourceYard,batch.nucs,label,null,(idxs)=>{
+              idxs.forEach(i=>{
+                const n=batch.nucs[i];
+                n.status=key;
+                const dk=key+'Date';
+                if(!n[dk]) n[dk]=dateInp.value;
+              });
+              saveNucYards(all);overlay.remove();onSave();
+            });
+          }
+        },label));
+      });
+      pbox.appendChild(pGrid);
+      pbox.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>pickStatus.remove()},'Cancel'));
+      pickStatus.appendChild(pbox);pickStatus.addEventListener('click',e=>{if(e.target===pickStatus)pickStatus.remove();});
+      document.body.appendChild(pickStatus);
+    }
+  },'Pick specific nucs...'));
   box.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
   overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
