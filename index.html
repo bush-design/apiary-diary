@@ -2025,11 +2025,13 @@ function renderNucsScreen(){
           nucs.length+' nucs · Added '+fmtDate(batch.dateAdded)+(mated?' · '+mated+' mated':'')+(failed?' · '+failed+' failed':'')
         ));
         bHdr.appendChild(bLeft);
-        const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},'▼');
+        const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},STATE._expandedNucBatch===key?'▲':'▼');
         bHdr.appendChild(bChev);
         card.appendChild(bHdr);
 
-        const bBody=h('div',{style:{display:'none'}});
+        // Starts expanded if this batch is the one remembered as open — kept in STATE so it
+        // survives a full re-render, e.g. returning here after updating an individual nuc.
+        const bBody=h('div',{style:{display:STATE._expandedNucBatch===key?'block':'none'}});
 
         // Individual nucs
         nucs.forEach((nuc,ni)=>{
@@ -2037,7 +2039,7 @@ function renderNucsScreen(){
           const statusColor=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#aaa';
           const statusLabel=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Recheck';
           const nRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
-            onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})});
+            onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=key;setState({op:'__nucs__'});})});
           const nLeft=h('div',null);
           nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' '+(ni+1)));
           if(nuc.cellDate) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'Cell: '+fmtDate(nuc.cellDate)));
@@ -2072,6 +2074,7 @@ function renderNucsScreen(){
           const open=bBody.style.display!=='none';
           bBody.style.display=open?'none':'block';
           bChev.textContent=open?'▼':'▲';
+          STATE._expandedNucBatch=open?null:key;
         });
         card.appendChild(bBody);
         batchArea.appendChild(card);
@@ -5018,10 +5021,18 @@ function renderNucYard(op, nucYardKey){
     bLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'14px'}},nucs.length+' nucs from '+batch.sourceYard));
     bLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'1px'}},'Added '+fmtDate(batch.dateAdded)+(batchMated?' · '+batchMated+' mated':'')));
     bHdr.appendChild(bLeft);
-    const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},'▼');
+    const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},STATE._expandedNucBatch===nucYardKey?'▲':'▼');
     bHdr.appendChild(bChev);
-    const bBody=h('div',{style:{display:'none'}});
-    bHdr.addEventListener('click',()=>{const o=bBody.style.display!=='none';bBody.style.display=o?'none':'block';bChev.textContent=o?'▼':'▲';});
+    // Starts expanded if this batch is the one remembered as open — kept in STATE (not just
+    // local DOM toggle state) so it survives a full re-render, e.g. returning here after
+    // updating an individual nuc's status.
+    const bBody=h('div',{style:{display:STATE._expandedNucBatch===nucYardKey?'block':'none'}});
+    bHdr.addEventListener('click',()=>{
+      const o=bBody.style.display!=='none';
+      bBody.style.display=o?'none':'block';
+      bChev.textContent=o?'▼':'▲';
+      STATE._expandedNucBatch=o?null:nucYardKey;
+    });
     card.appendChild(bHdr);
 
     // Individual nucs
@@ -5030,7 +5041,7 @@ function renderNucYard(op, nucYardKey){
       const statusColor=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#aaa';
       const statusLabel=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Waiting';
       const nRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
-        onClick:()=>showNucModal(op,nucYardKey,bi,ni,()=>{setState({nucYard:nucYardKey});})});
+        onClick:()=>showNucModal(op,nucYardKey,bi,ni,()=>{STATE._expandedNucBatch=nucYardKey;setState({nucYard:nucYardKey});})});
       const nLeft=h('div',null);
       nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px',color:'#333'}},'Nuc #'+nuc.id));
       if(nuc.cellDate) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'Cell: '+fmtDate(nuc.cellDate)));
@@ -5139,6 +5150,22 @@ function makeYardSearchGlobal(container, onSelect){
   container.appendChild(inp);container.appendChild(results);
 }
 
+function showApplyScopeChoice(label,count,onJustThis,onAll){
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'250',padding:'16px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'6px'}},'Apply "'+label+'"'));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#666',marginBottom:'16px'}},'Just this nuc, or all '+count+' in this batch?'));
+  box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+    onClick:()=>{overlay.remove();onJustThis();}
+  },'Just this nuc'));
+  box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+    onClick:()=>{overlay.remove();onAll();}
+  },'All '+count+' nucs'));
+  box.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'none',color:'#888',border:'none',borderRadius:'8px',fontSize:'13px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
+  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
   const all=loadNucYards();
   const nuc=all[nucYardKey].batches[batchIdx].nucs[nucIdx];
@@ -5151,13 +5178,31 @@ function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
   // Status buttons
   box.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',marginBottom:'6px'}},'Update status'));
   const statusGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'14px'}});
+  const batchForNuc=all[nucYardKey].batches[batchIdx];
   [{label:'Cell In',key:'cell',color:'#ef9f27'},{label:'Virgin',key:'virgin',color:'#9b59b6'},{label:'DL',key:'dl',color:'#1a6fb0'},{label:'Mated',key:'mated',color:'#3d7a4f'},{label:'Failed',key:'failed',color:'#e24b4a'}].forEach(({label,key,color})=>{
     const btn=h('button',{style:{padding:'9px',borderRadius:'8px',border:`1.5px solid ${nuc.status===key?color:'#ddd'}`,background:nuc.status===key?color+'18':'#fff',color:nuc.status===key?color:'#555',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
       onClick:()=>{
-        nuc.status=key;
-        const dateKey=key+'Date';
-        if(!nuc[dateKey]) nuc[dateKey]=todayStr();
-        saveNucYards(all);overlay.remove();onSave();
+        const applyJustThis=()=>{
+          nuc.status=key;
+          const dateKey=key+'Date';
+          if(!nuc[dateKey]) nuc[dateKey]=todayStr();
+          saveNucYards(all);overlay.remove();onSave();
+        };
+        const applyToAll=()=>{
+          batchForNuc.nucs.forEach(n=>{
+            if(n.status==='failed'||n.transferredTo) return; // skip failed/transferred
+            n.status=key;
+            const dk=key+'Date';
+            if(!n[dk]) n[dk]=todayStr();
+          });
+          saveNucYards(all);overlay.remove();onSave();
+        };
+        // Only worth asking if there's actually more than one nuc in this batch
+        if(batchForNuc.nucs.length>1){
+          showApplyScopeChoice(label,batchForNuc.nucs.length,applyJustThis,applyToAll);
+        } else {
+          applyJustThis();
+        }
       }
     },label);
     statusGrid.appendChild(btn);
