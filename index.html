@@ -5331,58 +5331,54 @@ function showBatchUpdateModal(op,nucYardKey,batchIdx,onSave){
   box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Update batch'));
   box.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'14px'}},batch.nucs.length+' nucs from '+batch.sourceYard));
 
-  box.appendChild(h('div',{style:{fontSize:'12px',color:'#555',marginBottom:'8px',fontWeight:'600'}},'Apply status to all nucs in this batch:'));
-  const statusGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'14px'}});
-  const dateInp=h('input',{type:'date',value:todayStr(),style:{display:'block',width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',marginBottom:'14px',boxSizing:'border-box'}});
+  const dateInp=h('input',{type:'date',value:todayStr(),style:{display:'block',width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'14px',marginBottom:'16px',boxSizing:'border-box'}});
   box.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'4px'}},'Date'));
   box.appendChild(dateInp);
 
-  [{label:'Cell In',key:'cell'},{label:'Virgin',key:'virgin'},{label:'DL',key:'dl'},{label:'Mated',key:'mated'},{label:'Failed',key:'failed'}].forEach(({label,key})=>{
-    const btn=h('button',{style:{padding:'10px',borderRadius:'8px',border:'.5px solid #ddd',background:'#fff',color:'#555',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
-      onClick:()=>{
-        confirmAction('Set all '+batch.nucs.length+' nucs to '+label+'?',()=>{
-          batch.nucs.forEach(n=>{
-            if(n.status==='failed'||n.transferredTo) return; // skip failed/transferred
-            n.status=key;
-            const dk=key+'Date';
-            if(!n[dk]) n[dk]=dateInp.value;
-          });
-          saveNucYards(all);overlay.remove();onSave();
+  // Shared status-picker step — both "Select all" and "Specific nucs" need to know which
+  // status before deciding who it applies to, so this is the same sub-modal for both.
+  function pickStatusThen(onPicked){
+    const pickStatus=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'220',padding:'16px'}});
+    const pbox=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
+    pbox.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'14px'}},'Which status?'));
+    const pGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'10px'}});
+    [{label:'Cell In',key:'cell'},{label:'Virgin',key:'virgin'},{label:'DL',key:'dl'},{label:'Mated',key:'mated'},{label:'Failed',key:'failed'}].forEach(({label,key})=>{
+      pGrid.appendChild(h('button',{style:{padding:'10px',borderRadius:'8px',border:'.5px solid #ddd',background:'#fff',color:'#555',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
+        onClick:()=>{pickStatus.remove();onPicked(label,key);}
+      },label));
+    });
+    pbox.appendChild(pGrid);
+    pbox.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>pickStatus.remove()},'Cancel'));
+    pickStatus.appendChild(pbox);pickStatus.addEventListener('click',e=>{if(e.target===pickStatus)pickStatus.remove();});
+    document.body.appendChild(pickStatus);
+  }
+
+  box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+    onClick:()=>pickStatusThen((label,key)=>{
+      confirmAction('Set all '+batch.nucs.length+' nucs to '+label+'?',()=>{
+        batch.nucs.forEach(n=>{
+          if(n.status==='failed'||n.transferredTo) return; // skip failed/transferred
+          n.status=key;
+          const dk=key+'Date';
+          if(!n[dk]) n[dk]=dateInp.value;
         });
-      }
-    },label);
-    statusGrid.appendChild(btn);
-  });
-  box.appendChild(statusGrid);
-  box.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'#fff',color:'#9b59b6',border:'1.5px solid #9b59b6',borderRadius:'8px',fontSize:'13px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
-    onClick:()=>{
-      // Ask which status first, then which nucs it applies to
-      const pickStatus=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'220',padding:'16px'}});
-      const pbox=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
-      pbox.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'14px'}},'Pick which nucs — for which status?'));
-      const pGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',marginBottom:'10px'}});
-      [{label:'Cell In',key:'cell'},{label:'Virgin',key:'virgin'},{label:'DL',key:'dl'},{label:'Mated',key:'mated'},{label:'Failed',key:'failed'}].forEach(({label,key})=>{
-        pGrid.appendChild(h('button',{style:{padding:'10px',borderRadius:'8px',border:'.5px solid #ddd',background:'#fff',color:'#555',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
-          onClick:()=>{
-            pickStatus.remove();
-            showSelectNucsModal(batch.sourceYard,batch.nucs,label,null,(idxs)=>{
-              idxs.forEach(i=>{
-                const n=batch.nucs[i];
-                n.status=key;
-                const dk=key+'Date';
-                if(!n[dk]) n[dk]=dateInp.value;
-              });
-              saveNucYards(all);overlay.remove();onSave();
-            });
-          }
-        },label));
+        saveNucYards(all);overlay.remove();onSave();
       });
-      pbox.appendChild(pGrid);
-      pbox.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>pickStatus.remove()},'Cancel'));
-      pickStatus.appendChild(pbox);pickStatus.addEventListener('click',e=>{if(e.target===pickStatus)pickStatus.remove();});
-      document.body.appendChild(pickStatus);
-    }
-  },'Pick specific nucs...'));
+    })
+  },'Select all'));
+  box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#fff',color:'#9b59b6',border:'1.5px solid #9b59b6',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+    onClick:()=>pickStatusThen((label,key)=>{
+      showSelectNucsModal(batch.sourceYard,batch.nucs,label,null,(idxs)=>{
+        idxs.forEach(i=>{
+          const n=batch.nucs[i];
+          n.status=key;
+          const dk=key+'Date';
+          if(!n[dk]) n[dk]=dateInp.value;
+        });
+        saveNucYards(all);overlay.remove();onSave();
+      });
+    })
+  },'Specific nucs...'));
   box.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
   overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
