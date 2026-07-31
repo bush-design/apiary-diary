@@ -2859,6 +2859,7 @@ function renderReportsScreen(){
       {label:'Movement log by driver',custom:'movements'},
       {label:'Entries by person',custom:'people'},
       {label:'Pollination hives by orchard',custom:'pollination'},
+      {label:'Nuc success rate',custom:'nucsuccess'},
     ];
     function backToCharts(){
       customArea.style.display='none';customArea.innerHTML='';
@@ -2880,6 +2881,7 @@ function renderReportsScreen(){
       else if(key==='strength') renderHiveStrengthTrend(body);
       else if(key==='people') renderEntriesByPerson(body);
       else if(key==='pollination') renderPollinationReport(body);
+      else if(key==='nucsuccess') renderNucSuccessReport(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -3790,6 +3792,137 @@ function renderReportsScreen(){
         listArea.appendChild(totalCard);
       }
       yearSel.addEventListener('change',draw);
+      draw();
+    }
+
+    // ── Nuc success rate — one stacked bar per operation, success (mated/transferred) at the
+    // bottom, everything else counted as "failed" (per the person's own definition: anything
+    // that wasn't mated), split by Spring/Autumn/Both since nuc-rearing happens in both.
+    function renderNucSuccessReport(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Nuc Success Rate'));
+
+      const seasonRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'14px'}});
+      let seasonFilter='both';
+      const seasonBtns={};
+      [['spring','Spring'],['queen','Autumn'],['both','Both']].forEach(([val,label])=>{
+        const btn=h('button',{type:'button',style:{flex:'1',padding:'9px',borderRadius:'8px',border:'1.5px solid #ddd',background:'#fff',color:'#555',fontWeight:'600',fontSize:'13px',cursor:'pointer'}},label);
+        btn.addEventListener('click',()=>{
+          seasonFilter=val;
+          Object.entries(seasonBtns).forEach(([v,b])=>{
+            const active=v===val;
+            b.style.border='1.5px solid '+(active?'#7a4fa8':'#ddd');b.style.background=active?'#f3e8ff':'#fff';b.style.color=active?'#7a4fa8':'#555';
+          });
+          draw();
+        });
+        seasonBtns[val]=btn;
+        seasonRow.appendChild(btn);
+      });
+      seasonBtns['both'].style.border='1.5px solid #7a4fa8';seasonBtns['both'].style.background='#f3e8ff';seasonBtns['both'].style.color='#7a4fa8';
+      container.appendChild(seasonRow);
+
+      const canvas=h('canvas',{style:{width:'100%',height:'260px',display:'block'}});
+      container.appendChild(canvas);
+      const summaryArea=h('div',{style:{marginTop:'10px'}});
+      container.appendChild(summaryArea);
+
+      function draw(){
+        const allNucs=loadNucYards();
+        const opStats=Object.keys(OPERATIONS).map(opName=>{
+          let success=0,failed=0;
+          Object.values(allNucs).forEach(yard=>{
+            if(yard.op!==opName) return;
+            (yard.batches||[]).forEach(batch=>{
+              const season=roundForDate(batch.dateAdded)||'spring';
+              const matchesSeason=seasonFilter==='both'?(season==='spring'||season==='queen'):season===seasonFilter;
+              if(!matchesSeason) return;
+              (batch.nucs||[]).forEach(n=>{
+                if(n.status==='mated'||n.transferredTo) success++;
+                else failed++; // anything not mated — waiting, cell, virgin, dl, or explicitly failed
+              });
+            });
+          });
+          return {opName,success,failed,total:success+failed};
+        }).filter(s=>s.total>0);
+
+        summaryArea.innerHTML='';
+        if(!opStats.length){
+          summaryArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'20px 0',textAlign:'center'}},'No nucs logged for this selection yet'));
+          const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);
+          return;
+        }
+
+        // Canvas sizing (matches the dpr-aware pattern used by the other report charts)
+        const dpr=window.devicePixelRatio||1;
+        const cssW=canvas.parentElement.clientWidth||340;
+        canvas.width=cssW*dpr;canvas.height=260*dpr;
+        canvas.style.width=cssW+'px';canvas.style.height='260px';
+        const ctx=canvas.getContext('2d');
+        ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,canvas.width,canvas.height);ctx.scale(dpr,dpr);
+        const W=cssW,H=260;
+        const pad={top:34,bottom:34,left:40,right:15};
+        const chartW=W-pad.left-pad.right,chartH=H-pad.top-pad.bottom;
+        const maxTotal=Math.max(...opStats.map(s=>s.total),1);
+        const step=chartW/opStats.length;
+        const barW=Math.min(step*0.5,70);
+
+        // Y axis gridlines
+        ctx.strokeStyle='#e0e0de';ctx.lineWidth=1;
+        for(let i=0;i<=4;i++){
+          const v=Math.round(maxTotal*i/4);
+          const y=pad.top+chartH-(chartH*i/4);
+          ctx.beginPath();ctx.moveTo(pad.left,y);ctx.lineTo(pad.left+chartW,y);ctx.stroke();
+          ctx.fillStyle='#aaa';ctx.font='bold 10px system-ui';ctx.textAlign='right';
+          ctx.fillText(v,pad.left-6,y+3);
+        }
+
+        opStats.forEach((s,i)=>{
+          const x=pad.left+step*i+step/2;
+          const baseY=pad.top+chartH;
+          const successH=chartH*(s.success/maxTotal);
+          const failedH=chartH*(s.failed/maxTotal);
+          const pct=s.total>0?Math.round(100*s.success/s.total):0;
+
+          // Success segment — hatched pattern, bottom of the bar
+          ctx.save();
+          ctx.beginPath();ctx.rect(x-barW/2,baseY-successH,barW,successH);ctx.clip();
+          ctx.fillStyle='#3d7a4f22';ctx.fillRect(x-barW/2,baseY-successH,barW,successH);
+          ctx.strokeStyle='#3d7a4f';ctx.lineWidth='1';
+          for(let d=-successH;d<barW;d+=7){
+            ctx.beginPath();ctx.moveTo(x-barW/2+d,baseY);ctx.lineTo(x-barW/2+d+successH,baseY-successH);ctx.stroke();
+          }
+          ctx.restore();
+          ctx.strokeStyle='#3d7a4f';ctx.lineWidth=1.5;
+          ctx.strokeRect(x-barW/2,baseY-successH,barW,successH);
+
+          // Failed segment — solid, stacked on top
+          ctx.fillStyle='#e24b4a33';
+          ctx.fillRect(x-barW/2,baseY-successH-failedH,barW,failedH);
+          ctx.strokeStyle='#e24b4a';ctx.lineWidth=1.5;
+          ctx.strokeRect(x-barW/2,baseY-successH-failedH,barW,failedH);
+
+          // % success label above the bar
+          ctx.fillStyle='#3d7a4f';ctx.font='bold 13px system-ui';ctx.textAlign='center';
+          ctx.fillText(pct+'%',x,baseY-successH-failedH-8);
+
+          // Operation label below
+          ctx.fillStyle='#555';ctx.font='bold 12px system-ui';ctx.textAlign='center';
+          ctx.fillText(s.opName,x,baseY+18);
+        });
+
+        // Legend + summary rows
+        const legend=h('div',{style:{display:'flex',gap:'16px',fontSize:'12px',color:'#666',marginBottom:'10px',justifyContent:'center'}},
+          h('div',{style:{display:'flex',alignItems:'center',gap:'5px'}},h('span',{style:{width:'11px',height:'11px',background:'#3d7a4f55',border:'1.5px solid #3d7a4f',borderRadius:'2px',display:'inline-block'}}),'Success (mated)'),
+          h('div',{style:{display:'flex',alignItems:'center',gap:'5px'}},h('span',{style:{width:'11px',height:'11px',background:'#e24b4a33',border:'1.5px solid #e24b4a',borderRadius:'2px',display:'inline-block'}}),'Failed (not mated)')
+        );
+        summaryArea.appendChild(legend);
+        opStats.forEach(s=>{
+          const pct=s.total>0?Math.round(100*s.success/s.total):0;
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 12px',background:'#fff',border:'.5px solid #eee',borderRadius:'8px',marginBottom:'6px',fontSize:'13px'}});
+          row.appendChild(h('span',{style:{fontWeight:'700'}},s.opName));
+          row.appendChild(h('span',{style:{color:'#666'}},s.success+' / '+s.total+' mated · ',h('span',{style:{color:'#3d7a4f',fontWeight:'700'}},pct+'%')));
+          summaryArea.appendChild(row);
+        });
+      }
       draw();
     }
 
