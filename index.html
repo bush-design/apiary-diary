@@ -5113,6 +5113,45 @@ function showAddNucBatchModal(op,nucYardKey,onSave){
       const nucs=Array.from({length:count},(_,i)=>({id:nextId+i,status:'waiting',cellDate:'',virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
       all[nucYardKey].batches.push({id:Date.now(),sourceYard:selectedSrc,sourceOp:selectedSrcOp,dateAdded:dateInp.value,nucs});
       saveNucYards(all);
+
+      // Also reflect this on the source yard's own diary — same "Nuc Splits" field under
+      // Requeening that creating splits from a diary entry already feeds into, just the
+      // reverse direction, so the number shows up on the yard's summary tile either way.
+      const rk=roundForDate(dateInp.value)||'spring';
+      const ek=eKey(selectedSrcOp,selectedSrc,rk);
+      const existing=STATE.entries[ek]||[];
+      const sameDateIdx=existing.findIndex(e=>!e._movement&&e.date===dateInp.value);
+      let updatedEntries;
+      if(sameDateIdx>-1){
+        // An entry already exists for this exact date — add to whatever nuc_splits it already has
+        const updatedList=[...existing];
+        const prevCount=parseInt(updatedList[sameDateIdx].nuc_splits)||0;
+        updatedList[sameDateIdx]={...updatedList[sameDateIdx],nuc_splits:String(prevCount+count),saved_at:new Date().toISOString()};
+        updatedEntries={...STATE.entries,[ek]:updatedList};
+      } else {
+        // No entry for this date yet — create one, carrying forward the yard's last known
+        // hive numbers (same as tapping "+ New entry" would) so it's not a bare, empty entry
+        const allSiteEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(selectedSrcOp,selectedSrc,r2)]||[]))
+          .sort((a,b)=>{
+            const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
+            const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
+            return tsB.localeCompare(tsA);
+          });
+        const last=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+        const newEntry={
+          id:genEntryId(),
+          date:dateInp.value,
+          hives:last?.hives||'',singles:last?.singles||'',doubles:last?.doubles||'',light:last?.light||'',dead:last?.dead||'',
+          nuc_splits:String(count),
+          logged_by:STATE.userName||'Unknown',
+          saved_at:new Date().toISOString(),logged_at:new Date().toISOString()
+        };
+        updatedEntries={...STATE.entries,[ek]:[newEntry,...existing]};
+      }
+      saveLocal(updatedEntries);
+      pushToSupabase(ek,updatedEntries[ek]);
+      STATE.entries=updatedEntries;
+
       overlay.remove();onSave();
     }
   },'Add'));
@@ -5758,6 +5797,7 @@ function renderEntriesList(){
       {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
       {l:'Pollen fed',v:lv('pollen_hives_fed'),show:lv('pollen_hives_fed')>0},
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
+      {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
     ].filter(x=>x.show);
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
@@ -6745,6 +6785,7 @@ function renderEntriesList(){
       {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
       {l:'Pollen fed',v:lv('pollen_hives_fed'),show:lv('pollen_hives_fed')>0},
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
+      {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
     ].filter(x=>x.show);
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
