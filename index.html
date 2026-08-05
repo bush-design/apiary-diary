@@ -192,10 +192,35 @@ function getSeasonRanges(yr){
 // Custom orchards storage
 function loadCustomOrchards(){try{return JSON.parse(localStorage.getItem('apiary_custom_orchards')||'[]');}catch(e){return[];}}
 function saveCustomOrchards(list){try{localStorage.setItem('apiary_custom_orchards',JSON.stringify(list));}catch(e){}}
+// Built-in orchards (ORCHARDS) are a fixed list — renaming one doesn't mutate that list in
+// place, it records old→new here instead, and getAllOrchards() below substitutes it in.
+function loadOrchardRenames(){try{return JSON.parse(localStorage.getItem('apiary_orchard_renames')||'{}');}catch(e){return{};}}
+function saveOrchardRenames(map){try{localStorage.setItem('apiary_orchard_renames',JSON.stringify(map));}catch(e){}}
 function getAllOrchards(){
   const custom=loadCustomOrchards();
-  const all=[...ORCHARDS,...custom.filter(o=>!ORCHARDS.includes(o))];
+  const renames=loadOrchardRenames();
+  const builtIn=ORCHARDS.map(o=>renames[o]||o);
+  const all=[...builtIn,...custom.filter(o=>!ORCHARDS.includes(o))];
   return all;
+}
+// Renaming any orchard — built-in or custom — needs to update every movement that already
+// references the old name, or those historical records would silently point at a name that no
+// longer exists anywhere in the app (orphaned data, invisible in every orchard-based report).
+async function renameOrchardEverywhere(oldName,newName){
+  const movs=await getMergedRemoteMovements();
+  let changedCount=0;
+  const updated=movs.map(m=>{
+    if(m.to_orchard===oldName||m.from_orchard===oldName){
+      changedCount++;
+      return {...m,to_orchard:m.to_orchard===oldName?newName:m.to_orchard,from_orchard:m.from_orchard===oldName?newName:m.from_orchard};
+    }
+    return m;
+  });
+  if(changedCount>0){
+    saveMovements(updated);
+    await pushToSupabase('hive_movements',updated);
+  }
+  return changedCount;
 }
 
 // Movement storage — separate from diary entries.
@@ -697,6 +722,12 @@ async function pullFromSupabase(){
           }
           return;
         }
+        if(row.entry_key==='orchard_renames'){
+          if(row.data&&typeof row.data==='object'){
+            saveOrchardRenames(row.data);
+          }
+          return;
+        }
         if(row.entry_key==='custom_yards'){
           // Supabase is authoritative for custom yards — use it directly
           // This ensures deletions on one device propagate to all others
@@ -783,6 +814,11 @@ function subscribeRealtime(){
     }
     if(entry_key==='custom_orchards'){
       if(data&&Array.isArray(data)) saveCustomOrchards(data);
+      render();
+      return;
+    }
+    if(entry_key==='orchard_renames'){
+      if(data&&typeof data==='object') saveOrchardRenames(data);
       render();
       return;
     }
@@ -8944,9 +8980,48 @@ function renderMovementsScreen(){
     getAllOrchards().forEach(orchard=>{
       const isCustom=custom.includes(orchard);
       const row=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'8px',padding:'10px 13px',marginBottom:'5px',display:'flex',justifyContent:'space-between',alignItems:'center'}});
-      row.appendChild(h('span',{style:{fontSize:'14px',color:'#333'}},orchard+(isCustom?' ✎':'')));
+      row.appendChild(h('span',{style:{fontSize:'14px',color:'#333'}},orchard));
+      const actionsRow=h('div',{style:{display:'flex',gap:'6px',alignItems:'center'}});
+      actionsRow.appendChild(h('button',{style:{background:'none',border:'.5px solid #ccc',borderRadius:'6px',padding:'4px 10px',fontSize:'12px',color:'#555',cursor:'pointer',fontWeight:'600'},
+        onClick:()=>{
+          const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+          const box=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'22px',width:'100%',maxWidth:'320px'}});
+          box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'12px'}},'Rename orchard'));
+          const nameInp=h('input',{type:'text',value:orchard,className:'inp',style:{marginBottom:'14px'}});
+          box.appendChild(nameInp);
+          const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+          btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#2a1f3d',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+            onClick:async()=>{
+              const newName=nameInp.value.trim();
+              if(!newName){showToast('Enter a name');return;}
+              if(newName===orchard){overlay.remove();return;}
+              if(getAllOrchards().includes(newName)){showToast('That name already exists');return;}
+              if(isCustom){
+                const updatedCustom=loadCustomOrchards().map(o=>o===orchard?newName:o);
+                saveCustomOrchards(updatedCustom);
+                pushToSupabase('custom_orchards',updatedCustom);
+              } else {
+                const renames=loadOrchardRenames();
+                renames[orchard]=newName;
+                saveOrchardRenames(renames);
+                pushToSupabase('orchard_renames',renames);
+              }
+              const changedCount=await renameOrchardEverywhere(orchard,newName);
+              overlay.remove();
+              showToast(orchard+' renamed to '+newName+(changedCount?' · '+changedCount+' movement'+(changedCount===1?'':'s')+' updated':''));
+              setState({tab:'manage_orchards'});
+            }
+          },'Save'));
+          btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+            onClick:()=>overlay.remove()},'Cancel'));
+          box.appendChild(btnRow);
+          overlay.appendChild(box);
+          overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+          document.body.appendChild(overlay);
+        }
+      },'Edit'));
       if(isCustom){
-        row.appendChild(h('button',{style:{background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',padding:'4px 10px',fontSize:'12px',color:'#c0392b',cursor:'pointer',fontWeight:'600'},
+        actionsRow.appendChild(h('button',{style:{background:'none',border:'.5px solid #f4a0a0',borderRadius:'6px',padding:'4px 10px',fontSize:'12px',color:'#c0392b',cursor:'pointer',fontWeight:'600'},
           onClick:()=>{
             const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
             const box=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'22px',width:'100%',maxWidth:'300px'}});
@@ -8972,8 +9047,9 @@ function renderMovementsScreen(){
           }
         },'Remove'));
       } else {
-        row.appendChild(h('span',{style:{fontSize:'11px',color:'#ccc'}},'built-in'));
+        actionsRow.appendChild(h('span',{style:{fontSize:'11px',color:'#ccc'}},'built-in'));
       }
+      row.appendChild(actionsRow);
       screen.appendChild(row);
     });
   }
