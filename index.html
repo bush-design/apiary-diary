@@ -6230,14 +6230,56 @@ function renderEntriesList(){
   return wrap;
 }
 
+function showUnsavedChangesDialog(onSave,onDiscard){
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'260',padding:'16px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'340px'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'6px'}},'Save this entry?'));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#666',marginBottom:'16px'}},'You have unsaved changes.'));
+  box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#2a1f3d',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+    onClick:()=>{overlay.remove();onSave();}
+  },'Save entry'));
+  box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#fff',color:'#c0392b',border:'1.5px solid #f4a0a0',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginBottom:'8px'},
+    onClick:()=>{overlay.remove();onDiscard();}
+  },'Discard changes'));
+  box.appendChild(h('button',{style:{width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Keep editing'));
+  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function renderForm(){
   const op=STATE.op,round=STATE.round,rd=ROUNDS[round],site=STATE.site;
   const vals=STATE.formVals;
   const wrap=h('div',null);
 
+  // Snapshot of the form's state as it was when THIS entry was first opened — tied to a key
+  // identifying which entry this is, so a fresh "+ New entry" or "Edit" always gets its own
+  // baseline rather than comparing against whatever was open before. Captured via setTimeout
+  // rather than synchronously here, because rendering the form itself mutates formVals (several
+  // fields below set default sub-objects like _mitePerHive the first time they render) — take
+  // the snapshot before that settles and every fresh, untouched form looks "changed" already.
+  const formKey=op+'|'+site+'|'+STATE.editing;
+  if(!STATE._formSnapshot||STATE._formSnapshot.key!==formKey){
+    STATE._formSnapshot={key:formKey,data:null};
+    setTimeout(()=>{
+      if(STATE._formSnapshot&&STATE._formSnapshot.key===formKey&&STATE._formSnapshot.data===null){
+        STATE._formSnapshot.data=JSON.stringify(STATE.formVals);
+      }
+    },0);
+  }
+
   // Header
   const topRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'12px'}});
-  topRow.appendChild(h('button',{style:{background:'none',border:'none',fontSize:'22px',cursor:'pointer',color:'#555',padding:'0'},onClick:()=>setState({diaryView:'entries',editing:null,editingOriginalRound:null})},'←'));
+  topRow.appendChild(h('button',{style:{background:'none',border:'none',fontSize:'22px',cursor:'pointer',color:'#555',padding:'0'},
+    onClick:()=>{
+      const hasChanges=STATE._formSnapshot.data!==null&&JSON.stringify(STATE.formVals)!==STATE._formSnapshot.data;
+      const leaveForm=()=>{STATE._formSnapshot=null;setState({diaryView:'entries',editing:null,editingOriginalRound:null});};
+      if(hasChanges){
+        showUnsavedChangesDialog(()=>saveBtn.click(),leaveForm);
+      } else {
+        leaveForm();
+      }
+    }
+  },'←'));
   topRow.appendChild(h('div',null,h('div',{style:{fontWeight:'600',fontSize:'16px'}},site),h('div',{style:{fontSize:'12px',color:rd.color,fontWeight:'600'}},rd.label)));
   wrap.appendChild(topRow);
 
@@ -6754,6 +6796,7 @@ function renderForm(){
       STATE.entries=updated;
       maybeSendReport(op);
       showToast('Entry saved');
+      STATE._formSnapshot=null;
       setState({entries:updated,diaryView:'entries',editing:null,editingOriginalRound:null});
       pushToSupabase(k,updated[k]).catch(e=>console.warn('Supabase push failed:',e));
       if(roundChanged) pushToSupabase(originalK,updated[originalK]).catch(e=>console.warn('Supabase push failed:',e));
