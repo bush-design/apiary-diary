@@ -6473,7 +6473,7 @@ function renderForm(){
   SECTIONS.forEach(sec=>{
     // Check if section has any data
     const hasData=sec.fields.some(f=>{
-      if(f.type==='score_grid'){const bd=vals.score_breakdown||{};return Object.values(bd).some(v=>v&&v!=='');}
+      if(f.type==='score_grid'){const bd=vals.score_breakdown||{};return vals.spring_clean||Object.values(bd).some(v=>v&&v!=='');}
       if(f.type==='carrot_grid'){const cbd=vals.carrot_score||{};return Object.values(cbd).some(v=>v&&v!=='');}
       return vals[f.key]&&vals[f.key]!=='';
     });
@@ -6503,6 +6503,14 @@ function renderForm(){
         inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
         fw.appendChild(inp);
       } else if(f.type==='score_grid'){
+        const scPill=h('button',{type:'button',style:{padding:'8px 14px',borderRadius:'20px',border:'1.5px solid '+(vals.spring_clean?'#3d7a4f':'#ddd'),background:vals.spring_clean?'#3d7a4f':'#fff',color:vals.spring_clean?'#fff':'#555',fontSize:'13px',fontWeight:'700',cursor:'pointer',marginBottom:'10px',display:'inline-flex',alignItems:'center',gap:'6px'}},
+          (vals.spring_clean?'✓ ':'')+'Spring clean');
+        scPill.addEventListener('click',()=>{
+          STATE.formVals.spring_clean=!STATE.formVals.spring_clean;
+          const parent=wrap.parentElement;
+          if(parent){parent.removeChild(wrap);parent.appendChild(renderForm());}
+        });
+        fw.appendChild(scPill);
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},'Spring Score'));
         const grid=h('div',{style:{display:'flex',flexDirection:'column',gap:'5px'}});
         [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{
