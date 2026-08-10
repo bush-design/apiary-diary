@@ -6510,10 +6510,21 @@ function renderForm(){
           const row=h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});
           row.appendChild(h('div',{style:{width:'24px',height:'24px',borderRadius:'50%',flexShrink:'0',background:bg,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:'10px'}},n===10?'10+':String(n)));
           row.appendChild(h('label',{style:{fontSize:'12px',color:'#888',width:'55px',flexShrink:'0'}},n===10?'10+ hives':'Score '+n));
-          const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'5px 8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'14px',fontWeight:'600',background:'#fafafa',boxSizing:'border-box'}});
+          const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'44px',flex:'0 0 44px',padding:'5px 4px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'14px',fontWeight:'600',background:'#fafafa',boxSizing:'border-box',textAlign:'center'}});
           ni.value=(vals.score_breakdown||{})[n]||'';
           ni.addEventListener('input',e=>{if(!STATE.formVals.score_breakdown)STATE.formVals.score_breakdown={};STATE.formVals.score_breakdown[n]=e.target.value;});
+          const stepBtn=(delta,label)=>h('button',{type:'button',style:{width:'30px',height:'30px',flexShrink:'0',borderRadius:'6px',border:'.5px solid #ccc',background:'#fff',color:'#555',fontSize:'16px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:'0'},
+            onClick:()=>{
+              const cur=parseInt(ni.value)||0;
+              const next=Math.max(0,cur+delta);
+              ni.value=String(next);
+              if(!STATE.formVals.score_breakdown)STATE.formVals.score_breakdown={};
+              STATE.formVals.score_breakdown[n]=String(next);
+            }
+          },label);
+          row.appendChild(stepBtn(-1,'−'));
           row.appendChild(ni);
+          row.appendChild(stepBtn(1,'+'));
           grid.appendChild(row);
         });
         fw.appendChild(grid);
