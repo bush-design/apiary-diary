@@ -1249,7 +1249,7 @@ const MOVEMENT_FIELD_DEFS=[
   {label:'Alive',get:m=>m.alive_hives||''},
   {label:'Dead',get:m=>m.dead_hives||''},
   {label:'Doubles (boxes)',get:m=>m.doubles||''},
-  {label:'Singles (box)',get:m=>m.singles_boxes||''},
+  {label:'Singles',get:m=>m.singles_boxes||''},
   {label:'Light',get:m=>m.light||''},
   {label:'Crop',get:m=>m.crop||''},
   {label:'Driver',get:m=>m.driver||''},
@@ -8658,11 +8658,11 @@ function renderMovementsScreen(){
       // actively productive stock, not the dead-outs. This is just the starting suggestion:
       // editing any of these fields yourself stops it from being overwritten further.
       const boxRow=h('div',{style:{marginBottom:'8px'}});
-      boxRow.appendChild(h('label',{className:'lbl',style:{display:'block',marginBottom:'4px'}},'Boxes in this load'));
+      boxRow.appendChild(h('label',{className:'lbl',style:{display:'block',marginBottom:'4px'}},'Number of brood chambers'));
       const boxGrid2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}});
       const boxInputs={};
       let compositionTouched=false;
-      [{label:'Doubles',key:'doubles'},{label:'Singles (box)',key:'singles_boxes'},{label:'Light',key:'light'}].forEach(({label,key})=>{
+      [{label:'Doubles',key:'doubles'},{label:'Singles',key:'singles_boxes'},{label:'Light',key:'light'}].forEach(({label,key})=>{
         const wrap2=h('div',null);
         wrap2.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},label));
         const bi=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
