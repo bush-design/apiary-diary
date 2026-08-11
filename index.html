@@ -348,7 +348,7 @@ async function addMovement(mov){
       newSingles=lastSingles+movSingles;
       newLight=lastLight+movLight;
     }
-    const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'s':'');
+    const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'indv':'');
     const hiveStr=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)>0?` alive, ${mov.dead_hives} dead`+' hives':' alive hives');
     const hiveDetail=parseInt(mov.alive_hives)>0?' ('+hiveStr+')':'';
     // legDesc is just this pickup's own contribution (no "MOVED IN:" prefix) — reused whether
@@ -1245,7 +1245,7 @@ function movementFrom(m){ return (m.direction==='to_orchard'||m.direction==='yar
 function movementTo(m){ return (m.direction==='from_orchard'||m.direction==='yard_yard') ? m.to_site : m.to_orchard; }
 const MOVEMENT_FIELD_DEFS=[
   {label:'Pallets',get:m=>{const p=parseInt(m.pallets)||0;return p||m.half_pallet?(p+(m.half_pallet?0.5:0)):'';}},
-  {label:'Singles (transport)',get:m=>m.singles||''},
+  {label:'Individual (transport)',get:m=>m.singles||''},
   {label:'Alive',get:m=>m.alive_hives||''},
   {label:'Dead',get:m=>m.dead_hives||''},
   {label:'Doubles (boxes)',get:m=>m.doubles||''},
@@ -3683,7 +3683,7 @@ function renderReportsScreen(){
           ));
           topRow.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',flexShrink:'0'}},fmtDate(m.date)));
           card.appendChild(topRow);
-          card.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'4px'}},(m.pallets||0)+'p · '+(m.singles||0)+'s'+(m.vehicle?' · '+m.vehicle:'')));
+          card.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'4px'}},(m.pallets||0)+'p · '+(m.singles||0)+'indv'+(m.vehicle?' · '+m.vehicle:'')));
           listWrap.appendChild(card);
         });
       }
@@ -3815,7 +3815,7 @@ function renderReportsScreen(){
           topRow.appendChild(h('div',{style:{fontWeight:'800',fontSize:'18px',color:'#7a4fa8'}},o.hives+' hives'));
           card.appendChild(topRow);
           card.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},
-            (o.pallets%1===0?o.pallets:o.pallets.toFixed(1))+' pallets · '+o.singles+' singles'));
+            (o.pallets%1===0?o.pallets:o.pallets.toFixed(1))+' pallets · '+o.singles+' individual'));
           listArea.appendChild(card);
         });
 
@@ -3824,7 +3824,7 @@ function renderReportsScreen(){
           'Total into pollination'+(cropFilter!=='all'?' · '+cropFilter:'')));
         totalCard.appendChild(h('div',{style:{fontWeight:'800',fontSize:'24px',color:'#fff'}},grandTotal.hives+' hives'));
         totalCard.appendChild(h('div',{style:{fontSize:'13px',color:'rgba(255,255,255,0.85)',marginTop:'2px'}},
-          (grandTotal.pallets%1===0?grandTotal.pallets:grandTotal.pallets.toFixed(1))+' pallets · '+grandTotal.singles+' singles'));
+          (grandTotal.pallets%1===0?grandTotal.pallets:grandTotal.pallets.toFixed(1))+' pallets · '+grandTotal.singles+' individual'));
         listArea.appendChild(totalCard);
       }
       yearSel.addEventListener('change',draw);
@@ -5992,7 +5992,7 @@ function renderEntriesList(){
   // logged, so it must still show (and be settable) even for a brand new, never-visited yard.
   const palSplit=getCurrentPalletSplit(op,site);
   const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'3px 8px',marginBottom:'10px',cursor:'pointer'}},
-    palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'s (transport)'):h('span',{style:{color:'#999'}},'Set pallets/singles →'));
+    palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'indv (transport)'):h('span',{style:{color:'#999'}},'Set pallets/individual →'));
   palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
   wrap.appendChild(palPill);
 
@@ -7042,7 +7042,7 @@ function renderEntriesList(){
   // logged, so it must still show (and be settable) even for a brand new, never-visited yard.
   const palSplit=getCurrentPalletSplit(op,site);
   const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'3px 8px',marginBottom:'10px',cursor:'pointer'}},
-    palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'s (transport)'):h('span',{style:{color:'#999'}},'Set pallets/singles →'));
+    palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'indv (transport)'):h('span',{style:{color:'#999'}},'Set pallets/individual →'));
   palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
   wrap.appendChild(palPill);
 
@@ -7455,7 +7455,7 @@ function showPalletSplitModal(op, site){
 
   card.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},site));
   card.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'16px'}},
-    current?'Set the current split — this updates automatically from here as pallets/singles move in or out.':'Not set yet — enter what\'s actually at this yard right now to start tracking it.'));
+    current?'Set the current split — this updates automatically from here as pallets/individual hives move in or out.':'Not set yet — enter what\'s actually at this yard right now to start tracking it.'));
 
   const row=h('div',{style:{display:'flex',gap:'10px',marginBottom:'16px'}});
   const palWrap=h('div',{style:{flex:'1'}});
@@ -7463,7 +7463,7 @@ function showPalletSplitModal(op, site){
   const palInp2=h('input',{type:'number',inputmode:'numeric',min:'0',step:'0.5',value:current?current.pallets:'',placeholder:'0',className:'inp',style:{textAlign:'center',fontSize:'18px',fontWeight:'700'}});
   palWrap.appendChild(palInp2);
   const sinWrap=h('div',{style:{flex:'1'}});
-  sinWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},'Singles'));
+  sinWrap.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},'Individual'));
   const sinInp2=h('input',{type:'number',inputmode:'numeric',min:'0',value:current?current.singles:'',placeholder:'0',className:'inp',style:{textAlign:'center',fontSize:'18px',fontWeight:'700'}});
   sinWrap.appendChild(sinInp2);
   row.appendChild(palWrap);row.appendChild(sinWrap);
@@ -7473,7 +7473,7 @@ function showPalletSplitModal(op, site){
   btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#7a4fa8',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
     onClick:()=>{
       setPalletBaseline(op,site,parseFloat(palInp2.value)||0,parseFloat(sinInp2.value)||0).then(()=>setState({}));
-      showToast('Pallet/singles split updated');
+      showToast('Pallet/individual split updated');
       overlay.remove();
     }
   },'Save'));
@@ -7532,7 +7532,7 @@ function showEditPickupModal(p, onSave){
   hw.appendChild(halfBtn);truckGrid.appendChild(hw);
   // Singles
   const sw=h('div',null);
-  sw.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}},'Singles'));
+  sw.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',display:'block',marginBottom:'3px'}},'Individual'));
   const singInp=h('input',{type:'number',inputmode:'numeric',min:'0',value:p.singles||'',style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
   singInp.addEventListener('input',e=>vals.singles=e.target.value);
   sw.appendChild(singInp);truckGrid.appendChild(sw);
@@ -7579,7 +7579,7 @@ function showEditMovementModal(m){
   const fields=[
     {l:'Date',k:'date',type:'date'},
     {l:'Pallets',k:'pallets',type:'number'},
-    {l:'Singles',k:'singles',type:'number'},
+    {l:'Individual',k:'singles',type:'number'},
     {l:'Alive hives',k:'alive_hives',type:'number'},
     {l:'Dead hives',k:'dead_hives',type:'number'},
     {l:'Driver',k:'driver',type:'text'},
@@ -7660,7 +7660,7 @@ function showEditMovementModal(m){
         const newLight=isDeduction?Math.max(0,baseLight-movLight):baseLight+movLight;
 
         // Rebuild the description with new values
-        const truckStr=(parseInt(newMov2.pallets)||0)+(newMov2.half_pallet?'½':'')+'p'+(parseInt(newMov2.singles)>0?' + '+newMov2.singles+'s':'');
+        const truckStr=(parseInt(newMov2.pallets)||0)+(newMov2.half_pallet?'½':'')+'p'+(parseInt(newMov2.singles)>0?' + '+newMov2.singles+'indv':'');
         let desc;
         if(isOut) desc=`MOVEMENT OUT: ${truckStr} → ${newMov2.to_orchard}`;
         else if(!isOut&&!isYY) desc=`MOVEMENT IN: ${truckStr} ← ${newMov2.from_orchard}`;
@@ -7885,7 +7885,7 @@ function renderMovementsScreen(){
         const countRow=h('div',{style:{display:'flex',gap:'8px',alignItems:'center',marginBottom:'4px',flexWrap:'wrap'}});
         const palStr=(parseInt(p.pallets)||0)+(p.half_pallet?'½':'')+'p';
         countRow.appendChild(h('span',{style:{fontSize:'20px',fontWeight:'800',color:isDone?'#3d7a4f':'#ef9f27',lineHeight:'1'}},palStr));
-        if(parseInt(p.singles)>0) countRow.appendChild(h('span',{style:{fontSize:'18px',fontWeight:'800',color:'#888',lineHeight:'1'}},p.singles+'s'));
+        if(parseInt(p.singles)>0) countRow.appendChild(h('span',{style:{fontSize:'18px',fontWeight:'800',color:'#888',lineHeight:'1'}},p.singles+'indv'));
         // Alive/dead counts
         if(parseInt(p.alive_hives)>0||parseInt(p.dead_hives)>0){
           countRow.appendChild(h('span',{style:{fontSize:'13px',color:'#3d7a4f',fontWeight:'700',background:'#e6f2eb',borderRadius:'10px',padding:'2px 8px'}},`${p.alive_hives||0} alive`));
@@ -8036,7 +8036,7 @@ function renderMovementsScreen(){
               const dest=(loadDirection.val==='yard_yard'||loadDirection.val==='from_orchard')?(destSel._selectedSite||''):destSel.value;
               if(!dest){showToast(loadDirection.val==='to_orchard'?'Select an orchard':'Select a yard site');return;}
               const sh=getSplitHives();
-              if(!sh){showToast('Enter hives, pallets or singles for this split');return;}
+              if(!sh){showToast('Enter hives, pallets or individual for this split');return;}
               if(sh>remaining(p)){showToast(`Only ${remaining(p)} hives remaining to assign`);return;}
               // Find which op the destination yard belongs to
               let destOp='';
@@ -8105,7 +8105,7 @@ function renderMovementsScreen(){
         truckBar.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'6px'}},'On truck · '+pickups.length+' pickup'+(pickups.length!==1?'s':'')));
         const spaceRow=h('div',{style:{display:'flex',gap:'8px',alignItems:'baseline',flexWrap:'wrap',marginBottom:(totalAlive>0||totalDead>0)?'6px':'4px'}});
         spaceRow.appendChild(h('span',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',lineHeight:'1'}},totalPallets+(totalHalfPallets?'½':'')+'p'));
-        if(totalSingles>0) spaceRow.appendChild(h('span',{style:{fontSize:'20px',fontWeight:'700',color:'rgba(255,255,255,0.7)',lineHeight:'1'}},totalSingles+'s'));
+        if(totalSingles>0) spaceRow.appendChild(h('span',{style:{fontSize:'20px',fontWeight:'700',color:'rgba(255,255,255,0.7)',lineHeight:'1'}},totalSingles+'indv'));
         spaceRow.appendChild(h('span',{style:{fontSize:'13px',color:'rgba(255,255,255,0.4)'}},'= '+totalHives+' hive'+(totalHives!==1?'s':'')));
         truckBar.appendChild(spaceRow);
         if(totalAlive>0||totalDead>0){
@@ -8436,7 +8436,7 @@ function renderMovementsScreen(){
             const topR=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'6px'}});
             const lft=h('div',null);
             lft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site));
-            const palStr=data.pallets+(data.half>0?'½':'')+'p'+(data.singles>0?' · '+data.singles+'s':'');
+            const palStr=data.pallets+(data.half>0?'½':'')+'p'+(data.singles>0?' · '+data.singles+'indv':'');
             lft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},palStr+' in orchard'));
             topR.appendChild(lft);
             topR.appendChild(h('span',{style:{fontSize:'11px',color:'#7a4fa8',fontWeight:'600',background:'#f3e8ff',borderRadius:'10px',padding:'2px 7px'}},data.op||''));
@@ -8468,7 +8468,7 @@ function renderMovementsScreen(){
               const takeSing=parseInt(singInp2.value)||0;
               const remPal=Math.max(0,data.pallets+(data.half*0.5)-takePal);
               const remSing=Math.max(0,data.singles-takeSing);
-              remainDiv.textContent=remPal>0||remSing>0?`${remPal}p${remSing?' · '+remSing+'s':''} still in orchard`:'All returning';
+              remainDiv.textContent=remPal>0||remSing>0?`${remPal}p${remSing?' · '+remSing+'indv':''} still in orchard`:'All returning';
               remainDiv.style.color=remPal===0&&remSing===0?'#3d7a4f':'#ef9f27';
             }
             palInp2.addEventListener('input',updateRemain);
@@ -8481,7 +8481,7 @@ function renderMovementsScreen(){
               onClick:()=>{
                 const tp=parseInt(palInp2.value)||0;
                 const ts=parseInt(singInp2.value)||0;
-                if(!tp&&!ts&&!halfBack){showToast('Enter pallets or singles to take back');return;}
+                if(!tp&&!ts&&!halfBack){showToast('Enter pallets or individual to take back');return;}
                 pickups.push({
                   site,op:data.op||'',
                   pallets:String(tp),singles:String(ts),half_pallet:halfBack,
@@ -8554,7 +8554,7 @@ function renderMovementsScreen(){
       // Faded hints from the source yard's actual pallet/singles split (transport packing,
       // not brood-chamber box count) — purely a placeholder, never overwrites what's typed.
       const hintWarning=h('div',{style:{fontSize:'11px',color:'#ef9f27',marginBottom:'6px',display:'none'}},
-        '⚠ Pallet/singles split not set for this yard yet — set it on the yard summary tile for a hint here.');
+        '⚠ Pallet/individual split not set for this yard yet — set it on the yard summary tile for a hint here.');
       truckRow.appendChild(hintWarning);
 
       // Pallets — big prominent input
@@ -8582,7 +8582,7 @@ function renderMovementsScreen(){
       if(pickupData.singles) sinInp.value=pickupData.singles;
       sinInp.addEventListener('input',e=>{pickupData.singles=e.target.value;updateHiveTotal();});
       singRow.appendChild(sinInp);
-      singRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888',flexShrink:'0'}},'singles'));
+      singRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888',flexShrink:'0'}},'individual'));
       truckRow.appendChild(singRow);
 
       // Re-reads the source yard's pallet/singles split and updates the placeholders live —
@@ -8722,7 +8722,7 @@ function renderMovementsScreen(){
         // Auto-assign splits back to source yards
         item.destinations.forEach(dest=>{
           const h=(parseInt(dest.pallets)||0)*4+(parseInt(dest.singles)||0);
-          if(h>0) pick.splits.push({dest:dest.site,dest_op:dest.op,hives:h,desc:(parseInt(dest.pallets)||0)+'p'+(parseInt(dest.singles)>0?' · '+dest.singles+'s':'')});
+          if(h>0) pick.splits.push({dest:dest.site,dest_op:dest.op,hives:h,desc:(parseInt(dest.pallets)||0)+'p'+(parseInt(dest.singles)>0?' · '+dest.singles+'indv':'')});
         });
         pickups.push(pick);
       });
@@ -8790,7 +8790,7 @@ function renderMovementsScreen(){
           ),
           h('div',{style:{textAlign:'center'}},
             h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',lineHeight:'1'}},totalNetSing),
-            h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'3px'}},'Singles')
+            h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'3px'}},'Individual')
           )
         )
       ));
@@ -8811,7 +8811,7 @@ function renderMovementsScreen(){
           const hdr=h('div',{style:{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'.5px solid #f0f0ee'}});
           const hdrLeft=h('div',null);
           hdrLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},site));
-          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},netPal+'p'+(netSing?' · '+netSing+'s':'')+(hasReturns?' remaining':' in orchard')));
+          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},netPal+'p'+(netSing?' · '+netSing+'indv':'')+(hasReturns?' remaining':' in orchard')));
           hdr.appendChild(hdrLeft);
           hdr.appendChild(h('div',{style:{textAlign:'center',flexShrink:'0',marginLeft:'12px'}},
             h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#2a1f3d',lineHeight:'1'}},netHives),
@@ -8845,7 +8845,7 @@ function renderMovementsScreen(){
             const left=h('div',{style:{display:'flex',gap:'6px',alignItems:'center'}});
             left.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:isIn?'#ef9f27':'#3d7a4f',background:isIn?'#fff8e6':'#e6f2eb',borderRadius:'6px',padding:'2px 6px'}},isIn?'↓ In':'↑ Out'));
             left.appendChild(h('span',{style:{fontSize:'13px',color:'#444'}},
-              (parseInt(m.pallets)||0)+'p'+(parseInt(m.singles)>0?' · '+m.singles+'s':'')+(m.notes?' — '+m.notes:'')
+              (parseInt(m.pallets)||0)+'p'+(parseInt(m.singles)>0?' · '+m.singles+'indv':'')+(m.notes?' — '+m.notes:'')
             ));
             row.appendChild(left);
             row.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb',flexShrink:'0',marginLeft:'8px'}},fmtDate(m.date)));
@@ -8873,7 +8873,7 @@ function renderMovementsScreen(){
             onClick:()=>setState({selectedOrchard:o})});
           addBody.appendChild(h('div',null,
             h('div',{style:{fontWeight:'600',fontSize:'15px'}},o),
-            h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} single${t.singles!==1?'s':''}`)
+            h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} individual`)
           ));
           const right=h('div',{style:{display:'flex',alignItems:'center',gap:'10px'}});
           right.appendChild(h('div',{style:{textAlign:'center'}},
@@ -9159,7 +9159,7 @@ function renderMovementsScreen(){
         const isYY=m.direction==='yard_yard';
         const isOO=m.direction==='orchard_orchard';
         const title=isOut?(m.from_site||'?')+' → '+(m.to_orchard||'?'):isYY?(m.from_site||'?')+' → '+(m.to_site||'?'):isOO?(m.from_orchard||'?')+' → '+(m.to_orchard||'?'):(m.from_orchard||'?')+' → '+(m.to_site||'?');
-        const sub=(m.pallets||0)+'p · '+(m.singles||0)+'s';
+        const sub=(m.pallets||0)+'p · '+(m.singles||0)+'indv';
         const fromYardsStr=(m.from_yards&&m.from_yards.length)?'From: '+m.from_yards.join(', '):'';
         const meta=[m.driver,m.vehicle].filter(Boolean).join(' · ');
         const card=h('div',{style:{background:'#fff',border:`.5px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}33`,borderLeft:`3px solid ${isOut?'#ef9f27':isYY?'#6ab0e0':isOO?'#e0a06a':'#3d7a4f'}`,borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',overflow:'hidden'}});
