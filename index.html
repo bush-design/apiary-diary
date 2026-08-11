@@ -8572,14 +8572,16 @@ function renderMovementsScreen(){
         '⚠ Pallet/individual split not set for this yard yet — set it on the yard summary tile for a hint here.');
       truckRow.appendChild(hintWarning);
 
-      // Pallets — big prominent input
-      const palRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}});
-      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'10px 12px',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'22px',fontWeight:'800',background:'#fff',boxSizing:'border-box',color:'#1a1a1a',textAlign:'center'}});
+      // Pallets — big prominent input, full width; label and +½ sit on their own row below it
+      // rather than squeezed alongside, since that was overflowing off the edge on narrower
+      // screens.
+      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'10px 12px',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'22px',fontWeight:'800',background:'#fff',boxSizing:'border-box',color:'#1a1a1a',textAlign:'center',marginBottom:'6px'}});
       if(pickupData.pallets) palInp.value=pickupData.pallets;
       palInp.addEventListener('input',e=>{pickupData.pallets=e.target.value;updateHiveTotal();});
-      palRow.appendChild(palInp);
-      palRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888',flexShrink:'0'}},'pallets'));
-      // ½ toggle pill
+      truckRow.appendChild(palInp);
+
+      const palSubRow=h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'8px'}});
+      palSubRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888'}},'pallets'));
       const halfBtn=h('button',{type:'button',style:{padding:'8px 10px',borderRadius:'20px',border:pickupData.half_pallet?'1.5px solid '+movColor:'1.5px solid #ddd',background:pickupData.half_pallet?movColor:'#fff',color:pickupData.half_pallet?'#fff':'#aaa',fontSize:'12px',fontWeight:'700',cursor:'pointer',flexShrink:'0',transition:'all .15s',whiteSpace:'nowrap'}},'+½');
       halfBtn.addEventListener('click',()=>{
         pickupData.half_pallet=!pickupData.half_pallet;
@@ -8588,8 +8590,9 @@ function renderMovementsScreen(){
         halfBtn.style.color=pickupData.half_pallet?'#fff':'#aaa';
         updateHiveTotal();
       });
-      palRow.appendChild(halfBtn);
-      truckRow.appendChild(palRow);
+      palSubRow.appendChild(halfBtn);
+      truckRow.appendChild(palSubRow);
+
       const sourceCaption=h('div',{style:{fontSize:'11px',color:'#9b59b6',marginTop:'-4px',marginBottom:'8px',fontWeight:'600',width:'100%',boxSizing:'border-box',whiteSpace:'normal',wordWrap:'break-word',overflowWrap:'break-word',lineHeight:'1.4'}});
       truckRow.appendChild(sourceCaption);
 
