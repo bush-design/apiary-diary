@@ -5899,8 +5899,16 @@ function renderEntriesList(){
   // Large site name
   summaryPanel.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',letterSpacing:'-.02em',marginBottom:'4px'}},site));
   // Last visited
-  summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},
+  summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'2px'}},
     latestReal?'Last visit: '+fmtDate(latestReal.date)+(days!==null?' · '+days+'d ago':''):(currentHives>0?'No diary entries yet':'Not yet visited')));
+  // Pallet/individual split — same source of truth as before (baseline + movements since),
+  // just displayed here now instead of as its own separate tappable pill. Editing happens via
+  // the entry form (Pallets/Individual fields), the same way the hive count is edited.
+  {
+    const palSplit=getCurrentPalletSplit(op,site);
+    summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},
+      palSplit?palSplit.pallets+'p · '+palSplit.singles+'indv (transport)':'Pallets/individual not set yet'));
+  }
 
   // AFB Under Inquiry banner in summary card
   if(afb2){
@@ -5987,14 +5995,6 @@ function renderEntriesList(){
     if(tx) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#c39bd3',marginTop:'6px','fontWeight':'600'}},'Tx: '+tx));
   }
   wrap.appendChild(summaryPanel);
-  // Pallet/singles split — tappable to set/edit. Deliberately OUTSIDE the has-diary-data
-  // block above: this is independent of whether the site has ever had a hive-check entry
-  // logged, so it must still show (and be settable) even for a brand new, never-visited yard.
-  const palSplit=getCurrentPalletSplit(op,site);
-  const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'3px 8px',marginBottom:'10px',cursor:'pointer'}},
-    palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'indv (transport)'):h('span',{style:{color:'#999'}},'Set pallets/individual →'));
-  palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
-  wrap.appendChild(palPill);
 
   // Flag if present (urgent — amber)
   const flag=getFlag(op,site);
@@ -6327,6 +6327,8 @@ function renderForm(){
     {key:'dead',label:'Dead',color:'#c0392b'},
     {key:'singles',label:'Singles',color:'#555'},
     {key:'doubles',label:'Doubles',color:'#555'},
+    {key:'pallets',label:'Pallets',color:'#9b59b6'},
+    {key:'pallet_individual',label:'Individual',color:'#9b59b6'},
     {key:'lids_floors',label:'Lids & Floors',color:'#1a6fb0'},
     {key:'light',label:'Light',color:'#ef9f27'},
   ];
@@ -6335,6 +6337,13 @@ function renderForm(){
     const tile=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'10px',border:`.5px solid ${f.color}22`}});
     tile.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:f.color,textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'6px'}},f.label));
     const inp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',fontSize:'20px',fontWeight:'700',border:'none',background:'transparent',color:'#1a1a1a',padding:'0',outline:'none'}});
+    // Pallets/Individual aren't a regular carried-forward entry field like the others — they
+    // mirror the same pallet-baseline-plus-movements-since value used everywhere else, so a
+    // fresh entry's starting point matches what the yard tile and movement pre-fill already show.
+    if((f.key==='pallets'||f.key==='pallet_individual')&&vals[f.key]===undefined){
+      const split=getCurrentPalletSplit(op,site);
+      if(split) vals[f.key]=f.key==='pallets'?String(split.pallets):String(split.singles);
+    }
     inp.value=vals[f.key]||'';
     inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
     tile.appendChild(inp);
@@ -6814,6 +6823,12 @@ function renderForm(){
       saveLocal(updated);
       STATE.entries=updated;
       maybeSendReport(op);
+      // Keep the pallet/individual baseline in sync with what's on the entry — matches how the
+      // hive count already works: it only changes when someone manually enters a new value here
+      // (or a movement adjusts it), never on its own.
+      if(entry.pallets!==undefined||entry.pallet_individual!==undefined){
+        setPalletBaseline(op,site,parseFloat(entry.pallets)||0,parseFloat(entry.pallet_individual)||0);
+      }
       showToast('Entry saved');
       STATE._formSnapshot=null;
       setState({entries:updated,diaryView:'entries',editing:null,editingOriginalRound:null});
@@ -6949,8 +6964,16 @@ function renderEntriesList(){
   // Large site name
   summaryPanel.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',letterSpacing:'-.02em',marginBottom:'4px'}},site));
   // Last visited
-  summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},
+  summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'2px'}},
     latestReal?'Last visit: '+fmtDate(latestReal.date)+(days!==null?' · '+days+'d ago':''):(currentHives>0?'No diary entries yet':'Not yet visited')));
+  // Pallet/individual split — same source of truth as before (baseline + movements since),
+  // just displayed here now instead of as its own separate tappable pill. Editing happens via
+  // the entry form (Pallets/Individual fields), the same way the hive count is edited.
+  {
+    const palSplit=getCurrentPalletSplit(op,site);
+    summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},
+      palSplit?palSplit.pallets+'p · '+palSplit.singles+'indv (transport)':'Pallets/individual not set yet'));
+  }
 
   // AFB Under Inquiry banner in summary card
   if(afb2){
@@ -7037,14 +7060,6 @@ function renderEntriesList(){
     if(tx) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#c39bd3',marginTop:'6px','fontWeight':'600'}},'Tx: '+tx));
   }
   wrap.appendChild(summaryPanel);
-  // Pallet/singles split — tappable to set/edit. Deliberately OUTSIDE the has-diary-data
-  // block above: this is independent of whether the site has ever had a hive-check entry
-  // logged, so it must still show (and be settable) even for a brand new, never-visited yard.
-  const palSplit=getCurrentPalletSplit(op,site);
-  const palPill=h('div',{style:{display:'inline-flex',alignItems:'center',gap:'5px',fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'3px 8px',marginBottom:'10px',cursor:'pointer'}},
-    palSplit?h('span',null,palSplit.pallets+'p · '+palSplit.singles+'indv (transport)'):h('span',{style:{color:'#999'}},'Set pallets/individual →'));
-  palPill.addEventListener('click',()=>showPalletSplitModal(op,site));
-  wrap.appendChild(palPill);
 
   // Flag if present (urgent — amber)
   const flag=getFlag(op,site);
