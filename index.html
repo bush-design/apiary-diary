@@ -8619,7 +8619,7 @@ function renderMovementsScreen(){
             palInp.placeholder=String(polEntry.pol_pallet);
             sinInp.placeholder=split?String(split.singles):'0';
             hintWarning.style.display='none';
-            sourceCaption.textContent='Suggestion: '+polEntry.pol_pallet+' pallets (POL Pallet, not total)';
+            sourceCaption.textContent='Suggestion: '+polEntry.pol_pallet+' pallets (POL Pallet)'+(split?' · '+split.pallets+' total at yard':'');
           } else if(split){
             palInp.placeholder=String(split.pallets);
             sinInp.placeholder=String(split.singles);
