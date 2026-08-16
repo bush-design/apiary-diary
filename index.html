@@ -5103,9 +5103,14 @@ function calcBatchSummary(op, batch, sites){
   let fdHarv=0,harv34=0;
   let breeders=0,finishers=0;
   let flagCount=0,checkCount=0;
+  // hives/dead/alive/singles/doubles/light must respect an explicit 0 — a yard correctly
+  // emptied out by a movement really does have 0 hives now, and skipping past that to an older,
+  // stale non-zero number is exactly the kind of bug that made Clarks keep showing hives after
+  // they'd already moved to Simpson. Only fields where "0" plausibly means "wasn't checked this
+  // visit" rather than "genuinely zero" (none of the ones tracked here) should skip zeros.
   const lv=(site,k)=>{
     const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||'')); // includes movements — they now carry accurate hive-composition data
-    for(const e of allE){const v=parseInt(e[k]);if(!isNaN(v)&&v>0)return v;}return 0;
+    for(const e of allE){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v))return v;}return 0;
   };
   sites.forEach(site=>{
     hives+=lv(site,'hives');dead+=lv(site,'dead');alive+=lv(site,'alive_hives');
