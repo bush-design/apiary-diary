@@ -1485,14 +1485,23 @@ function calcSummary(opName){
     // been checked this visit). singles/doubles/light/weak respect an explicit 0 — a hive count
     // that correctly records no doubles left shouldn't be skipped for an older stale number.
     const NON_ZERO_FIELDS=['lids_floors'];
+    // hives/dead/singles/doubles/light/weak/alive_hives/dead_hives must all come from the SAME
+    // visit — picking each independently (whichever entry most recently happened to record that
+    // one field) lets them drift apart when a visit records hives but skips the box count, which
+    // is exactly what was making fleet-wide doubles+singles fail to reconcile with total hives.
+    const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
     const lastVal=k=>{
+      if(HIVE_FIELDS_LV.includes(k)){
+        if(!mostRecentWithHives) return 0;
+        const raw=mostRecentWithHives[k];
+        return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
+      }
       for(const e of allSiteEntries){
         const raw=e[k];
         if(raw===undefined||raw===null||raw==='') continue;
         const v=parseInt(raw);
         if(!isNaN(v)){
           if(NON_ZERO_FIELDS.includes(k)){if(v>0) return v;}
-          else if(HIVE_FIELDS_LV.includes(k)) return v;
           else if(v>0) return v;
         }
       }
