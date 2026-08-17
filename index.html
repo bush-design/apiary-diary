@@ -168,6 +168,11 @@ function getPOLSites(){
 // Nuc yard storage
 function loadNucYards(){try{return JSON.parse(localStorage.getItem('apiary_nuc_yards')||'{}');}catch(e){return{};}}
 function saveNucYards(d){try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(d));}catch(e){}}
+// Season notes — free-text planning notes per operation, per season. Not tied to any single
+// yard (these are operation-wide thoughts like "order more supers before spring"), and not
+// shared across operations either. Persist until manually cleared — no automatic archiving.
+function loadSeasonNotes(){try{return JSON.parse(localStorage.getItem('apiary_season_notes')||'{}');}catch(e){return{};}}
+function saveSeasonNotes(d){try{localStorage.setItem('apiary_season_notes',JSON.stringify(d));}catch(e){}}
 // nucYards structure: { 'A2Bee__Gun Club Nucs': { name, op, batches: [{id, sourceYard, dateAdded, nucs: [{id, status, cellDate, virginDate, dlDate, matedDate, failedDate, transferredTo, transferredDate, notes}]}] } }
 
 // Years storage (replaces seasons)
@@ -728,6 +733,12 @@ async function pullFromSupabase(){
           }
           return;
         }
+        if(row.entry_key==='season_notes'){
+          if(row.data&&typeof row.data==='object'){
+            saveSeasonNotes(row.data);
+          }
+          return;
+        }
         if(row.entry_key==='custom_yards'){
           // Supabase is authoritative for custom yards — use it directly
           // This ensures deletions on one device propagate to all others
@@ -819,6 +830,11 @@ function subscribeRealtime(){
     }
     if(entry_key==='orchard_renames'){
       if(data&&typeof data==='object') saveOrchardRenames(data);
+      render();
+      return;
+    }
+    if(entry_key==='season_notes'){
+      if(data&&typeof data==='object') saveSeasonNotes(data);
       render();
       return;
     }
@@ -1804,6 +1820,16 @@ function renderOpSelector(){
     h('div',{style:{fontSize:'22px',color:'#c39bd3',opacity:'0.8'}},'›')
   ));
   wrap.appendChild(exportCard);
+
+  const notesCard=h('button',{className:'op-card',style:{background:'#1e2e2a',border:'1.5px solid #3d7a4f33',marginTop:'10px'},onClick:()=>setState({op:'__seasonnotes__'})});
+  notesCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    h('div',null,
+      h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Season Notes'),
+      h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},'Planning notes · per operation, per season')
+    ),
+    h('div',{style:{fontSize:'22px',color:'#7ecb8f',opacity:'0.8'}},'›')
+  ));
+  wrap.appendChild(notesCard);
   return wrap;
 }
 
@@ -1849,6 +1875,153 @@ function renderExportScreen(){
     },'Export new/changed since last export')
   ));
   return wrap;
+}
+
+// ── Season Notes — free-text planning notes per operation, per season. Persist until manually
+// cleared; no automatic archiving, matching what was actually asked for.
+function renderSeasonNotesScreen(){
+  const wrap=h('div',{className:'app'});
+  const header=h('div',{className:'header'});
+  const topRow=h('div',{className:'header-top'});
+  topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
+  topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
+  topRow.appendChild(h('div',{className:'sync-dot '+(navigator.onLine?'online':'error')}));
+  header.appendChild(topRow);
+  header.appendChild(h('div',{className:'header-title'},'Season Notes'));
+  wrap.appendChild(header);
+
+  const screen=h('div',{className:'screen'});
+
+  const ALL_OPS_KEY='__ALL__';
+  const opDisplay=op=>op===ALL_OPS_KEY?{color:'#555',label:'All Operations'}:{color:OPERATIONS[op].color,label:op};
+  const ops=[...Object.keys(OPERATIONS),ALL_OPS_KEY];
+  let selectedOp=STATE._notesOp||ops[0];
+  const opToggle=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px',flexWrap:'wrap'}});
+  const sectionsArea=h('div',null);
+
+  function renderSections(){
+    sectionsArea.innerHTML='';
+    const allNotes=loadSeasonNotes();
+    const opNotes=allNotes[selectedOp]||{};
+    const displayName=opDisplay(selectedOp).label;
+    const SEASON_ORDER=['winter','spring','clover','queen']; // Winter, Spring, Summer, Autumn — ROUNDS itself is defined winter/spring/queen/clover, so this can't just iterate ROUNDS directly
+    SEASON_ORDER.map(roundKey=>[roundKey,ROUNDS[roundKey]]).forEach(([roundKey,roundDef])=>{
+      const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'12px',padding:'14px',marginBottom:'10px'}});
+      const hdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}});
+      hdr.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:roundDef.color}},roundDef.label));
+      const clearBtn=h('button',{type:'button',style:{background:'none',border:'none',color:'#c0392b',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},'Clear');
+      clearBtn.addEventListener('click',()=>{
+        confirmAction('Clear '+roundDef.label+' notes for '+displayName+'?',()=>{
+          const all2=loadSeasonNotes();
+          if(all2[selectedOp]) delete all2[selectedOp][roundKey];
+          saveSeasonNotes(all2);
+          pushToSupabase('season_notes',all2);
+          renderSections();
+          showToast(roundDef.label+' notes cleared');
+        });
+      });
+      hdr.appendChild(clearBtn);
+      card.appendChild(hdr);
+      const ta=h('textarea',{style:{width:'100%',minHeight:'90px',padding:'10px',border:'.5px solid #ddd',borderRadius:'8px',fontSize:'14px',fontFamily:'inherit',boxSizing:'border-box',resize:'vertical'},
+        placeholder:'Notes for next '+roundDef.label.toLowerCase()+'…'});
+      ta.value=opNotes[roundKey]||'';
+      let saveTimer=null;
+      ta.addEventListener('input',()=>{
+        clearTimeout(saveTimer);
+        saveTimer=setTimeout(()=>{
+          const all2=loadSeasonNotes();
+          if(!all2[selectedOp]) all2[selectedOp]={};
+          all2[selectedOp][roundKey]=ta.value;
+          // Writing under "All Operations" broadcasts the same text into every real
+          // operation's own notes too — so it actually shows up when looking at A2Bee, DH
+          // Alex, or DH MM individually, not just in its own isolated bucket. Each copy is
+          // independent from that point on — editing one operation's note afterward doesn't
+          // change the others.
+          if(selectedOp===ALL_OPS_KEY){
+            Object.keys(OPERATIONS).forEach(realOp=>{
+              if(!all2[realOp]) all2[realOp]={};
+              all2[realOp][roundKey]=ta.value;
+            });
+          }
+          saveSeasonNotes(all2);
+          pushToSupabase('season_notes',all2);
+        },600);
+      });
+      card.appendChild(ta);
+      sectionsArea.appendChild(card);
+    });
+  }
+
+  ops.forEach(op=>{
+    const {color,label}=opDisplay(op);
+    const btn=h('button',{type:'button',style:{padding:'6px 14px',borderRadius:'20px',border:'1.5px solid '+(selectedOp===op?color:'#ddd'),background:selectedOp===op?color+'18':'#fff',color:selectedOp===op?color:'#888',fontSize:'13px',fontWeight:'700',cursor:'pointer'}},label);
+    btn.addEventListener('click',()=>{
+      STATE._notesOp=op;
+      selectedOp=op;
+      renderSections();
+      opToggle.querySelectorAll('button').forEach((b,i)=>{
+        const bOp=ops[i];
+        const bDisplay=opDisplay(bOp);
+        b.style.border='1.5px solid '+(selectedOp===bOp?bDisplay.color:'#ddd');
+        b.style.background=selectedOp===bOp?bDisplay.color+'18':'#fff';
+        b.style.color=selectedOp===bOp?bDisplay.color:'#888';
+      });
+    });
+    opToggle.appendChild(btn);
+  });
+  screen.appendChild(opToggle);
+  screen.appendChild(sectionsArea);
+  renderSections();
+
+  screen.appendChild(h('button',{style:{width:'100%',marginTop:'6px',padding:'10px 20px',background:'rgba(61,122,79,0.1)',border:'1.5px solid #3d7a4f',borderRadius:'20px',color:'#3d7a4f',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
+    onClick:()=>exportSeasonNotes()
+  },'Export all season notes (Excel)'));
+
+  wrap.appendChild(screen);
+  return wrap;
+}
+
+async function exportSeasonNotes(){
+  if(!_exceljsLibLoaded){
+    showToast('Loading spreadsheet library…');
+    _exceljsLibLoaded=await loadScript('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js');
+    if(!_exceljsLibLoaded){ showToast('⚠ Could not load spreadsheet library — check your connection and try again'); return; }
+  }
+  try{
+    const allNotes=loadSeasonNotes();
+    const hasAny=Object.values(allNotes).some(opNotes=>Object.values(opNotes||{}).some(t=>t&&t.trim()));
+    if(!hasAny){ showToast('No notes to export yet'); return; }
+    const wb=new window.ExcelJS.Workbook();
+    const ws=wb.addWorksheet('Season Notes');
+    ws.addRow(['Operation','Season','Notes']).font={bold:true};
+    const SEASON_ORDER=['winter','spring','clover','queen']; // Winter, Spring, Summer, Autumn
+    if(allNotes['__ALL__']){
+      SEASON_ORDER.forEach(roundKey=>{
+        const text=allNotes['__ALL__'][roundKey]||'';
+        if(text.trim()) ws.addRow(['All Operations',ROUNDS[roundKey].label,text]);
+      });
+    }
+    Object.keys(OPERATIONS).forEach(opName=>{
+      const opNotes=allNotes[opName]||{};
+      SEASON_ORDER.forEach(roundKey=>{
+        const text=opNotes[roundKey]||'';
+        if(text.trim()) ws.addRow([opName,ROUNDS[roundKey].label,text]);
+      });
+    });
+    ws.getColumn(1).width=14;ws.getColumn(2).width=12;ws.getColumn(3).width=70;
+    ws.getColumn(3).alignment={wrapText:true,vertical:'top'};
+    const filename=`season_notes_${todayStr()}.xlsx`;
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=filename;a.style.display='none';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),5000);
+    showToast('Downloaded '+filename);
+  }catch(e){
+    showToast('⚠ Export failed: '+e.message);
+  }
 }
 
 function getAFBInquiry(op, site){
@@ -9386,6 +9559,7 @@ function renderApp(){
   if(op==='__reports__') return renderReportsScreen();
   if(op==='__nucs__') return renderNucsScreen();
   if(op==='__export__') return renderExportScreen();
+  if(op==='__seasonnotes__') return renderSeasonNotesScreen();
 
   const opData=OPERATIONS[op];
   document.documentElement.style.setProperty('--op-color',opData.color);
