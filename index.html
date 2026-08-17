@@ -1478,6 +1478,7 @@ function calcSummary(opName){
   // include custom yards
   let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0;
   const breederSites=[],finisherSites=[];
+  const siteScoreEntries={};
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
   let st=0,sc=0,logged=0,flagged=0;
   sites.forEach(site=>{
@@ -1542,15 +1543,18 @@ function calcSummary(opName){
     // Summer (or any other season) still counts toward the fleet total.
     const breederCount=getSiteBreederCount(opName,site);
     if(breederCount>0) breederSites.push({site,count:breederCount});
-    const springForQ=latestEntry(opName,site,'spring');
-    if(parseInt(springForQ?.finishers)>0) finisherSites.push({site,count:parseInt(springForQ.finishers)});
-    // Spring score from most recent spring entry
-    const springE=latestEntry(opName,site,'spring');
+    if(parseInt(getSiteFieldAnyRound(opName,site,'finishers'))>0) finisherSites.push({site,count:parseInt(getSiteFieldAnyRound(opName,site,'finishers'))});
+    // Spring score — most recent entry in ANY round, not just the "spring" bucket, since the
+    // Hive Strength/score section can be filled in on an entry logged under any season. Using
+    // latestEntry(...,'spring') here missed scores entered on entries filed under a different
+    // round, which is exactly what made a freshly-entered score not show up in this summary.
+    const springE=getSiteScoreEntryAnyRound(opName,site);
     const bd=springE?.score_breakdown||{};
     [0,1,2,3,4,5,6].forEach(s=>{const v=parseInt(bd[s]);if(!isNaN(v)&&v>0){st+=s*v;sc+=v;}});
+    siteScoreEntries[site]=springE;
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
-  const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(latestEntry(opName,site,'spring')?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
+  const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(siteScoreEntries[site]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
   return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
 }
 
@@ -1571,6 +1575,41 @@ function getSiteBreederCount(op, site){
     if(!isNaN(v)) return v;
   }
   return 0;
+}
+
+// ── Shared: "most recent value for this field, across ANY round" ──
+// A handful of fields — Spring Score, Finishers, Breeders — live in sections of the entry form
+// (Hive Strength, Requeening) that are available regardless of which round the entry itself is
+// filed under. Looking them up via latestEntry(op,site,'spring') only, as several places used
+// to, misses any of them entered on an entry filed under Winter, Summer, or Autumn — which is
+// exactly what caused a freshly-entered Spring Score to not show up anywhere despite saving
+// correctly. Route any future "most recent X regardless of round" lookup through here instead
+// of a new hand-rolled version, so this can't quietly drift out of sync again.
+function getSiteFieldAnyRound(op, site, fieldKey){
+  const allEntries=Object.keys(ROUNDS)
+    .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement))
+    .sort((a,b)=>{
+      const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
+      const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
+      return tsB.localeCompare(tsA);
+    });
+  for(const e of allEntries){
+    const raw=e[fieldKey];
+    if(raw===undefined||raw===null||raw==='') continue;
+    return raw;
+  }
+  return undefined;
+}
+function getSiteScoreEntryAnyRound(op, site){
+  const allEntries=Object.keys(ROUNDS)
+    .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]))
+    .filter(e=>!e._movement&&e.score_breakdown&&Object.values(e.score_breakdown).some(v=>v&&v!==''))
+    .sort((a,b)=>{
+      const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
+      const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
+      return tsB.localeCompare(tsA);
+    });
+  return allEntries[0]||null;
 }
 
 // ── Shared: exact current-hive-count calculation, factored out of the yard detail page so
@@ -5221,7 +5260,7 @@ function renderOverviewTab(){
       const latest=allE.sort((a,b)=>b.entry.date.localeCompare(a.entry.date))[0]||null;
       const days=latest?daysBetween(latest.entry.date):null;
       const overdue=!latest||days>21;
-      const bd=latestEntry(op,site,'spring')?.score_breakdown||{};
+      const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
       let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
       const avg=ac>0?Math.round(at/ac):null;
       const afbInq2=getAFBInquiry(op,site);
@@ -5300,9 +5339,8 @@ function calcBatchSummary(op, batch, sites){
     fdOn+=lv(site,'fd_on');on34+=lv(site,'on_34');
     hcFdOn+=lv(site,'honeycomb_fd');hcHdOn+=lv(site,'honeycomb_hd');
     fdHarv+=lv(site,'fd_harv');harv34+=lv(site,'harv_34');
-    const sp=latestEntry(op,site,'spring');
     breeders+=getSiteBreederCount(op,site);
-    finishers+=parseInt(sp?.finishers)||0;
+    finishers+=parseInt(getSiteFieldAnyRound(op,site,'finishers'))||0;
     if(getFlag(op,site)) flagCount++;
     if(getCheck(op,site)) checkCount++;
   });
@@ -5868,9 +5906,10 @@ function renderSitesList(){
       return 0;
     };
 
-    // Spring score
-    const springEntries=STATE.entries[eKey(op,site,'spring')]?.filter(e=>!e._movement)||[];
-    const bd=latestEntry(op,site,'spring')?.score_breakdown||{};
+    // Spring score — most recent entry in ANY round with score data, not just the "spring"
+    // bucket, since the Hive Strength section can be filled in on an entry logged under any
+    // season (same fix already applied to the fleet-wide summary).
+    const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
     let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
     const avg=ac>0?Math.round(at/ac):null;
 
@@ -6237,7 +6276,7 @@ function renderEntriesList(){
     else if(!entry._movement&&entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
     if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
-    if(!entry._movement&&rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
+    if(!entry._movement&&hasScores&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
     // Carrot score avg in header
     const cbd2=entry.carrot_score||{};
     let cat2=0,cac2=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(cbd2[n]);if(!isNaN(v)&&v>0){cat2+=n*v;cac2+=v;}});
@@ -7302,7 +7341,7 @@ function renderEntriesList(){
     else if(!entry._movement&&entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
     if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
-    if(!entry._movement&&rk==='spring'&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
+    if(!entry._movement&&hasScores&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
     // Carrot score avg in header
     const cbd2=entry.carrot_score||{};
     let cat2=0,cac2=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(cbd2[n]);if(!isNaN(v)&&v>0){cat2+=n*v;cac2+=v;}});
