@@ -4837,12 +4837,17 @@ function showStatModal(opName, fieldKey, label, color){
   const results=[];
   sites.forEach(site=>{
     const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
-    // For hive fields use mostRecentWithHives logic, for others use last non-zero
-    const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives','lids_floors'];
+    // hives/dead/singles/doubles/light/alive/dead_hives must all come from the SAME most recent
+    // entry, together — searching independently per field (as this used to) lets them drift
+    // apart when a visit fills in one field but leaves another blank, silently mixing today's
+    // value for one field with an old value for another (same bug already fixed in calcSummary,
+    // calcBatchSummary, getSiteHiveState, and the yard tile). lids_floors stays independent —
+    // "0" there plausibly just means "wasn't checked this visit", unlike the others.
+    const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
     let val=0;
     if(HIVE_FIELDS.includes(fieldKey)){
-      const withData=allE.find(e=>parseInt(e[fieldKey])>0);
-      if(withData) val=parseInt(withData[fieldKey])||0;
+      const anchor=allE.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+      if(anchor){const raw=anchor[fieldKey];val=(raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);}
     } else {
       for(const e of allE){const v=parseInt(e[fieldKey]);if(!isNaN(v)&&v>0){val=v;break;}}
     }
