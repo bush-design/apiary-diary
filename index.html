@@ -5329,8 +5329,24 @@ function calcBatchSummary(op, batch, sites){
   // stale non-zero number is exactly the kind of bug that made Clarks keep showing hives after
   // they'd already moved to Simpson. Only fields where "0" plausibly means "wasn't checked this
   // visit" rather than "genuinely zero" (none of the ones tracked here) should skip zeros.
+  // hives/dead/alive/singles/doubles/light must all come from the SAME most recent entry,
+  // together — searching independently per field lets them drift apart when a visit fills in
+  // one field (say, doubles) but leaves another (singles) blank, silently mixing today's
+  // doubles with an old singles value. Also still respects an explicit 0 (a yard correctly
+  // emptied by a movement really does have 0 hives now — see the Clarks fix above).
+  const HIVE_FIELDS_BATCH=['hives','dead','alive_hives','dead_hives','singles','doubles','light'];
   const lv=(site,k)=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||'')); // includes movements — they now carry accurate hive-composition data
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>{
+      const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
+      const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
+      return tsB.localeCompare(tsA);
+    });
+    if(HIVE_FIELDS_BATCH.includes(k)){
+      const anchor=allE.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+      if(!anchor) return 0;
+      const raw=anchor[k];
+      return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
+    }
     for(const e of allE){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v))return v;}return 0;
   };
   sites.forEach(site=>{
@@ -5885,23 +5901,29 @@ function renderSitesList(){
     const days=latest?daysBetween(latest.date):null;
     const overdue=!latest||days>21;
 
-    // Field lookup — most recent non-zero value across all entries (includes movement for singles/doubles/light)
+    // Field lookup — hives/dead/singles/doubles/light/weak must all come from the SAME most
+    // recent entry, together — searching for each field independently (whichever entry most
+    // recently happened to have THAT one field non-empty) lets them drift apart when a visit
+    // fills in doubles but leaves singles blank, mixing today's doubles with an old singles
+    // value. This is the same class of bug already fixed for the fleet-wide summary.
     const HIVE_FIELDS2=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
     const allWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
     // If most recent entry has 0 hives (whole yard moved out), boxes should also be 0
     const mostRecentAny=allWithMov[0]||null;
     const wholeYardMovedOut=mostRecentAny&&mostRecentAny._movement&&(parseInt(mostRecentAny.hives)||0)===0;
+    const mostRecentWithHives2=allWithMov.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
     const lv=k=>{
       if(wholeYardMovedOut&&['singles','doubles','light','weak','lids_floors'].includes(k)) return 0;
-      const pool=['singles','doubles','light','weak'].includes(k)?allWithMov:allReal;
-      for(const e of pool){
+      if(HIVE_FIELDS2.includes(k)){
+        if(!mostRecentWithHives2) return 0;
+        const raw=mostRecentWithHives2[k];
+        return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
+      }
+      for(const e of allReal){
         const raw=e[k];
         if(raw===undefined||raw===null||raw==='') continue;
         const v=parseInt(raw);
-        if(!isNaN(v)){
-          if(HIVE_FIELDS2.includes(k)) return v;
-          if(v>0) return v;
-        }
+        if(!isNaN(v)&&v>0) return v;
       }
       return 0;
     };
