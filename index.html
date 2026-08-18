@@ -1651,16 +1651,23 @@ function getSiteHiveState(opName,site,cutoffDate){
       const dc=(b.date||'').localeCompare(a.date||'');
       return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
     });
+  // hives/dead/singles/doubles/light/weak must all come from the SAME most recent entry,
+  // together — searching independently per field lets them drift apart when a visit fills in
+  // one field but leaves another blank, silently mixing today's value for one field with an
+  // old value for another (same bug already fixed in calcSummary, calcBatchSummary, and the
+  // yard tile's own lv()).
+  const mostRecentWithHivesForState=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
   const lastVal=k=>{
+    if(HIVE_STATE_FIELDS.includes(k)){
+      if(!mostRecentWithHivesForState) return 0;
+      const raw=mostRecentWithHivesForState[k];
+      return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
+    }
     for(const e of allSiteEntries){
       const raw=e[k];
       if(raw===undefined||raw===null||raw==='') continue;
       const v=parseInt(raw);
-      if(!isNaN(v)){
-        if(HIVE_STATE_NONZERO_FIELDS.includes(k)){if(v>0) return v;}
-        else if(HIVE_STATE_FIELDS.includes(k)) return v;
-        else if(v>0) return v;
-      }
+      if(!isNaN(v)&&v>0) return v;
     }
     return 0;
   };
