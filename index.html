@@ -5980,9 +5980,9 @@ function renderSitesList(){
         boxHarv.forEach(f=>hRow2.appendChild(h('span',{style:{fontSize:'12px',color:'#b05a1a',background:'#faeeda',borderRadius:'6px',padding:'2px 7px'}},f.v+' '+f.l)));
         body.appendChild(hRow2);
       }
-      // Breeders / Finishers
-      const sp=springEntries[0];
-      const br=parseInt(sp?.breeders)||0,fi=parseInt(sp?.finishers)||0;
+      // Breeders / Finishers — any round, not just spring, same fix as elsewhere
+      const br=getSiteBreederCount(op,site);
+      const fi=parseInt(getSiteFieldAnyRound(op,site,'finishers'))||0;
       if(br>0||fi>0){
         const qRow=h('div',{style:{display:'flex',gap:'6px',marginBottom:'6px'}});
         if(br>0)qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#7a4fa8',background:'#f3e8ff',borderRadius:'6px',padding:'2px 8px'}},br+' Breeder'+(br!==1?'s':'')));
