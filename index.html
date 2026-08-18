@@ -9629,13 +9629,60 @@ function renderApp(){
 // ── Main render ───────────────────────────────────────────────────────────────
 function render(){
   const root=document.getElementById('root');
-  root.innerHTML='';
-  root.appendChild(renderApp());
+  try{
+    root.innerHTML='';
+    root.appendChild(renderApp());
+  }catch(err){
+    // Whatever screen just tried to render threw partway through — root.innerHTML was already
+    // cleared above, so without this the whole app goes permanently blank with no way back and
+    // no clue what happened. Show a recoverable error instead, with a way to get back to safety
+    // and the actual error message so it can be reported precisely.
+    console.error('Render error:',err);
+    root.innerHTML='';
+    try{
+      root.appendChild(renderRenderErrorScreen(err));
+    }catch(err2){
+      // Even the error screen itself failed to build — fall back to raw text, no fancy DOM.
+      root.textContent='Something went wrong loading this screen. Please close and reopen the app. ('+(err&&err.message||'unknown error')+')';
+    }
+  }
   document.querySelectorAll('.sync-dot').forEach(d=>{d.className='sync-dot '+STATE.syncStatus;});
   // Always re-show name prompt if not set
   if(!STATE.userName){
     root.appendChild(renderNamePrompt());
   }
+}
+
+function renderRenderErrorScreen(err){
+  const wrap=document.createElement('div');
+  wrap.style.cssText='min-height:100vh;background:#faf8f5;padding:24px;box-sizing:border-box;';
+  const box=document.createElement('div');
+  box.style.cssText='background:#fff;border:1.5px solid #e24b4a;border-radius:14px;padding:22px;max-width:420px;margin:40px auto;';
+  const title=document.createElement('div');
+  title.style.cssText='font-size:18px;font-weight:800;color:#c0392b;margin-bottom:8px;';
+  title.textContent='This screen ran into a problem';
+  box.appendChild(title);
+  const msg=document.createElement('div');
+  msg.style.cssText='font-size:13px;color:#666;margin-bottom:14px;line-height:1.5;';
+  msg.textContent='Something on this screen failed to load correctly. Going back to Overview should fix it — if it happens again on the same screen, screenshotting this message helps track down exactly what went wrong.';
+  box.appendChild(msg);
+  const detail=document.createElement('div');
+  detail.style.cssText='font-size:11px;font-family:monospace;color:#999;background:#f8f8f6;border-radius:8px;padding:10px;margin-bottom:16px;word-break:break-word;max-height:120px;overflow:auto;';
+  detail.textContent=(err&&err.message)||String(err);
+  box.appendChild(detail);
+  const btn=document.createElement('button');
+  btn.style.cssText='width:100%;padding:12px;background:#2a1f3d;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;';
+  btn.textContent='Back to Overview';
+  btn.addEventListener('click',()=>{
+    // Reset to the simplest possible state so whatever broke this render isn't hit again
+    STATE.op=null;STATE.run=null;STATE.site=null;STATE.round=null;
+    STATE.diaryView=null;STATE.editing=null;STATE.editingOriginalRound=null;
+    STATE.tab='overview';
+    render();
+  });
+  box.appendChild(btn);
+  wrap.appendChild(box);
+  return wrap;
 }
 
 // ── Online/offline ────────────────────────────────────────────────────────────
