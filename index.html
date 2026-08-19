@@ -6280,7 +6280,7 @@ function renderEntriesList(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');}); // includes movement entries — they now carry accurate hives/doubles/singles too
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
+        ['hives','dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
           if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
         });
         // Pick round based on current month (Southern Hemisphere)
@@ -7345,7 +7345,7 @@ function renderEntriesList(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');}); // includes movement entries — they now carry accurate hives/doubles/singles too
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','light','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
+        ['hives','dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
           if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
         });
         // Pick round based on current month (Southern Hemisphere)
@@ -7591,7 +7591,7 @@ function renderRoundPicker(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movement entries — they now carry accurate hives/doubles/singles too
         const lastE=lastEntries[0]||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'].forEach(key=>{
+        ['hives','dead','singles','doubles','weak','alive_hives','dead_hives'].forEach(key=>{
           if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
         });
         setState({round:k,diaryView:'form',editing:null,formVals:prefill});
