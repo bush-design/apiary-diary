@@ -6116,6 +6116,14 @@ function renderEntriesList(){
   const mostRecentWithHives=allSiteEntriesWithMov.find(e=>
     e.hives!==undefined&&e.hives!==null&&e.hives!==''
   )||null;
+  // Check / FD Harv / 3-4 Harv / Pollen fed only show if the MOST RECENT visit itself recorded
+  // them — unlike the other extras pills, these shouldn't fall back to an older visit's value,
+  // since seeing "Check" still showing from three visits ago reads as current when it isn't.
+  const anchoredVal=k=>{
+    if(!mostRecentWithHives) return 0;
+    const raw=mostRecentWithHives[k];
+    return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
+  };
   const lv=k=>{
     if(HIVE_FIELDS3.includes(k)){
       // hives/dead/singles/doubles/light/weak all come from the SAME most-recent hive-count
@@ -6223,16 +6231,16 @@ function renderEntriesList(){
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'Pol singles',v:lv('pol_singles'),show:lv('pol_singles')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
-      {l:'Check',v:lv('check'),show:lv('check')>0},
+      {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
       {l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
       {l:'Splits',v:lv('splits'),show:lv('splits')>0},
       {l:'Tops',v:lv('tops'),show:lv('tops')>0},
-      {l:'FD Harv',v:lv('fd_harv'),show:lv('fd_harv')>0},
-      {l:'3/4 Harv',v:lv('harv_34'),show:lv('harv_34')>0},
+      {l:'FD Harv',v:anchoredVal('fd_harv'),show:anchoredVal('fd_harv')>0},
+      {l:'3/4 Harv',v:anchoredVal('harv_34'),show:anchoredVal('harv_34')>0},
       {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
       {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
-      {l:'Pollen fed',v:lv('pollen_hives_fed'),show:lv('pollen_hives_fed')>0},
+      {l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
       {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
     ].filter(x=>x.show);
@@ -7181,6 +7189,13 @@ function renderEntriesList(){
   const allSiteEntriesWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map((e,i)=>({...e,_arrIdx:i}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
   const HIVE_FIELDS3=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
   const mostRecentWithHives=allSiteEntriesWithMov.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+  // Check / FD Harv / 3-4 Harv / Pollen fed only show if the MOST RECENT visit itself recorded
+  // them — unlike the other extras pills, these shouldn't fall back to an older visit's value.
+  const anchoredVal=k=>{
+    if(!mostRecentWithHives) return 0;
+    const raw=mostRecentWithHives[k];
+    return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
+  };
   const mostRecentAnyE=allSiteEntriesWithMov[0]||null;
   const wholeYardOut2=mostRecentAnyE&&mostRecentAnyE._movement&&(parseInt(mostRecentAnyE.hives)||0)===0;
   const lv=k=>{
@@ -7288,16 +7303,16 @@ function renderEntriesList(){
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'Pol singles',v:lv('pol_singles'),show:lv('pol_singles')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
-      {l:'Check',v:lv('check'),show:lv('check')>0},
+      {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
       {l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
       {l:'Splits',v:lv('splits'),show:lv('splits')>0},
       {l:'Tops',v:lv('tops'),show:lv('tops')>0},
-      {l:'FD Harv',v:lv('fd_harv'),show:lv('fd_harv')>0},
-      {l:'3/4 Harv',v:lv('harv_34'),show:lv('harv_34')>0},
+      {l:'FD Harv',v:anchoredVal('fd_harv'),show:anchoredVal('fd_harv')>0},
+      {l:'3/4 Harv',v:anchoredVal('harv_34'),show:anchoredVal('harv_34')>0},
       {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
       {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
-      {l:'Pollen fed',v:lv('pollen_hives_fed'),show:lv('pollen_hives_fed')>0},
+      {l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
       {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
     ].filter(x=>x.show);
