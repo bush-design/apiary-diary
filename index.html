@@ -228,6 +228,101 @@ async function renameOrchardEverywhere(oldName,newName){
   return changedCount;
 }
 
+// Renaming a yard is a bigger job than renaming an orchard — the yard name is baked directly
+// into diary entry storage keys (eKey = op__site__round), not just a plain field, so a rename
+// has to actually move data between keys rather than edit values in place. Everything else that
+// references the yard by name (movements, nuc batches, the pallet baseline, AFB inquiries) also
+// needs updating, or those records would silently point at a name that no longer exists.
+async function renameYardEverywhere(op,oldName,newName){
+  const report={entries:0,movements:0,nucs:0,pallets:false,afb:false};
+
+  // 1) Diary entries — move each round's array from the old key to the new key
+  const updatedEntries={...STATE.entries};
+  Object.keys(ROUNDS).forEach(round=>{
+    const oldKey=eKey(op,oldName,round);
+    const newKey=eKey(op,newName,round);
+    const oldList=updatedEntries[oldKey];
+    if(oldList&&oldList.length){
+      const existing=updatedEntries[newKey]||[];
+      updatedEntries[newKey]=[...existing,...oldList];
+      delete updatedEntries[oldKey];
+      report.entries+=oldList.length;
+    }
+  });
+  if(report.entries>0){
+    STATE.entries=updatedEntries;
+    saveLocal(updatedEntries);
+    for(const round of Object.keys(ROUNDS)){
+      const newKey=eKey(op,newName,round);
+      if(updatedEntries[newKey]) await pushToSupabase(newKey,updatedEntries[newKey]).catch(e=>console.warn('Sync failed:',e));
+    }
+  }
+
+  // 2) Movements referencing this yard as from_site or to_site
+  const movs=await getMergedRemoteMovements();
+  const updatedMovs=movs.map(m=>{
+    const fromMatch=m.from_site===oldName&&m.from_op===op;
+    const toMatch=m.to_site===oldName&&m.to_op===op;
+    if(fromMatch||toMatch){
+      report.movements++;
+      return {...m,from_site:fromMatch?newName:m.from_site,to_site:toMatch?newName:m.to_site};
+    }
+    return m;
+  });
+  if(report.movements>0){
+    saveMovements(updatedMovs);
+    await pushToSupabase('hive_movements',updatedMovs).catch(e=>console.warn('Sync failed:',e));
+  }
+
+  // 3) Nuc batches — the yard-keyed bucket itself, plus any batch's sourceYard field
+  const nucYards=loadNucYards();
+  let nucsChanged=false;
+  if(nucYards[oldName]&&nucYards[oldName].op===op){
+    nucYards[newName]=nucYards[oldName];
+    delete nucYards[oldName];
+    nucsChanged=true;
+    report.nucs+=(nucYards[newName].batches||[]).length;
+  }
+  Object.values(nucYards).forEach(yard=>{
+    (yard.batches||[]).forEach(batch=>{
+      if(batch.sourceYard===oldName&&batch.sourceOp===op){
+        batch.sourceYard=newName;
+        nucsChanged=true;
+      }
+    });
+  });
+  if(nucsChanged){
+    saveNucYards(nucYards);
+    await pushToSupabase('nuc_yards',nucYards).catch(e=>console.warn('Sync failed:',e));
+  }
+
+  // 4) Pallet baseline — stored under a op__site__palletbase key
+  const baselines=loadPalletBaselines();
+  const oldPalKey=palletBaselineKey(op,oldName);
+  if(baselines[oldPalKey]){
+    const newPalKey=palletBaselineKey(op,newName);
+    baselines[newPalKey]=baselines[oldPalKey];
+    delete baselines[oldPalKey];
+    savePalletBaselines(baselines);
+    await pushToSupabase(newPalKey,baselines[newPalKey]).catch(e=>console.warn('Sync failed:',e));
+    report.pallets=true;
+  }
+
+  // 5) AFB inquiry — stored under apiary_afb_op__site
+  try{
+    const oldAfbKey='apiary_afb_'+op+'__'+oldName;
+    const afbRaw=localStorage.getItem(oldAfbKey);
+    if(afbRaw){
+      const newAfbKey='apiary_afb_'+op+'__'+newName;
+      localStorage.setItem(newAfbKey,afbRaw);
+      localStorage.removeItem(oldAfbKey);
+      report.afb=true;
+    }
+  }catch(e){}
+
+  return report;
+}
+
 // Movement storage — separate from diary entries.
 //
 // Deletions are soft (a {deleted:true} tombstone), not a hard removal from the array. This
@@ -523,15 +618,21 @@ function showToast(msg, duration=2500){
 function loadLocal(){try{return JSON.parse(localStorage.getItem('apiary_entries')||'{}');}catch(e){return{};}}
 function loadCustomYards(){try{return JSON.parse(localStorage.getItem('apiary_custom_yards')||'{}');}catch(e){return{};}}
 function saveCustomYards(y){try{localStorage.setItem('apiary_custom_yards',JSON.stringify(y));}catch(e){}}
+// Built-in yards are a fixed list — renaming one doesn't mutate that list in place, it records
+// old→new here instead, and getYards() below substitutes it in. Same pattern as orchard renames.
+function loadYardRenames(){try{return JSON.parse(localStorage.getItem('apiary_yard_renames')||'{}');}catch(e){return{};}}
+function saveYardRenames(m){try{localStorage.setItem('apiary_yard_renames',JSON.stringify(m));}catch(e){}}
 // Merge custom yards into OPERATIONS at runtime
 function getYards(opName){
   const base=OPERATIONS[opName].yards;
   const custom=loadCustomYards()[opName]||{};
+  const renames=loadYardRenames()[opName]||{};
   const merged={};
   // Start with all base batches
   Object.entries(base).forEach(([batch,data])=>{
+    const renamedSites=data.sites.map(s=>(renames[batch]&&renames[batch][s])||s);
     const customSites=custom[batch]?.sites||[];
-    const allSites=[...data.sites,...customSites.filter(s=>!data.sites.includes(s))];
+    const allSites=[...renamedSites,...customSites.filter(s=>!renamedSites.includes(s))];
     merged[batch]={...data,sites:allSites};
   });
   // Add any entirely new custom batches
@@ -733,6 +834,12 @@ async function pullFromSupabase(){
           }
           return;
         }
+        if(row.entry_key==='yard_renames'){
+          if(row.data&&typeof row.data==='object'){
+            saveYardRenames(row.data);
+          }
+          return;
+        }
         if(row.entry_key==='season_notes'){
           if(row.data&&typeof row.data==='object'){
             saveSeasonNotes(row.data);
@@ -830,6 +937,11 @@ function subscribeRealtime(){
     }
     if(entry_key==='orchard_renames'){
       if(data&&typeof data==='object') saveOrchardRenames(data);
+      render();
+      return;
+    }
+    if(entry_key==='yard_renames'){
+      if(data&&typeof data==='object') saveYardRenames(data);
       render();
       return;
     }
@@ -9621,9 +9733,56 @@ function renderYardsTab(opName){
     batchData.sites.forEach(site=>{
       const isCustomSite=custom[batchName]?.sites?.includes(site);
       const row=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'8px',padding:'9px 12px',marginBottom:'5px',display:'flex',justifyContent:'space-between',alignItems:'center'}});
-      row.appendChild(h('span',{style:{fontSize:'14px',color:'#333'}},site+(isCustomSite?' ✎':'')));
+      row.appendChild(h('span',{style:{fontSize:'14px',color:'#333'}},site));
+      const actionsRow=h('div',{style:{display:'flex',gap:'6px',alignItems:'center'}});
+      actionsRow.appendChild(h('button',{style:{background:'none',border:'.5px solid #ccc',borderRadius:'6px',padding:'4px 10px',fontSize:'12px',color:'#555',cursor:'pointer',fontWeight:'600'},
+        onClick:()=>{
+          const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+          const box=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'22px',width:'100%',maxWidth:'320px'}});
+          box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Rename yard'));
+          box.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'12px'}},'Updates every diary entry, movement, nuc batch, pallet split, and AFB record for this yard.'));
+          const nameInp=h('input',{type:'text',value:site,className:'inp',style:{marginBottom:'14px'}});
+          box.appendChild(nameInp);
+          const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+          btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:opData.color,color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+            onClick:async()=>{
+              const newName=nameInp.value.trim();
+              if(!newName){showToast('Enter a name');return;}
+              if(newName===site){overlay.remove();return;}
+              if(getYards(opName)[batchName]?.sites.includes(newName)){showToast('That name already exists in this batch');return;}
+              if(isCustomSite){
+                const cy=loadCustomYards();
+                cy[opName][batchName].sites=cy[opName][batchName].sites.map(s=>s===site?newName:s);
+                saveCustomYards(cy);
+                pushToSupabase('custom_yards',cy);
+              } else {
+                const renames=loadYardRenames();
+                if(!renames[opName])renames[opName]={};
+                if(!renames[opName][batchName])renames[opName][batchName]={};
+                renames[opName][batchName][site]=newName;
+                saveYardRenames(renames);
+                pushToSupabase('yard_renames',renames);
+              }
+              const report=await renameYardEverywhere(opName,site,newName);
+              overlay.remove();
+              const parts=[];
+              if(report.entries) parts.push(report.entries+' entr'+(report.entries===1?'y':'ies'));
+              if(report.movements) parts.push(report.movements+' movement'+(report.movements===1?'':'s'));
+              if(report.nucs) parts.push(report.nucs+' nuc batch'+(report.nucs===1?'':'es'));
+              showToast(site+' renamed to '+newName+(parts.length?' · '+parts.join(', ')+' updated':''));
+              setState({tab:'settings'});
+            }
+          },'Save'));
+          btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+            onClick:()=>overlay.remove()},'Cancel'));
+          box.appendChild(btnRow);
+          overlay.appendChild(box);
+          overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+          document.body.appendChild(overlay);
+        }
+      },'Edit'));
       if(isCustomSite){
-        row.appendChild(h('button',{style:{background:'none',border:'none',color:'#e24b4a',fontSize:'13px',fontWeight:'600',cursor:'pointer',padding:'0'},
+        actionsRow.appendChild(h('button',{style:{background:'none',border:'none',color:'#e24b4a',fontSize:'13px',fontWeight:'600',cursor:'pointer',padding:'0'},
           onClick:()=>confirmAction('Remove '+site+' from '+batchName+'?',()=>{
             removeCustomSite(opName,batchName,site);
             showToast(site+' removed');
@@ -9631,8 +9790,9 @@ function renderYardsTab(opName){
           })
         },'Remove'));
       } else {
-        row.appendChild(h('span',{style:{fontSize:'11px',color:'#ccc'}},'built-in'));
+        actionsRow.appendChild(h('span',{style:{fontSize:'11px',color:'#ccc'}},'built-in'));
       }
+      row.appendChild(actionsRow);
       section.appendChild(row);
     });
     screen.appendChild(section);
