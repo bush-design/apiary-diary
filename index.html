@@ -459,7 +459,48 @@ async function addMovement(mov){
     else if(isDeduction){ legDesc=`${truckStr}${hiveDetail} → ${mov.to_site}`; desc=`MOVED OUT: ${legDesc}`; }
     else { legDesc=`${truckStr}${hiveDetail} ← ${mov.from_site}`; desc=`MOVED IN: ${legDesc}`; }
 
+    // When hives arrive FROM a yard (not orchard), collate that source yard's own most recent
+    // real hive-strength score, treatment, and pollination data into the destination entry too
+    // — a "MOVED IN" entry used to only carry the raw hive/box numbers, losing everything else
+    // about the stock that just arrived. When several pickups merge into one destination entry
+    // (a multi-yard consolidation truckload), each source's data combines into the same entry:
+    // score distributions and pollination pallets sum together, treatments list out uniquely.
+    let sourceScoreDelta=null,sourceTreatment=null,sourcePolDelta=0,sourcePartDelta=0;
+    if(!isDeduction&&mov.direction!=='from_orchard'&&mov.from_site&&mov.from_op){
+      const sourceEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(mov.from_op,mov.from_site,r2)]||[]))
+        .filter(e=>!e._movement&&e.date<=mov.date)
+        .sort((a,b)=>{
+          const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
+          const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
+          return tsB.localeCompare(tsA);
+        });
+      const sourceLatest=sourceEntries[0]||null;
+      if(sourceLatest){
+        if(sourceLatest.score_breakdown&&Object.values(sourceLatest.score_breakdown).some(v=>v&&v!=='')){
+          sourceScoreDelta=sourceLatest.score_breakdown;
+        }
+        if(sourceLatest.treatment) sourceTreatment=sourceLatest.treatment;
+        sourcePolDelta=parseInt(sourceLatest.pol_pallet)||0;
+        sourcePartDelta=parseInt(sourceLatest.part_pallet)||0;
+      }
+    }
+
     if(mergeTarget){
+      // Combine this pickup's score/treatment/pollination into whatever's already accumulated
+      // on the merge target, rather than overwriting it — several sources merging into one
+      // destination entry should have their data add together, not replace each other.
+      let combinedScore=mergeTarget.score_breakdown||{};
+      if(sourceScoreDelta){
+        combinedScore={...combinedScore};
+        Object.entries(sourceScoreDelta).forEach(([lvl,v])=>{
+          const add=parseInt(v)||0;
+          if(add>0) combinedScore[lvl]=String((parseInt(combinedScore[lvl])||0)+add);
+        });
+      }
+      const existingTx=(mergeTarget.treatment||'').split(',').map(t=>t.trim()).filter(Boolean);
+      if(sourceTreatment){
+        sourceTreatment.split(',').map(t=>t.trim()).filter(Boolean).forEach(t=>{if(!existingTx.includes(t))existingTx.push(t);});
+      }
       const mergedEntry={
         ...mergeTarget,
         hives: String(newHives),
@@ -470,6 +511,10 @@ async function addMovement(mov){
         light: newLight>0?String(newLight):'',
         comments: mergeTarget.comments+', '+legDesc,
         saved_at: new Date().toISOString(),
+        ...(Object.keys(combinedScore).length?{score_breakdown:combinedScore}:{}),
+        ...(existingTx.length?{treatment:existingTx.join(', ')}:{}),
+        ...(sourcePolDelta>0?{pol_pallet:String((parseInt(mergeTarget.pol_pallet)||0)+sourcePolDelta)}:{}),
+        ...(sourcePartDelta>0?{part_pallet:String((parseInt(mergeTarget.part_pallet)||0)+sourcePartDelta)}:{}),
       };
       const updated = {...STATE.entries, [k]: [mergedEntry, ...existing.slice(1)]};
       saveLocal(updated);
@@ -490,7 +535,11 @@ async function addMovement(mov){
       logged_by: mov.logged_by,
       saved_at: new Date().toISOString(),
       truckload_id: mov.truckload_id,
-      _movement: true
+      _movement: true,
+      ...(sourceScoreDelta?{score_breakdown:{...sourceScoreDelta}}:{}),
+      ...(sourceTreatment?{treatment:sourceTreatment}:{}),
+      ...(sourcePolDelta>0?{pol_pallet:String(sourcePolDelta)}:{}),
+      ...(sourcePartDelta>0?{part_pallet:String(sourcePartDelta)}:{}),
     };
     const updated = {...STATE.entries, [k]: [movEntry, ...existing]};
     saveLocal(updated);
@@ -1637,13 +1686,14 @@ function calcSummary(opName){
       return 0;
     };
     hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');weak+=lastVal('weak');lidsFloors+=lastVal('lids_floors');
-    // Count formic pro hives from treatment string
-    const txStr=lastVal('treatment')||''; // won't work for string — use allSiteEntries directly
-    const formicEntry=allSiteEntries.find(e=>(e.treatment||'').includes('Formic Pro'));
-    if(formicEntry){
-      const fm=formicEntry.treatment.match(/Formic Pro\s*·\s*(\d+)/);
+    // Formic Pro — only counts if the site's MOST RECENT entry mentions it, not any entry ever
+    // that happened to. Once a newer visit exists (whatever treatment it used, or none), an old
+    // Formic Pro dose is no longer current and shouldn't keep showing in the fleet total.
+    const mostRecentEntryForTx=allSiteEntries[0]||null;
+    if(mostRecentEntryForTx&&(mostRecentEntryForTx.treatment||'').includes('Formic Pro')){
+      const fm=mostRecentEntryForTx.treatment.match(/Formic Pro\s*·\s*(\d+)/);
       if(fm) formicTotal+=parseInt(fm[1])||0;
-      else if(formicEntry._formic_count) formicTotal+=parseInt(formicEntry._formic_count)||0;
+      else if(mostRecentEntryForTx._formic_count) formicTotal+=parseInt(mostRecentEntryForTx._formic_count)||0;
     }
     alive+=lastVal('alive_hives');deadHives+=lastVal('dead_hives');
     light+=lastVal('light');pol+=lastVal('pol_pallet');part+=lastVal('part_pallet');carrot+=lastVal('carrot');
@@ -5007,8 +5057,10 @@ function showFormicModal(opName){
   const results=[];
   sites.forEach(site=>{
     const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
-    const fe=allE.find(e=>(e.treatment||'').includes('Formic Pro'));
-    if(!fe) return;
+    // Only counts if the site's MOST RECENT entry mentions Formic Pro — same fix as the fleet
+    // summary total, so this drill-down list matches it exactly.
+    const fe=allE[0]||null;
+    if(!fe||!(fe.treatment||'').includes('Formic Pro')) return;
     const fm=fe.treatment.match(/Formic Pro\s*·\s*(\d+)/);
     const count=fm?parseInt(fm[1]):(parseInt(fe._formic_count)||0);
     if(count>0) results.push({site,count,date:fe.date});
