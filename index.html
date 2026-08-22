@@ -886,7 +886,7 @@ async function pushToSupabase(key, data){
   }
 }
 
-async function pullFromSupabase(){
+async function pullFromSupabase(skipRender){
   if(!navigator.onLine||!window._sb) return;
   updateSyncDot('syncing');
   try{
@@ -976,14 +976,17 @@ async function pullFromSupabase(){
       STATE.entries=merged;
     }
     updateSyncDot('online');
-    // The Log Movement form (direction, pickups, driver, vehicle, notes) keeps its state in
-    // local variables scoped to renderMovementsScreen(), not in STATE — so a full render() while
-    // someone is actively filling it in tears the whole screen down and rebuilds it from
-    // scratch, silently resetting "Yard → Yard" back to the default "Yard → Orchard" and losing
-    // anything typed in. The data above is still updated either way; this only skips the
-    // destructive re-render while that specific form is in use. Whatever they're doing will
-    // pick up the fresh data the moment they navigate away and the screen re-renders normally.
-    if(!(STATE.op==='__movements__'&&STATE.tab==='movements')){
+    // A full render() tears down and rebuilds the ENTIRE app from scratch — any screen or open
+    // modal that keeps its own state in local variables rather than STATE (the Log Movement
+    // form, an open rename dialog, an in-progress nuc batch entry, etc) gets silently reset the
+    // instant that happens. Trying to special-case each vulnerable screen individually is a
+    // losing game — there's no way to enumerate every one reliably. So for a background sync
+    // (skipRender=true), never force the rebuild at all: the data above is still updated, and
+    // whatever the person is doing will pick up the fresh data the moment they next navigate,
+    // since that navigation triggers its own normal render() anyway. Only a deliberate,
+    // user-initiated sync (app boot, the "Force sync" button, coming back online) still refreshes
+    // immediately, since there's no in-progress work to protect at those moments.
+    if(!skipRender){
       render();
     }
   }catch(e){
@@ -1016,6 +1019,12 @@ function subscribeRealtime(){
     // without this, movements/flags/checks/etc. pushed from another device were silently being
     // written into STATE.entries under the wrong key, so this device's live view never actually
     // updated for them (only a full reload, which re-runs pullFromSupabase, would pick them up).
+    //
+    // None of these branches force a render() anymore — a push can arrive at any moment, and a
+    // full render() tears down and rebuilds the entire app, silently resetting whatever screen
+    // or modal is currently open (the Log Movement form, an open rename dialog, anything with
+    // its own local state). The data below is still updated correctly either way; the UI simply
+    // catches up the moment the person next navigates, since that triggers its own render().
     if(entry_key==='hive_movements'){
       if(data&&Array.isArray(data)){
         const local=loadMovementsRaw();
@@ -1027,61 +1036,51 @@ function subscribeRealtime(){
           else if(m.deleted&&!existing.deleted) byId[m.id]={...existing,...m,deleted:true};
         });
         saveMovements(Object.values(byId));
-        render();
       }
       return;
     }
     if(entry_key==='custom_orchards'){
       if(data&&Array.isArray(data)) saveCustomOrchards(data);
-      render();
       return;
     }
     if(entry_key==='orchard_renames'){
       if(data&&typeof data==='object') saveOrchardRenames(data);
-      render();
       return;
     }
     if(entry_key==='yard_renames'){
       if(data&&typeof data==='object') saveYardRenames(data);
-      render();
       return;
     }
     if(entry_key==='season_notes'){
       if(data&&typeof data==='object') saveSeasonNotes(data);
-      render();
       return;
     }
     if(entry_key==='custom_yards'){
       if(data&&typeof data==='object') saveCustomYards(data);
-      render();
       return;
     }
     if(entry_key.endsWith('__palletbase')){
       const bases=loadPalletBaselines();
       if(data&&!data.deleted) bases[entry_key]=data; else delete bases[entry_key];
       savePalletBaselines(bases);
-      render();
       return;
     }
     if(entry_key.endsWith('__check')&&!entry_key.endsWith('__flag')){
       const checks=loadChecks();
       if(data&&!data.deleted) checks[entry_key]=data; else delete checks[entry_key];
       saveChecks(checks);
-      render();
       return;
     }
     if(entry_key.endsWith('__flag')){
       const flags=loadFlags();
       if(data&&!data.deleted) flags[entry_key]=data; else delete flags[entry_key];
       saveFlags(flags);
-      render();
       return;
     }
     // Regular diary entries
     if(data){
       STATE.entries[entry_key]=data;
       saveLocal(STATE.entries);
-      render();
     }
   }).subscribe();
 }
@@ -10103,7 +10102,7 @@ window.addEventListener('online',async()=>{
     _sbLoaded=await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
     if(_sbLoaded){try{window._sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);subscribeRealtime();}catch(e){_sbLoaded=false;}}
   }
-  if(_sbLoaded){await flushPending();await pullFromSupabase();}
+  if(_sbLoaded){await flushPending();await pullFromSupabase(true);}
   if(!_ejLoaded){
     _ejLoaded=await loadScript('https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js');
     if(_ejLoaded){try{emailjs.init(EMAILJS_PUBLIC);}catch(e){_ejLoaded=false;}}
@@ -10132,7 +10131,7 @@ document.addEventListener('visibilitychange',async()=>{
   if(_sbLoaded){
     try{ subscribeRealtime(); }catch(e){} // cheap to re-subscribe; catches a silently-dropped channel
     await flushPending();
-    await pullFromSupabase();
+    await pullFromSupabase(true);
   }
   updateSyncDot('online');
 });
@@ -10142,7 +10141,7 @@ document.addEventListener('visibilitychange',async()=>{
 // it updates on its own" actually true, rather than relying solely on the WebSocket staying up.
 setInterval(async()=>{
   if(document.hidden||!navigator.onLine||!_sbLoaded) return;
-  try{ await pullFromSupabase(); }catch(e){}
+  try{ await pullFromSupabase(true); }catch(e){}
 },30000);
 
 // ── Service Worker (offline caching) ─────────────────────────────────────────
