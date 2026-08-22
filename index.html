@@ -414,10 +414,14 @@ async function addMovement(mov){
         const dc=(b.date||'').localeCompare(a.date||'');
         return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
       });
-    const lastAny = allSiteEntries[0]||null; // most recent entry of any kind (incl. movements) — hive count stacks across movements
+    // Anchored to the most recent entry that actually HAS an hives value — not just the most
+    // recent entry of any kind. A note-only visit (like "No hives fed" with no hive count
+    // recorded) was being treated as "0 hives", silently resetting the baseline a movement adds
+    // onto, instead of correctly carrying forward the last real hive count.
+    const lastWithHives = allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
     const lastReal=allSiteEntries.find(e=>!e._movement)||null;
-    const lastHives = parseInt(lastAny?.hives)||0;
-    const lastDead = parseInt((mergeTarget||lastAny)?.dead)||0;
+    const lastHives = parseInt(lastWithHives?.hives)||0;
+    const lastDead = parseInt((mergeTarget||lastWithHives)?.dead)||0;
     const lastDoubles=parseInt((mergeTarget||lastReal)?.doubles)||0;
     const lastSingles=parseInt((mergeTarget||lastReal)?.singles)||0;
     const lastLight=parseInt((mergeTarget||lastReal)?.light)||0;
