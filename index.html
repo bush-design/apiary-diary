@@ -1797,17 +1797,23 @@ function getSiteFieldAnyRound(op, site, fieldKey){
   return undefined;
 }
 function getSiteScoreEntryAnyRound(op, site){
+  // Anchored to the SAME most-recent-entry-with-hives used everywhere else (computeCurrentHivesForSite,
+  // calcSummary, etc), not "most recent entry that happens to have score data" — that search-backward
+  // approach let a yard whose hives have all since moved away keep contributing its old score forever,
+  // since the newer (empty) entry got skipped rather than treated as "no score now". A yard with 0
+  // hives should not still count toward the fleet-wide score total just because it once had one.
   const allEntries=Object.keys(ROUNDS)
     .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]))
-    // No longer excludes movement entries — a "MOVED IN" entry can carry a collated score
-    // breakdown from the source yard(s), and that's just as current as a real hive check.
-    .filter(e=>e.score_breakdown&&Object.values(e.score_breakdown).some(v=>v&&v!==''))
     .sort((a,b)=>{
       const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
       const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
       return tsB.localeCompare(tsA);
     });
-  return allEntries[0]||null;
+  const mostRecent=allEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+  if(mostRecent&&mostRecent.score_breakdown&&Object.values(mostRecent.score_breakdown).some(v=>v&&v!=='')){
+    return mostRecent;
+  }
+  return null;
 }
 
 // ── Shared: exact current-hive-count calculation, factored out of the yard detail page so
