@@ -1799,7 +1799,9 @@ function getSiteFieldAnyRound(op, site, fieldKey){
 function getSiteScoreEntryAnyRound(op, site){
   const allEntries=Object.keys(ROUNDS)
     .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]))
-    .filter(e=>!e._movement&&e.score_breakdown&&Object.values(e.score_breakdown).some(v=>v&&v!==''))
+    // No longer excludes movement entries — a "MOVED IN" entry can carry a collated score
+    // breakdown from the source yard(s), and that's just as current as a real hive check.
+    .filter(e=>e.score_breakdown&&Object.values(e.score_breakdown).some(v=>v&&v!==''))
     .sort((a,b)=>{
       const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
       const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
@@ -6409,8 +6411,12 @@ function renderEntriesList(){
   const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
   const hasMovement=movementNet!==0||latestMovementHives>0;
 
-  // Spring score avg
-  const bd=STATE.entries[eKey(op,site,'spring')]?.find(e=>!e._movement)?.score_breakdown||{};
+  // Spring score avg — most recent entry in ANY round with score data, INCLUDING movement
+  // entries, since score data can now be collated onto a "MOVED IN" entry from the source
+  // yard(s) it came from. The old version only checked the 'spring' bucket and explicitly
+  // excluded movement entries, so a yard that received its score via a consolidated move never
+  // showed it here even though the data was correctly sitting right there on the entry.
+  const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
   let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
   const avg=ac>0?Math.round(at/ac):null;
 
@@ -6494,6 +6500,12 @@ function renderEntriesList(){
       {l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
       {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
+      {l:'Pol Pallets',v:anchoredVal('pol_pallet'),show:anchoredVal('pol_pallet')>0},
+      {l:'Part Pallets',v:anchoredVal('part_pallet'),show:anchoredVal('part_pallet')>0},
+      {l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
+      {l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
+      {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
+      {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
     ].filter(x=>x.show);
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
@@ -6509,9 +6521,14 @@ function renderEntriesList(){
         scoreCircle(avg,28,13)
       ));
     }
-    // Treatment
-    const tx=allSiteEntries.find(e=>e.treatment)?.treatment;
+    // Treatment / Diseases — from the SAME anchor entry as everything else on this tile, not
+    // independently searched across all history (same bug class already fixed for Formic Pro,
+    // Check, etc — an old treatment/disease note shouldn't keep showing once a newer visit,
+    // with or without one, exists).
+    const tx=mostRecentWithHives?.treatment;
     if(tx) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#c39bd3',marginTop:'6px','fontWeight':'600'}},'Tx: '+tx));
+    const diseasesFound=mostRecentWithHives?.diseases;
+    if(diseasesFound) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#e24b4a',marginTop:'4px',fontWeight:'600'}},'⚠ '+diseasesFound));
   }
   wrap.appendChild(summaryPanel);
 
@@ -7481,8 +7498,12 @@ function renderEntriesList(){
   const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
   const hasMovement=movementNet!==0||latestMovementHives>0;
 
-  // Spring score avg
-  const bd=STATE.entries[eKey(op,site,'spring')]?.find(e=>!e._movement)?.score_breakdown||{};
+  // Spring score avg — most recent entry in ANY round with score data, INCLUDING movement
+  // entries, since score data can now be collated onto a "MOVED IN" entry from the source
+  // yard(s) it came from. The old version only checked the 'spring' bucket and explicitly
+  // excluded movement entries, so a yard that received its score via a consolidated move never
+  // showed it here even though the data was correctly sitting right there on the entry.
+  const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
   let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
   const avg=ac>0?Math.round(at/ac):null;
 
@@ -7566,6 +7587,12 @@ function renderEntriesList(){
       {l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
       {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
+      {l:'Pol Pallets',v:anchoredVal('pol_pallet'),show:anchoredVal('pol_pallet')>0},
+      {l:'Part Pallets',v:anchoredVal('part_pallet'),show:anchoredVal('part_pallet')>0},
+      {l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
+      {l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
+      {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
+      {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
     ].filter(x=>x.show);
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
@@ -7581,9 +7608,14 @@ function renderEntriesList(){
         scoreCircle(avg,28,13)
       ));
     }
-    // Treatment
-    const tx=allSiteEntries.find(e=>e.treatment)?.treatment;
+    // Treatment / Diseases — from the SAME anchor entry as everything else on this tile, not
+    // independently searched across all history (same bug class already fixed for Formic Pro,
+    // Check, etc — an old treatment/disease note shouldn't keep showing once a newer visit,
+    // with or without one, exists).
+    const tx=mostRecentWithHives?.treatment;
     if(tx) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#c39bd3',marginTop:'6px','fontWeight':'600'}},'Tx: '+tx));
+    const diseasesFound=mostRecentWithHives?.diseases;
+    if(diseasesFound) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#e24b4a',marginTop:'4px',fontWeight:'600'}},'⚠ '+diseasesFound));
   }
   wrap.appendChild(summaryPanel);
 
