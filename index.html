@@ -617,7 +617,7 @@ const ROUNDS = {
     {key:"dead",label:"Dead",type:"number"},{key:"lids_floors",label:"Lids & Floors",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
     {key:"score_breakdown",label:"Spring Score",type:"score_grid"},
     {key:"pol_pallet",label:"POL Pallet",type:"number"},{key:"part_pallet",label:"Part Pallet",type:"number"},
-    {key:"pol_singles",label:"Pollination Singles",type:"number"},
+    {key:"pol_singles",label:"Pollination Individuals",type:"number"},
     {key:"sugar_feed",label:"Sugar Feed",type:"sugar_feed"},
     {key:"queen_yard",label:"Queen Yard",type:"queen_yard"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
@@ -1242,7 +1242,7 @@ async function maybeQuarterlyBackup(){
 function buildExportRows(opName){
   const sites=allSitesFor(opName);
   const yards=OPERATIONS[opName].yards;
-  const header=['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','Pol Singles','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
+  const header=['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indv.','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
   const dataRows=[];
   sites.forEach(site=>{
     const batch=Object.entries(yards).find(([,d])=>d.sites.includes(site))?.[0]||'';
@@ -1340,7 +1340,7 @@ const EXPORT_FIELD_DEFS=[
   }},
   {label:'POL Pallet',get:e=>e.pol_pallet||''},
   {label:'Part Pallet',get:e=>e.part_pallet||''},
-  {label:'Pol Singles',get:e=>e.pol_singles||''},
+  {label:'POL Indv.',get:e=>e.pol_singles||''},
   {label:'QR',get:e=>e.qr||''},
   {label:'Virgin',get:e=>e.virgin||''},
   {label:'Cell Needed',get:e=>e.cell_needed||''},
@@ -6391,7 +6391,11 @@ function renderEntriesList(){
       if(mostRecentWithHives){const raw=mostRecentWithHives[k];if(raw!==undefined&&raw!==null&&raw!=='') return parseInt(raw)||0;return 0;}
       return 0;
     }
-    for(const e of allSiteEntries){
+    // Includes movement entries — a "MOVED IN" entry can carry collated pollination/requeening
+    // data from its source yard(s), and that's just as current as a real hive check. Excluding
+    // movements here (as this used to) meant collated fields like POL Indv. never showed up on
+    // a yard that received hives through a consolidated move.
+    for(const e of allSiteEntriesWithMov){
       const raw=e[k];if(raw===undefined||raw===null||raw==='') continue;
       const v=parseInt(raw);if(!isNaN(v)&&v>0) return v;
     }
@@ -6492,7 +6496,7 @@ function renderEntriesList(){
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
       {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'Pol singles',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'POL Indv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
       {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
@@ -6612,7 +6616,7 @@ function renderEntriesList(){
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
-      {key:'pol_singles',label:'POL Singles'},
+      {key:'pol_singles',label:'POL Indv.'},
       // Feed
       {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
@@ -6990,7 +6994,7 @@ function renderForm(){
     ]},
     {key:'pollination',label:'Pollination',color:'#b07800',fields:[
       {key:'pol_pallet',label:'POL Pallets',type:'number'},{key:'part_pallet',label:'Part Pallets',type:'number'},
-      {key:'pol_singles',label:'POL Singles',type:'number'},
+      {key:'pol_singles',label:'POL Indv.',type:'number'},
     ]},
     {key:'feed',label:'Feed',color:'#3d7a4f',fields:[
       {key:'_sugar_label',label:'Sugar Feed',type:'subtitle'},
@@ -7481,7 +7485,9 @@ function renderEntriesList(){
       if(mostRecentWithHives){const raw=mostRecentWithHives[k];if(raw!==undefined&&raw!==null&&raw!=='')return parseInt(raw)||0;return 0;}
       return 0;
     }
-    for(const e of allSiteEntries){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v)&&v>0)return v;}
+    // Includes movement entries — a "MOVED IN" entry can carry collated pollination/requeening
+    // data from its source yard(s), and that's just as current as a real hive check.
+    for(const e of allSiteEntriesWithMov){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v)&&v>0)return v;}
     return 0;
   };
   const latestReal=allSiteEntries[0]||null;
@@ -7579,7 +7585,7 @@ function renderEntriesList(){
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
       {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'Pol singles',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'POL Indv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
       {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
@@ -7699,7 +7705,7 @@ function renderEntriesList(){
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
-      {key:'pol_singles',label:'POL Singles'},
+      {key:'pol_singles',label:'POL Indv.'},
       // Feed
       {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
