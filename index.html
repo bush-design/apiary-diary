@@ -5052,6 +5052,57 @@ function showStatModal(opName, fieldKey, label, color){
 
 function showLidsFloorsModal(opName){ showStatModal(opName,'lids_floors','Lids & Floors','#1a6fb0'); }
 
+// Spring Score drill-down — every site with a recorded score, its hives/doubles/singles, and
+// its own average, reusing the same "most recent entry with score data, any round" lookup the
+// fleet-wide summary itself uses, so this list always matches what the summary chart shows.
+function showScoreModal(opName){
+  const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  const results=[];
+  sites.forEach(site=>{
+    const scoreEntry=getSiteScoreEntryAnyRound(opName,site);
+    if(!scoreEntry) return;
+    const bd=scoreEntry.score_breakdown||{};
+    let total=0,weighted=0;
+    [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){total+=v;weighted+=n*v;}});
+    if(total===0) return;
+    const avg=weighted/total;
+    const state=getSiteHiveState(opName,site,null);
+    results.push({site,hives:state.hives||0,doubles:state.doubles||0,singles:state.singles||0,scoredHives:total,avg,date:scoreEntry.date});
+  });
+  results.sort((a,b)=>a.avg-b.avg); // worst-scoring yards first — the ones that need attention
+  const totalHives=results.reduce((a,x)=>a+x.scoredHives,0);
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'380px',maxHeight:'80vh',display:'flex',flexDirection:'column'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},'Spring Score — '+opName));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},totalHives+' hives across '+results.length+' site'+(results.length!==1?'s':'')));
+  const list=h('div',{style:{overflowY:'auto',flex:'1'}});
+  results.forEach(({site,hives,doubles,singles,avg,date})=>{
+    const row=h('div',{style:{padding:'10px 12px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'},
+      onClick:()=>{overlay.remove();Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(site))setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});});}});
+    const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px'}});
+    const left=h('div',null);
+    left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},site));
+    left.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginTop:'2px'}},fmtDate(date)));
+    const right=h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}});
+    right.appendChild(scoreCircle(Math.round(avg),30,13));
+    right.appendChild(h('span',{style:{color:'#ddd',fontSize:'16px'}},'›'));
+    topRow.appendChild(left);topRow.appendChild(right);
+    row.appendChild(topRow);
+    const statsRow=h('div',{style:{display:'flex',gap:'12px',fontSize:'12px',color:'#888'}},
+      h('span',null,hives+' hives'),
+      h('span',null,doubles+' doubles'),
+      h('span',null,singles+' singles'),
+      h('span',{style:{color:'#aaa'}},'avg '+avg.toFixed(1))
+    );
+    row.appendChild(statsRow);
+    list.appendChild(row);
+  });
+  box.appendChild(list);
+  box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function showFormicModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
@@ -5335,7 +5386,9 @@ function renderSummaryPanel(opName){
     panel.appendChild(orchDiv);
   }
   if(s.avgScore){
-    const sw=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px'}},h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'12px'}},`Spring score — avg across ${s.scoreHives} hives`));
+    const sw=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',cursor:'pointer'},
+      onClick:()=>showScoreModal(opName)
+    },h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'12px'}},`Spring score — avg across ${s.scoreHives} hives ↗`));
     const sr=h('div',{style:{display:'flex',alignItems:'center',gap:'12px'}});
     sr.appendChild(scoreCircle(Math.round(parseFloat(s.avgScore)),44,18));
     const maxBar=Math.max(1,...s.barCounts);
