@@ -460,12 +460,19 @@ async function addMovement(mov){
     else { legDesc=`${truckStr}${hiveDetail} ← ${mov.from_site}`; desc=`MOVED IN: ${legDesc}`; }
 
     // When hives arrive FROM a yard (not orchard), collate that source yard's own most recent
-    // real hive-strength score, treatment, and pollination data into the destination entry too
-    // — a "MOVED IN" entry used to only carry the raw hive/box numbers, losing everything else
-    // about the stock that just arrived. When several pickups merge into one destination entry
-    // (a multi-yard consolidation truckload), each source's data combines into the same entry:
-    // score distributions and pollination pallets sum together, treatments list out uniquely.
-    let sourceScoreDelta=null,sourceTreatment=null,sourcePolDelta=0,sourcePartDelta=0;
+    // real data into the destination entry too — a "MOVED IN" entry used to only carry the raw
+    // hive/box numbers, losing everything else about the stock that just arrived. Covers every
+    // relevant field from the entry form (Requeening, Pollination, Feed, Harvest, Disease), not
+    // just a hand-picked few. When several pickups merge into one destination entry (a
+    // multi-yard consolidation truckload), each source's data combines into the same entry:
+    // numeric fields sum together, comma-separated fields (treatment, diseases) merge uniquely,
+    // free-text notes concatenate.
+    const COLLATE_SUM_FIELDS=['qr','virgin','cell_needed','tops','splits','nuc_splits','breeders','finishers',
+      'pol_pallet','part_pallet','pol_singles','hives_fed','litres_fed','honey_hives_fed','pollen_hives_fed',
+      'fd_on','on_34','fd_harv','harv_34','honeycomb_fd','honeycomb_hd','best_hive_boxes'];
+    const COLLATE_MERGE_FIELDS=['treatment','diseases']; // comma-separated, dedupe on merge
+    const COLLATE_NOTE_FIELDS=['disease_notes'];
+    let sourceCollated=null;
     if(!isDeduction&&mov.direction!=='from_orchard'&&mov.from_site&&mov.from_op){
       const sourceEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(mov.from_op,mov.from_site,r2)]||[]))
         .filter(e=>!e._movement&&e.date<=mov.date)
@@ -476,30 +483,47 @@ async function addMovement(mov){
         });
       const sourceLatest=sourceEntries[0]||null;
       if(sourceLatest){
+        sourceCollated={};
         if(sourceLatest.score_breakdown&&Object.values(sourceLatest.score_breakdown).some(v=>v&&v!=='')){
-          sourceScoreDelta=sourceLatest.score_breakdown;
+          sourceCollated.score_breakdown=sourceLatest.score_breakdown;
         }
-        if(sourceLatest.treatment) sourceTreatment=sourceLatest.treatment;
-        sourcePolDelta=parseInt(sourceLatest.pol_pallet)||0;
-        sourcePartDelta=parseInt(sourceLatest.part_pallet)||0;
+        COLLATE_SUM_FIELDS.forEach(k=>{const v=parseInt(sourceLatest[k]);if(!isNaN(v)&&v>0)sourceCollated[k]=v;});
+        COLLATE_MERGE_FIELDS.forEach(k=>{if(sourceLatest[k])sourceCollated[k]=sourceLatest[k];});
+        COLLATE_NOTE_FIELDS.forEach(k=>{if(sourceLatest[k])sourceCollated[k]=sourceLatest[k];});
       }
     }
 
     if(mergeTarget){
-      // Combine this pickup's score/treatment/pollination into whatever's already accumulated
-      // on the merge target, rather than overwriting it — several sources merging into one
-      // destination entry should have their data add together, not replace each other.
-      let combinedScore=mergeTarget.score_breakdown||{};
-      if(sourceScoreDelta){
-        combinedScore={...combinedScore};
-        Object.entries(sourceScoreDelta).forEach(([lvl,v])=>{
-          const add=parseInt(v)||0;
-          if(add>0) combinedScore[lvl]=String((parseInt(combinedScore[lvl])||0)+add);
+      // Combine this pickup's collated data into whatever's already accumulated on the merge
+      // target, rather than overwriting it — several sources merging into one destination entry
+      // should have their data add together, not replace each other.
+      const mergedExtra={};
+      if(sourceCollated){
+        if(sourceCollated.score_breakdown){
+          const combinedScore={...(mergeTarget.score_breakdown||{})};
+          Object.entries(sourceCollated.score_breakdown).forEach(([lvl,v])=>{
+            const add=parseInt(v)||0;
+            if(add>0) combinedScore[lvl]=String((parseInt(combinedScore[lvl])||0)+add);
+          });
+          mergedExtra.score_breakdown=combinedScore;
+        }
+        COLLATE_SUM_FIELDS.forEach(k=>{
+          if(sourceCollated[k]!==undefined){
+            mergedExtra[k]=String((parseInt(mergeTarget[k])||0)+sourceCollated[k]);
+          }
         });
-      }
-      const existingTx=(mergeTarget.treatment||'').split(',').map(t=>t.trim()).filter(Boolean);
-      if(sourceTreatment){
-        sourceTreatment.split(',').map(t=>t.trim()).filter(Boolean).forEach(t=>{if(!existingTx.includes(t))existingTx.push(t);});
+        COLLATE_MERGE_FIELDS.forEach(k=>{
+          if(sourceCollated[k]){
+            const existingVals=(mergeTarget[k]||'').split(',').map(t=>t.trim()).filter(Boolean);
+            sourceCollated[k].split(',').map(t=>t.trim()).filter(Boolean).forEach(t=>{if(!existingVals.includes(t))existingVals.push(t);});
+            if(existingVals.length) mergedExtra[k]=existingVals.join(', ');
+          }
+        });
+        COLLATE_NOTE_FIELDS.forEach(k=>{
+          if(sourceCollated[k]){
+            mergedExtra[k]=mergeTarget[k]?mergeTarget[k]+' · '+sourceCollated[k]:sourceCollated[k];
+          }
+        });
       }
       const mergedEntry={
         ...mergeTarget,
@@ -511,16 +535,20 @@ async function addMovement(mov){
         light: newLight>0?String(newLight):'',
         comments: mergeTarget.comments+', '+legDesc,
         saved_at: new Date().toISOString(),
-        ...(Object.keys(combinedScore).length?{score_breakdown:combinedScore}:{}),
-        ...(existingTx.length?{treatment:existingTx.join(', ')}:{}),
-        ...(sourcePolDelta>0?{pol_pallet:String((parseInt(mergeTarget.pol_pallet)||0)+sourcePolDelta)}:{}),
-        ...(sourcePartDelta>0?{part_pallet:String((parseInt(mergeTarget.part_pallet)||0)+sourcePartDelta)}:{}),
+        ...mergedExtra,
       };
       const updated = {...STATE.entries, [k]: [mergedEntry, ...existing.slice(1)]};
       saveLocal(updated);
       await pushToSupabase(k, updated[k]);
       STATE.entries = updated;
       return;
+    }
+    const freshExtra={};
+    if(sourceCollated){
+      if(sourceCollated.score_breakdown) freshExtra.score_breakdown={...sourceCollated.score_breakdown};
+      COLLATE_SUM_FIELDS.forEach(k=>{if(sourceCollated[k]!==undefined)freshExtra[k]=String(sourceCollated[k]);});
+      COLLATE_MERGE_FIELDS.forEach(k=>{if(sourceCollated[k])freshExtra[k]=sourceCollated[k];});
+      COLLATE_NOTE_FIELDS.forEach(k=>{if(sourceCollated[k])freshExtra[k]=sourceCollated[k];});
     }
     const movEntry = {
       id: genEntryId(),
@@ -536,10 +564,7 @@ async function addMovement(mov){
       saved_at: new Date().toISOString(),
       truckload_id: mov.truckload_id,
       _movement: true,
-      ...(sourceScoreDelta?{score_breakdown:{...sourceScoreDelta}}:{}),
-      ...(sourceTreatment?{treatment:sourceTreatment}:{}),
-      ...(sourcePolDelta>0?{pol_pallet:String(sourcePolDelta)}:{}),
-      ...(sourcePartDelta>0?{part_pallet:String(sourcePartDelta)}:{}),
+      ...freshExtra,
     };
     const updated = {...STATE.entries, [k]: [movEntry, ...existing]};
     saveLocal(updated);
