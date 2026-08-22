@@ -468,8 +468,11 @@ async function addMovement(mov){
     // numeric fields sum together, comma-separated fields (treatment, diseases) merge uniquely,
     // free-text notes concatenate.
     const COLLATE_SUM_FIELDS=['qr','virgin','cell_needed','tops','splits','nuc_splits','breeders','finishers',
-      'pol_pallet','part_pallet','pol_singles','hives_fed','litres_fed','honey_hives_fed','pollen_hives_fed',
+      'pol_pallet','part_pallet','pol_singles','hives_fed','honey_hives_fed','pollen_hives_fed',
       'fd_on','on_34','fd_harv','harv_34','honeycomb_fd','honeycomb_hd','best_hive_boxes'];
+    // Litres Fed is a per-hive rate applied across the whole yard, not a running total — when
+    // multiple sources merge into one destination, this should average across them, not sum.
+    const COLLATE_AVG_FIELDS=['litres_fed'];
     const COLLATE_MERGE_FIELDS=['treatment','diseases']; // comma-separated, dedupe on merge
     const COLLATE_NOTE_FIELDS=['disease_notes'];
     let sourceCollated=null;
@@ -488,6 +491,7 @@ async function addMovement(mov){
           sourceCollated.score_breakdown=sourceLatest.score_breakdown;
         }
         COLLATE_SUM_FIELDS.forEach(k=>{const v=parseInt(sourceLatest[k]);if(!isNaN(v)&&v>0)sourceCollated[k]=v;});
+        COLLATE_AVG_FIELDS.forEach(k=>{const v=parseFloat(sourceLatest[k]);if(!isNaN(v)&&v>0)sourceCollated[k]=v;});
         COLLATE_MERGE_FIELDS.forEach(k=>{if(sourceLatest[k])sourceCollated[k]=sourceLatest[k];});
         COLLATE_NOTE_FIELDS.forEach(k=>{if(sourceLatest[k])sourceCollated[k]=sourceLatest[k];});
       }
@@ -510,6 +514,19 @@ async function addMovement(mov){
         COLLATE_SUM_FIELDS.forEach(k=>{
           if(sourceCollated[k]!==undefined){
             mergedExtra[k]=String((parseInt(mergeTarget[k])||0)+sourceCollated[k]);
+          }
+        });
+        COLLATE_AVG_FIELDS.forEach(k=>{
+          if(sourceCollated[k]!==undefined){
+            // Weighted running average — needs a hidden contributor count, or averaging in a
+            // third source would just do (existingAvg + newVal) / 2, silently under-weighting
+            // the sources already folded into existingAvg.
+            const prevCount=parseInt(mergeTarget['_'+k+'_n'])||(mergeTarget[k]?1:0);
+            const prevVal=parseFloat(mergeTarget[k])||0;
+            const newCount=prevCount+1;
+            const newAvg=((prevVal*prevCount)+sourceCollated[k])/newCount;
+            mergedExtra[k]=String(Math.round(newAvg*10)/10);
+            mergedExtra['_'+k+'_n']=String(newCount);
           }
         });
         COLLATE_MERGE_FIELDS.forEach(k=>{
@@ -547,6 +564,7 @@ async function addMovement(mov){
     if(sourceCollated){
       if(sourceCollated.score_breakdown) freshExtra.score_breakdown={...sourceCollated.score_breakdown};
       COLLATE_SUM_FIELDS.forEach(k=>{if(sourceCollated[k]!==undefined)freshExtra[k]=String(sourceCollated[k]);});
+      COLLATE_AVG_FIELDS.forEach(k=>{if(sourceCollated[k]!==undefined){freshExtra[k]=String(sourceCollated[k]);freshExtra['_'+k+'_n']='1';}});
       COLLATE_MERGE_FIELDS.forEach(k=>{if(sourceCollated[k])freshExtra[k]=sourceCollated[k];});
       COLLATE_NOTE_FIELDS.forEach(k=>{if(sourceCollated[k])freshExtra[k]=sourceCollated[k];});
     }
