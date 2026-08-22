@@ -9965,6 +9965,37 @@ window.addEventListener('offline',()=>{
   updateSyncDot('error');
 });
 
+// ── Foreground sync ───────────────────────────────────────────────────────────
+// Browsers/mobile OSes suspend timers and WebSocket connections while the app is truly
+// backgrounded (screen locked or switched away from) — that's an OS-level restriction, not
+// something this code can override. What IS achievable: the moment the app is opened, unlocked,
+// or brought back to the foreground, catch up immediately rather than waiting for the person to
+// notice it's stale. The realtime subscription can also silently die in patchy reception without
+// reconnecting on its own, so this also re-subscribes as a safety net, and a periodic poll below
+// covers the case where realtime is connected but a change slipped through anyway.
+document.addEventListener('visibilitychange',async()=>{
+  if(document.hidden||!navigator.onLine) return;
+  updateSyncDot('syncing');
+  if(!_sbLoaded){
+    _sbLoaded=await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
+    if(_sbLoaded){try{window._sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);}catch(e){_sbLoaded=false;}}
+  }
+  if(_sbLoaded){
+    try{ subscribeRealtime(); }catch(e){} // cheap to re-subscribe; catches a silently-dropped channel
+    await flushPending();
+    await pullFromSupabase();
+  }
+  updateSyncDot('online');
+});
+
+// Safety-net poll — while the tab is actually visible and online, periodically pull the latest
+// data even if realtime hasn't fired anything. This is what makes "just leave the app open and
+// it updates on its own" actually true, rather than relying solely on the WebSocket staying up.
+setInterval(async()=>{
+  if(document.hidden||!navigator.onLine||!_sbLoaded) return;
+  try{ await pullFromSupabase(); }catch(e){}
+},30000);
+
 // ── Service Worker (offline caching) ─────────────────────────────────────────
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('/sw.js').then(reg=>{
