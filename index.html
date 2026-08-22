@@ -958,7 +958,16 @@ async function pullFromSupabase(){
       STATE.entries=merged;
     }
     updateSyncDot('online');
-    render();
+    // The Log Movement form (direction, pickups, driver, vehicle, notes) keeps its state in
+    // local variables scoped to renderMovementsScreen(), not in STATE — so a full render() while
+    // someone is actively filling it in tears the whole screen down and rebuilds it from
+    // scratch, silently resetting "Yard → Yard" back to the default "Yard → Orchard" and losing
+    // anything typed in. The data above is still updated either way; this only skips the
+    // destructive re-render while that specific form is in use. Whatever they're doing will
+    // pick up the fresh data the moment they navigate away and the screen re-renders normally.
+    if(!(STATE.op==='__movements__'&&STATE.tab==='movements')){
+      render();
+    }
   }catch(e){
     updateSyncDot('error');
   }
@@ -4059,7 +4068,7 @@ function renderReportsScreen(){
     // ── Movement log by driver — pick-ups and drop-offs for a selected driver ──
     function renderMovementsByDriver(container){
       container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Movement log by driver'));
-      const DRIVERS_LIST=['Adam','Neil','Em','Zeke','Shaun','Other'];
+      const DRIVERS_LIST=['Adam','Neil','Em','Zeke','Other'];
       const allMovements=loadMovements();
       const driversUsed=[...new Set(allMovements.map(m=>m.driver).filter(Boolean))];
       const driverOptions=[...new Set([...DRIVERS_LIST,...driversUsed])];
@@ -8276,7 +8285,7 @@ function renderMovementsScreen(){
     let nextId=1;
     let editingPickup=null; // holds a pickup being edited (removed from list, back in form)
 
-    const DRIVERS=['Adam','Neil','Em','Zeke','Shaun','Other'];
+    const DRIVERS=['Adam','Neil','Em','Zeke','Other'];
     const VEHICLES=['Landcruiser','DH Hilux',"Neil's ute","Shaun's ute",'Big Truck'];
 
     const wrap=h('div',null);
