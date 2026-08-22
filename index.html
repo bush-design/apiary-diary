@@ -7073,7 +7073,26 @@ function renderForm(){
         const inp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box'}});
         inp.value=vals[f.key]||'';
         inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
-        fw.appendChild(inp);
+        if(sec.key==='pollination'){
+          // Same +/- stepper pattern as Hive Strength, scoped to the Pollination section
+          inp.style.textAlign='center';
+          inp.style.flex='1';
+          const stepRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+          const stepBtn=(delta,label)=>h('button',{type:'button',style:{width:'32px',height:'32px',flexShrink:'0',borderRadius:'6px',border:'.5px solid #ccc',background:'#fff',color:'#555',fontSize:'16px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:'0'},
+            onClick:()=>{
+              const cur=parseInt(inp.value)||0;
+              const next=Math.max(0,cur+delta);
+              inp.value=String(next);
+              STATE.formVals[f.key]=String(next);
+            }
+          },label);
+          stepRow.appendChild(stepBtn(-1,'−'));
+          stepRow.appendChild(inp);
+          stepRow.appendChild(stepBtn(1,'+'));
+          fw.appendChild(stepRow);
+        } else {
+          fw.appendChild(inp);
+        }
       } else if(f.type==='score_grid'){
         const scPill=h('button',{type:'button',style:{padding:'8px 14px',borderRadius:'20px',border:'1.5px solid '+(vals.spring_clean?'#3d7a4f':'#ddd'),background:vals.spring_clean?'#3d7a4f':'#fff',color:vals.spring_clean?'#fff':'#555',fontSize:'13px',fontWeight:'700',cursor:'pointer',marginBottom:'10px',display:'inline-flex',alignItems:'center',gap:'6px'}},
           (vals.spring_clean?'✓ ':'')+'Spring clean');
