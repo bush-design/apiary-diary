@@ -9271,7 +9271,11 @@ function renderMovementsScreen(){
       // actively productive stock, not the dead-outs. This is just the starting suggestion:
       // editing any of these fields yourself stops it from being overwritten further.
       const boxRow=h('div',{style:{marginBottom:'8px'}});
-      boxRow.appendChild(h('label',{className:'lbl',style:{display:'block',marginBottom:'4px'}},'Number of brood chambers'));
+      const boxHdrRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px'}});
+      boxHdrRow.appendChild(h('label',{className:'lbl',style:{marginBottom:'0'}},'Number of brood chambers'));
+      const moveEntireBtn=h('button',{type:'button',style:{padding:'5px 10px',borderRadius:'14px',border:'1.5px solid '+movColor,background:'#fff',color:movColor,fontSize:'11px',fontWeight:'700',cursor:'pointer',whiteSpace:'nowrap'}},'↕ Move entire yard');
+      boxHdrRow.appendChild(moveEntireBtn);
+      boxRow.appendChild(boxHdrRow);
       const boxGrid2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}});
       const boxInputs={};
       let compositionTouched=false;
@@ -9304,6 +9308,41 @@ function renderMovementsScreen(){
       hiveRow.appendChild(hiveGrid);
       addBody.appendChild(hiveRow);
 
+      // Move entire yard — pulls the yard's real truck-space split, composition, and dead
+      // count directly, in one action, rather than relying on the person typing a number that
+      // happens to exactly match the yard's alive-hive total to trigger the auto-detected
+      // whole-move pre-fill (which is fragile — easy to be off by the dead-hive count, or just
+      // not obvious it's a real detection at all).
+      moveEntireBtn.addEventListener('click',()=>{
+        if(!(pickupData.site&&pickupData.op)){showToast('Select a yard first');return;}
+        const yardState=getSiteHiveState(pickupData.op,pickupData.site,null);
+        const split=getCurrentPalletSplit(pickupData.op,pickupData.site);
+        if(split&&((split.pallets||0)>0||(split.singles||0)>0)){
+          pickupData.pallets=String(split.pallets||0);
+          pickupData.half_pallet=false;
+          pickupData.singles=String(split.singles||0);
+        } else {
+          pickupData.pallets='';
+          pickupData.half_pallet=false;
+          pickupData.singles=String(yardState.hives||0);
+        }
+        palInp.value=pickupData.pallets;
+        sinInp.value=pickupData.singles;
+        pickupData.doubles=String(yardState.doubles||0);
+        pickupData.singles_boxes=String(yardState.singles||0);
+        pickupData.light=String(yardState.light||0);
+        pickupData.alive_hives=String(yardState.hives||0);
+        pickupData.dead_hives=String(yardState.dead||0);
+        boxInputs.doubles.value=pickupData.doubles;
+        boxInputs.singles_boxes.value=pickupData.singles_boxes;
+        boxInputs.light.value=pickupData.light;
+        hiveInputs.alive_hives.value=pickupData.alive_hives;
+        hiveInputs.dead_hives.value=pickupData.dead_hives;
+        compositionTouched=true; // lock these in — stop the auto-suggest from overwriting them
+        updateHiveTotal();
+        showToast('Loaded '+(yardState.hives||0)+' alive, '+(yardState.dead||0)+' dead from the yard');
+      });
+
       // Suggests Doubles/Singles/Light/Alive/Dead based on the source yard's real numbers and
       // however many pallets/singles are currently entered — re-run whenever either changes.
       // Stops overwriting anything the person has actually typed into these fields themselves.
@@ -9311,7 +9350,11 @@ function renderMovementsScreen(){
         if(compositionTouched) return;
         if(!(pickupData.site&&pickupData.op)) return;
         const yardState=getSiteHiveState(pickupData.op,pickupData.site,null);
-        const yardTotal=(yardState.hives||0)+(yardState.dead||0);
+        // Compare against ALIVE hives only — dead hives aren't loaded onto a truck, so
+        // including them in the total made a genuine whole-yard move (all alive hives) fall
+        // just short of the comparison whenever any dead hives existed, wrongly getting treated
+        // as a partial move and defaulting to all-doubles instead of the yard's real composition.
+        const yardTotal=yardState.hives||0;
         const truckCapacity=(parseInt(pickupData.pallets)||0)*4+(pickupData.half_pallet?2:0)+(parseInt(pickupData.singles)||0);
         const isWholeMove=yardTotal>0&&truckCapacity>=yardTotal;
         let sDoubles,sSingles,sLight,sAlive,sDead;
