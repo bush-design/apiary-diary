@@ -9806,7 +9806,10 @@ function renderMovementsScreen(){
 
   // ── History tab ──
   else if(STATE.tab==='history'){
-    const allMovements=[...loadMovements()].reverse();
+    const allMovements=[...loadMovements()].sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||'');
+      return dc!==0?dc:(b.recorded_at||'').localeCompare(a.recorded_at||'');
+    });
     const historyFilter=STATE.historyFilter||'all';
     const MOVE_FILTERS=[
       {key:'all',label:'All'},
