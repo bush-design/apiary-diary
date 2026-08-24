@@ -6496,11 +6496,15 @@ function renderEntriesList(){
       summaryPanel.appendChild(hRow);
     }
     // Boxes on row
+    // These need to come from the SAME anchor entry as everything else on this tile, not
+    // wherever a value happens to last appear (same bug class already fixed for Check, FD Harv,
+    // POL fields, etc — otherwise a harvest number from weeks ago keeps showing even after a
+    // newer visit that simply didn't record one).
     const boxes=[
-      {l:'FD on',v:lv('fd_on'),show:lv('fd_on')>0},
-      {l:'3/4 on',v:lv('on_34'),show:lv('on_34')>0},
-      {l:'HC FD',v:lv('honeycomb_fd'),show:lv('honeycomb_fd')>0},
-      {l:'HC ½',v:lv('honeycomb_hd'),show:lv('honeycomb_hd')>0},
+      {l:'FD on',v:anchoredVal('fd_on'),show:anchoredVal('fd_on')>0},
+      {l:'3/4 on',v:anchoredVal('on_34'),show:anchoredVal('on_34')>0},
+      {l:'HC FD',v:anchoredVal('honeycomb_fd'),show:anchoredVal('honeycomb_fd')>0},
+      {l:'HC ½',v:anchoredVal('honeycomb_hd'),show:anchoredVal('honeycomb_hd')>0},
     ].filter(x=>x.show);
     if(boxes.length){
       const bRow=h('div',{style:{display:'grid',gridTemplateColumns:`repeat(${Math.min(boxes.length,4)},1fr)`,gap:'6px',marginBottom:'8px'}});
@@ -7604,11 +7608,15 @@ function renderEntriesList(){
       summaryPanel.appendChild(hRow);
     }
     // Boxes on row
+    // These need to come from the SAME anchor entry as everything else on this tile, not
+    // wherever a value happens to last appear (same bug class already fixed for Check, FD Harv,
+    // POL fields, etc — otherwise a harvest number from weeks ago keeps showing even after a
+    // newer visit that simply didn't record one).
     const boxes=[
-      {l:'FD on',v:lv('fd_on'),show:lv('fd_on')>0},
-      {l:'3/4 on',v:lv('on_34'),show:lv('on_34')>0},
-      {l:'HC FD',v:lv('honeycomb_fd'),show:lv('honeycomb_fd')>0},
-      {l:'HC ½',v:lv('honeycomb_hd'),show:lv('honeycomb_hd')>0},
+      {l:'FD on',v:anchoredVal('fd_on'),show:anchoredVal('fd_on')>0},
+      {l:'3/4 on',v:anchoredVal('on_34'),show:anchoredVal('on_34')>0},
+      {l:'HC FD',v:anchoredVal('honeycomb_fd'),show:anchoredVal('honeycomb_fd')>0},
+      {l:'HC ½',v:anchoredVal('honeycomb_hd'),show:anchoredVal('honeycomb_hd')>0},
     ].filter(x=>x.show);
     if(boxes.length){
       const bRow=h('div',{style:{display:'grid',gridTemplateColumns:`repeat(${Math.min(boxes.length,4)},1fr)`,gap:'6px',marginBottom:'8px'}});
