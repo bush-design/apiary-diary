@@ -5470,7 +5470,8 @@ function renderSummaryPanel(opName){
   }
   // AFB Under Inquiry sites
   const allSites2=Object.values(getYards(opName)).flatMap(y=>y.sites);
-  const afbSites=allSites2.filter(site=>getAFBInquiry(opName,site));
+  const afbSites=allSites2.filter(site=>getAFBInquiry(opName,site))
+    .sort((a,b)=>(getAFBInquiry(opName,b)?.date||'').localeCompare(getAFBInquiry(opName,a)?.date||''));
   if(afbSites.length>0){
     const afbOpen={open:false};
     const afbBtn=h('button',{style:{width:'100%',marginTop:'6px',padding:'8px 12px',background:'rgba(192,57,43,0.15)',border:'1.5px solid #c0392b',borderRadius:'8px',color:'#ff6b6b',fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',boxSizing:'border-box'}});
