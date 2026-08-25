@@ -7448,10 +7448,17 @@ function renderForm(){
         // sync with the latest comments, without overriding an explicit uncheck.
         setFlag(op,site,entry.comments);
       }
-      // AFB inquiry — store date found, auto-expires after 2 years
+      // AFB inquiry — store date found, auto-expires 2 years after the most recent confirmed
+      // sighting. Previously this only ever set the date once, on the very first-ever finding,
+      // and never updated it on a later re-confirmation — so the "under inquiry since" date
+      // stayed frozen at the original finding even when AFB was found again much more recently,
+      // and the 2-year window was quietly counting down from the wrong starting point.
       if((entry.diseases||'').includes('AFB')){
         const inquiryKey='apiary_afb_'+op+'__'+site;
-        if(!localStorage.getItem(inquiryKey)) localStorage.setItem(inquiryKey,JSON.stringify({date:entry.date,site,op}));
+        const existingInquiry=(()=>{try{return JSON.parse(localStorage.getItem(inquiryKey)||'null');}catch(e){return null;}})();
+        if(!existingInquiry||(entry.date&&entry.date>existingInquiry.date)){
+          localStorage.setItem(inquiryKey,JSON.stringify({date:entry.date,site,op}));
+        }
       }
       // Nuc splits — auto-create nuc batch in Nucs screen
       const nucSplitCount=parseInt(entry.nuc_splits)||0;
@@ -10381,7 +10388,7 @@ async function boot(){
 
 async function bootApp(){
   // ── One-time migration: backfill AFB inquiry keys from existing entries ──
-  if(!localStorage.getItem('apiary_migrated_afb')){
+  if(!localStorage.getItem('apiary_migrated_afb_v2')){
     try{
       const allE=JSON.parse(localStorage.getItem('apiary_entries')||'{}');
       Object.entries(allE).forEach(([key,entries])=>{
@@ -10393,7 +10400,11 @@ async function bootApp(){
         (entries||[]).forEach(e=>{
           if((e.diseases||'').includes('AFB')&&e.date){
             const ik='apiary_afb_'+op+'__'+site;
-            if(!localStorage.getItem(ik)){
+            const existingAfb=(()=>{try{return JSON.parse(localStorage.getItem(ik)||'null');}catch(err){return null;}})();
+            // Take whichever is later — this runs across every entry for the site, in whatever
+            // order they happen to be stored, so it needs to keep the latest sighting seen so
+            // far, not just the first one it happens to encounter.
+            if(!existingAfb||e.date>existingAfb.date){
               // Check not expired (within 2 years)
               const found=new Date(e.date);
               const expiry=new Date(found);expiry.setFullYear(expiry.getFullYear()+2);
@@ -10405,7 +10416,7 @@ async function bootApp(){
         });
       });
     }catch(e){console.warn('AFB migration failed:',e);}
-    localStorage.setItem('apiary_migrated_afb','1');
+    localStorage.setItem('apiary_migrated_afb_v2','1');
   }
 
   // ── One-time migration: move Jun-Jul clover entries to winter round ──
