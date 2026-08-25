@@ -9528,7 +9528,7 @@ function renderMovementsScreen(){
             h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#2a1f3d',lineHeight:'1'}},netHives),
             h('div',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},'hives')
           ));
-          addBody.appendChild(hdr);
+          card.appendChild(hdr);
 
           // Progress bar (only if some have returned)
           if(hasReturns){
@@ -9544,7 +9544,7 @@ function renderMovementsScreen(){
               h('span',null,data.returned+'p returned'),
               h('span',{style:{color:'#9b59b6',fontWeight:'600'}},netPal+'p still here')
             ));
-            addBody.appendChild(body);
+            card.appendChild(body);
           }
 
           // Movement timeline
@@ -9562,7 +9562,7 @@ function renderMovementsScreen(){
             row.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb',flexShrink:'0',marginLeft:'8px'}},fmtDate(m.date)));
             movBody.appendChild(row);
           });
-          addBody.appendChild(movBody);
+          card.appendChild(movBody);
           screen.appendChild(card);
         });
       }
@@ -9582,7 +9582,7 @@ function renderMovementsScreen(){
           const t=totals[o];
           const card=h('div',{style:{background:'#fff',border:'.5px solid #ddd',borderRadius:'10px',padding:'11px 13px',marginBottom:'7px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'},
             onClick:()=>setState({selectedOrchard:o})});
-          addBody.appendChild(h('div',null,
+          card.appendChild(h('div',null,
             h('div',{style:{fontWeight:'600',fontSize:'15px'}},o),
             h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} individual`)
           ));
