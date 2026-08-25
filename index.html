@@ -484,6 +484,8 @@ async function addMovement(mov){
       const sourceEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(mov.from_op,mov.from_site,r2)]||[]))
         .filter(e=>!e._movement&&e.date<=mov.date)
         .sort((a,b)=>{
+          const dc=(b.date||'').localeCompare(a.date||''); // date is primary — an edited old entry shouldn't outrank a genuinely newer one
+          if(dc!==0) return dc;
           const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
           const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
           return tsB.localeCompare(tsA);
@@ -1806,6 +1808,8 @@ function getSiteFieldAnyRound(op, site, fieldKey){
   const allEntries=Object.keys(ROUNDS)
     .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement))
     .sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||''); // date is primary — an edited old entry shouldn't outrank a genuinely newer one
+      if(dc!==0) return dc;
       const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
       const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
       return tsB.localeCompare(tsA);
@@ -1826,6 +1830,8 @@ function getSiteScoreEntryAnyRound(op, site){
   const allEntries=Object.keys(ROUNDS)
     .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]))
     .sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||''); // date is primary — an edited old entry shouldn't outrank a genuinely newer one
+      if(dc!==0) return dc;
       const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
       const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
       return tsB.localeCompare(tsA);
@@ -1851,11 +1857,14 @@ function computeCurrentHivesForSite(op, site){
   const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]));
   if(!allEntries.length) return 0;
   const sorted=[...allEntries].sort((a,b)=>{
+    // Date is the PRIMARY sort key — an old entry that was recently edited (updating its
+    // saved_at) must not outrank a genuinely more recent visit just because it was touched
+    // more recently. saved_at/logged_at/recorded_at only break ties between same-day entries.
+    const dc=(b.date||'').localeCompare(a.date||'');
+    if(dc!==0) return dc;
     const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
     const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
-    const tc=tsB.localeCompare(tsA);
-    if(tc!==0) return tc;
-    return (b.date||'').localeCompare(a.date||'');
+    return tsB.localeCompare(tsA);
   });
   const mostRecentWithHives=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
   return mostRecentWithHives?Math.max(0,parseInt(mostRecentWithHives.hives)||0):0;
@@ -5629,6 +5638,8 @@ function calcBatchSummary(op, batch, sites){
   const HIVE_FIELDS_BATCH=['hives','dead','alive_hives','dead_hives','singles','doubles','light'];
   const lv=(site,k)=>{
     const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||''); // date is primary — an edited old entry shouldn't outrank a genuinely newer one
+      if(dc!==0) return dc;
       const tsA=a.saved_at||a.logged_at||(a.date+'T12:00:00');
       const tsB=b.saved_at||b.logged_at||(b.date+'T12:00:00');
       return tsB.localeCompare(tsA);
@@ -5835,6 +5846,8 @@ function showAddNucBatchModal(op,nucYardKey,onSave){
         // hive numbers (same as tapping "+ New entry" would) so it's not a bare, empty entry
         const allSiteEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(selectedSrcOp,selectedSrc,r2)]||[]))
           .sort((a,b)=>{
+            const dc=(b.date||'').localeCompare(a.date||''); // date is primary — an edited old entry shouldn't outrank a genuinely newer one
+            if(dc!==0) return dc;
             const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
             const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
             return tsB.localeCompare(tsA);
@@ -8269,6 +8282,8 @@ function showEditMovementModal(m){
           const list=STATE.entries[eKey(opName,siteKey,rk2)]||[];
           return rk2===(roundForDate(oldDate)||'spring')?list.filter(e=>e!==targetEntry):list;
         }).sort((a,b)=>{
+          const dc=(b.date||'').localeCompare(a.date||''); // date is primary — an edited old entry shouldn't outrank a genuinely newer one
+          if(dc!==0) return dc;
           const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
           const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
           return tsB.localeCompare(tsA);
