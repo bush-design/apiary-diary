@@ -2001,8 +2001,10 @@ function renderOpSelector(){
     if(s.logged>0){
       const statsDiv=h('div',{style:{borderTop:'1px solid rgba(255,255,255,0.1)',paddingTop:'10px'}});
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px',marginBottom:s.avgScore?'8px':'0'}});
-      // Calculate op-specific hives in pollination
-      const opSitesCard=Object.values(op.yards).flatMap(y=>y.sites);
+      // Calculate op-specific hives in pollination — must use getYards() not op.yards, so that
+      // renamed and custom sites resolve to the same names stored on the movement records.
+      // op.yards is the raw static definition; a renamed site's new name is only in getYards().
+      const opSitesCard=Object.values(getYards(name)).flatMap(y=>y.sites);
       let opPolHives=0;
       loadMovements().forEach(m=>{
         const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
