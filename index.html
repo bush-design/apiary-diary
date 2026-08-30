@@ -4550,7 +4550,7 @@ function renderReportsScreen(){
           const delta=last-first;
           const trendColor=delta>0?'#c0392b':delta<0?'#3d7a4f':'#888';
           const trendIcon=delta>0?'↑':delta<0?'↓':'→';
-          const trendMsg=delta===0?'Loss rate is stable across selected seasons':(Math.abs(delta)+'pp '+(delta>0?'higher':'lower')+' at end vs start of selection');
+          const trendMsg=delta===0?'Loss rate is stable across selected seasons':('Loss rate '+(delta>0?'up':'down')+' '+Math.abs(delta)+'% from '+groups[0].label+' to '+groups[groups.length-1].label);
           trendBanner.style.display='flex';
           trendBanner.appendChild(h('span',{style:{fontSize:'22px',color:trendColor,lineHeight:'1'}},trendIcon));
           trendBanner.appendChild(h('span',{style:{color:trendColor,fontWeight:'700',fontSize:'14px'}},trendMsg));
