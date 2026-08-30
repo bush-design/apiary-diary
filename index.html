@@ -6806,6 +6806,14 @@ function renderEntriesList(){
       });
       body.appendChild(grid);
     }
+    // Cause of death pill — shown when a cause was recorded alongside dead hives
+    if(entry.dead_cause){
+      const causeDisplay=entry.dead_cause==='Other'?(entry.dead_cause_other||'Other'):entry.dead_cause;
+      body.appendChild(h('div',{style:{marginTop:'6px',display:'flex',alignItems:'center',gap:'6px'}},
+        h('span',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},'Cause'),
+        h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',background:'#fde8e8',borderRadius:'10px',padding:'2px 9px'}},causeDisplay)
+      ));
+    }
     if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
     // Carrot score breakdown
     const cbd=entry.carrot_score||{};
@@ -7042,6 +7050,7 @@ function renderForm(){
     {key:'light',label:'Light',color:'#ef9f27'},
   ];
   const quickGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'10px'}});
+  let _deadInpRef=null; // kept so the dead-cause section can respond to dead count changes
   QUICK_FIELDS.forEach(f=>{
     const tile=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'10px',border:`.5px solid ${f.color}22`}});
     tile.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:f.color,textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'6px'}},f.label));
@@ -7055,10 +7064,72 @@ function renderForm(){
     }
     inp.value=vals[f.key]||'';
     inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
+    if(f.key==='dead') _deadInpRef=inp;
     tile.appendChild(inp);
     quickGrid.appendChild(tile);
   });
   fc.appendChild(quickGrid);
+
+  // ── Cause of death — revealed when dead > 0 ──────────────────────────────
+  {
+    const DEAD_CAUSES=['Varroa','DL','Queenless','Starved','AFB','Froze','Other'];
+    const causeWrap=h('div',{style:{
+      background:'#fff5f5',border:'1px solid #f5c6cb',borderRadius:'10px',
+      padding:'10px 12px',marginBottom:'10px',
+      display:(parseInt(vals.dead)||0)>0?'block':'none'
+    }});
+    causeWrap.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:'#c0392b',
+      textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'8px'
+    }},'Cause of death'));
+
+    const pillRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
+    let _otherInpWrap=null;
+
+    function styleCausePill(btn,active){
+      btn.style.border=`1px solid ${active?'#c0392b':'#ddd'}`;
+      btn.style.background=active?'#fde8e8':'#fff';
+      btn.style.color=active?'#c0392b':'#888';
+    }
+    DEAD_CAUSES.forEach(cause=>{
+      const active=(vals.dead_cause||'')===cause;
+      const btn=h('button',{type:'button',style:{
+        padding:'4px 11px',borderRadius:'14px',fontSize:'12px',fontWeight:'600',cursor:'pointer',
+        border:`1px solid ${active?'#c0392b':'#ddd'}`,
+        background:active?'#fde8e8':'#fff',color:active?'#c0392b':'#888'
+      }},cause);
+      btn.addEventListener('click',()=>{
+        // Toggle off if already selected
+        const pick=STATE.formVals.dead_cause===cause?'':cause;
+        STATE.formVals.dead_cause=pick;
+        if(pick!=='Other') STATE.formVals.dead_cause_other='';
+        [...pillRow.children].forEach(b=>styleCausePill(b,b.textContent===STATE.formVals.dead_cause));
+        if(_otherInpWrap) _otherInpWrap.style.display=STATE.formVals.dead_cause==='Other'?'block':'none';
+        if(_otherInpWrap&&STATE.formVals.dead_cause!=='Other') _otherInpWrap.querySelector('input').value='';
+      });
+      pillRow.appendChild(btn);
+    });
+    causeWrap.appendChild(pillRow);
+
+    // "Other" free-text field
+    _otherInpWrap=h('div',{style:{display:(vals.dead_cause||'')==='Other'?'block':'none'}});
+    const otherInp=h('input',{type:'text',placeholder:'How did it die…',style:{
+      width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',
+      fontSize:'14px',background:'#fff',boxSizing:'border-box'
+    }});
+    otherInp.value=vals.dead_cause_other||'';
+    otherInp.addEventListener('input',e=>STATE.formVals.dead_cause_other=e.target.value);
+    _otherInpWrap.appendChild(otherInp);
+    causeWrap.appendChild(_otherInpWrap);
+
+    fc.appendChild(causeWrap);
+
+    // Show / hide the cause section as the dead count changes
+    if(_deadInpRef){
+      _deadInpRef.addEventListener('input',e=>{
+        causeWrap.style.display=(parseInt(e.target.value)||0)>0?'block':'none';
+      });
+    }
+  }
 
   // Row 1: Weak + Treatment (side by side)
   const ctGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}});
@@ -7924,6 +7995,14 @@ function renderEntriesList(){
         ));
       });
       body.appendChild(grid);
+    }
+    // Cause of death pill — shown when a cause was recorded alongside dead hives
+    if(entry.dead_cause){
+      const causeDisplay=entry.dead_cause==='Other'?(entry.dead_cause_other||'Other'):entry.dead_cause;
+      body.appendChild(h('div',{style:{marginTop:'6px',display:'flex',alignItems:'center',gap:'6px'}},
+        h('span',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},'Cause'),
+        h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',background:'#fde8e8',borderRadius:'10px',padding:'2px 9px'}},causeDisplay)
+      ));
     }
     if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
     // Carrot score breakdown
