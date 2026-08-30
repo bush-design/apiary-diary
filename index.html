@@ -5145,6 +5145,84 @@ function showLidsFloorsModal(opName){ showStatModal(opName,'lids_floors','Lids &
 // Spring Score drill-down — every site with a recorded score, its hives/doubles/singles, and
 // its own average, reusing the same "most recent entry with score data, any round" lookup the
 // fleet-wide summary itself uses, so this list always matches what the summary chart shows.
+function showPollinationDetailModal(opName){
+  const opSites=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  // Build per-orchard, per-site breakdown from all movements for this operation.
+  // to_orchard  → hives leave a site and go to an orchard  (positive)
+  // from_orchard → hives return from an orchard to a site   (negative)
+  // We group "outs" by (orchard → site) so we can show which yards contributed.
+  // Returns are subtracted at the orchard level (we can't know which source site
+  // the returned hives originally came from, so returns reduce the orchard total).
+  const byOrchard={}; // { orchardName: { net, sites: { siteName: hives } } }
+  loadMovements().forEach(m=>{
+    const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+(parseInt(m.singles)||0));
+    if(!mh) return;
+    if(m.direction==='to_orchard'&&opSites.includes(m.from_site)){
+      const o=m.to_orchard||'Unknown orchard';
+      if(!byOrchard[o]) byOrchard[o]={net:0,sites:{}};
+      byOrchard[o].net+=mh;
+      byOrchard[o].sites[m.from_site]=(byOrchard[o].sites[m.from_site]||0)+mh;
+    } else if(m.direction==='from_orchard'&&opSites.includes(m.to_site)){
+      const o=m.from_orchard||'Unknown orchard';
+      if(!byOrchard[o]) byOrchard[o]={net:0,sites:{}};
+      byOrchard[o].net-=mh;
+    }
+  });
+  // Only show orchards that still have hives (net > 0)
+  const activeOrchards=Object.entries(byOrchard)
+    .filter(([,d])=>d.net>0)
+    .sort((a,b)=>b[1].net-a[1].net);
+
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.55)',zIndex:'9999',display:'flex',alignItems:'flex-end',justifyContent:'center'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'18px 18px 0 0',width:'100%',maxWidth:'480px',padding:'20px 18px 32px',maxHeight:'80vh',overflowY:'auto'}});
+
+  // Header
+  box.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}},
+    h('div',{style:{fontWeight:'800',fontSize:'17px',color:'#222'}},'Hives in Pollination'),
+    h('button',{style:{background:'none',border:'none',fontSize:'22px',color:'#999',cursor:'pointer',padding:'0 4px'},onClick:()=>overlay.remove()},'×')
+  ));
+
+  if(!activeOrchards.length){
+    box.appendChild(h('div',{style:{color:'#888',textAlign:'center',padding:'24px 0',fontSize:'14px'}},'No hives currently in pollination.'));
+  } else {
+    const grandTotal=activeOrchards.reduce((s,[,d])=>s+d.net,0);
+    activeOrchards.forEach(([orchardName,data])=>{
+      const card=h('div',{style:{background:'#f8f3ff',border:'1.5px solid #c9a8e8',borderRadius:'12px',padding:'13px 14px',marginBottom:'10px'}});
+      // Orchard headline
+      const top=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'8px'}});
+      top.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#5a1e8a'}},orchardName));
+      top.appendChild(h('div',{style:{fontWeight:'800',fontSize:'18px',color:'#7a4fa8'}},data.net+' hives'));
+      card.appendChild(top);
+      // Per-site rows
+      const siteEntries=Object.entries(data.sites).sort((a,b)=>b[1]-a[1]);
+      siteEntries.forEach(([site,hives])=>{
+        const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'5px 0',borderTop:'1px solid #e2d2f5'}});
+        row.appendChild(h('div',{style:{fontSize:'13px',color:'#555'}},site));
+        row.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'600',color:'#7a4fa8'}},hives+' hives'));
+        card.appendChild(row);
+      });
+      // Note if partial return has reduced the gross
+      const gross=siteEntries.reduce((s,[,v])=>s+v,0);
+      if(gross>data.net){
+        card.appendChild(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'6px',fontStyle:'italic'}},
+          (gross-data.net)+' hives returned — net shown above'));
+      }
+      box.appendChild(card);
+    });
+    // Grand total footer
+    if(activeOrchards.length>1){
+      const footer=h('div',{style:{background:'#7a4fa8',borderRadius:'10px',padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'baseline'}});
+      footer.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'rgba(255,255,255,0.75)',textTransform:'uppercase',letterSpacing:'.05em'}},'Total in pollination'));
+      footer.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'800',color:'#fff'}},grandTotal+' hives'));
+      box.appendChild(footer);
+    }
+  }
+
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function showScoreModal(opName){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
@@ -5500,7 +5578,7 @@ function renderSummaryPanel(opName){
     const hivesInYards=Math.max(0,s.hives-opHivesOut);
     const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
     orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},hivesInYards),h('div',{className:'stat-lbl'},'Hives in yards')));
-    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut),h('div',{className:'stat-lbl'},'In pollination')));
+    orchDiv.appendChild(h('div',{className:'stat-box',style:{cursor:'pointer'},onClick:()=>showPollinationDetailModal(opName)},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut),h('div',{className:'stat-lbl'},'In pollination ↗')));
     panel.appendChild(orchDiv);
   }
   if(s.avgScore){
