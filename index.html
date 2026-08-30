@@ -3376,6 +3376,7 @@ function renderReportsScreen(){
       {label:'Entries by person',custom:'people'},
       {label:'Pollination hives by orchard',custom:'pollination'},
       {label:'Nuc success rate',custom:'nucsuccess'},
+      {label:'Hive loss by season',custom:'hloss'},
     ];
     function backToCharts(){
       customArea.style.display='none';customArea.innerHTML='';
@@ -3398,6 +3399,7 @@ function renderReportsScreen(){
       else if(key==='people') renderEntriesByPerson(body);
       else if(key==='pollination') renderPollinationReport(body);
       else if(key==='nucsuccess') renderNucSuccessReport(body);
+      else if(key==='hloss') renderHiveLossReport(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -4440,6 +4442,149 @@ function renderReportsScreen(){
         });
       }
       draw();
+    }
+
+    function renderHiveLossReport(container){
+      container.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Hive Loss by Season'));
+      container.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'16px'}},'Hive counts at end of each season — tap seasons to compare'));
+
+      // Build all seasons from all configured years, sorted chronologically
+      const ORDER=['winter','spring','summer','autumn'];
+      const allSeasons=[];
+      [...years].sort((a,b)=>a.startYear-b.startYear).forEach(yr=>{
+        const ranges=getSeasonRanges(yr);
+        ORDER.forEach(k=>{
+          const s=ranges[k];
+          allSeasons.push({key:yr.startYear+'_'+k,label:s.label,start:s.start,end:s.end});
+        });
+      });
+      const defaultSelected=new Set(allSeasons.slice(-8).map(s=>s.key));
+      const selected=new Set(defaultSelected);
+
+      // Season pill selector
+      const pillSection=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px 14px',marginBottom:'14px',border:'.5px solid #ddd'}});
+      pillSection.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'10px'}},'Seasons'));
+      const pillWrap=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px'}});
+      const pillEls={};
+      function updatePillStyle(key){
+        const el=pillEls[key];
+        if(!el) return;
+        if(selected.has(key)){
+          el.style.background='#3d7a4f';el.style.color='#fff';el.style.borderColor='#3d7a4f';
+        } else {
+          el.style.background='#f5f5f0';el.style.color='#555';el.style.borderColor='#ccc';
+        }
+      }
+      allSeasons.forEach(s=>{
+        const pill=h('button',{type:'button',style:{padding:'7px 14px',borderRadius:'16px',border:'1.5px solid #ccc',background:'#f5f5f0',color:'#555',fontSize:'13px',fontWeight:'600',cursor:'pointer',lineHeight:'1.2'}},s.label);
+        pillEls[s.key]=pill;
+        if(selected.has(s.key)){pill.style.background='#3d7a4f';pill.style.color='#fff';pill.style.borderColor='#3d7a4f';}
+        pill.addEventListener('click',()=>{
+          if(selected.has(s.key)){if(selected.size>1)selected.delete(s.key);}
+          else selected.add(s.key);
+          updatePillStyle(s.key);
+          redraw();
+        });
+        pillWrap.appendChild(pill);
+      });
+      pillSection.appendChild(pillWrap);
+      container.appendChild(pillSection);
+
+      // Chart card
+      const chartCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'14px',marginBottom:'14px',border:'.5px solid #ddd',overflowX:'auto'}});
+      const canvas=document.createElement('canvas');
+      canvas.style.display='block';
+      canvas.style.width='100%';
+      chartCard.appendChild(canvas);
+      container.appendChild(chartCard);
+
+      // Legend
+      const legendRow=h('div',{style:{display:'flex',gap:'20px',fontSize:'12px',color:'#666',justifyContent:'center',marginBottom:'14px'}},
+        h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}},
+          h('span',{style:{width:'13px',height:'13px',background:'#3d7a4f99',borderRadius:'3px',display:'inline-block',flexShrink:'0'}}),
+          'Alive at end of season'),
+        h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}},
+          h('span',{style:{width:'13px',height:'13px',background:'#c0392b99',borderRadius:'3px',display:'inline-block',flexShrink:'0'}}),
+          'Dead at end of season')
+      );
+      container.appendChild(legendRow);
+
+      // Trend banner
+      const trendBanner=h('div',{style:{display:'none',alignItems:'center',gap:'10px',background:'#f8f8f6',borderRadius:'10px',padding:'12px 16px',marginBottom:'14px',fontSize:'14px'}});
+      container.appendChild(trendBanner);
+
+      // Stats rows
+      const statsArea=h('div',{style:{display:'flex',flexDirection:'column',gap:'8px'}});
+      container.appendChild(statsArea);
+
+      function computeSeasonData(s){
+        const snap=getSnapshotEntries(s.end);
+        const totalAlive=snap.reduce((a,e)=>a+(parseInt(e.hives)||0),0);
+        const totalDead=snap.reduce((a,e)=>a+(parseInt(e.dead)||0),0);
+        const totalHives=totalAlive+totalDead;
+        return {label:s.label,totalHives,totalDead,totalAlive};
+      }
+
+      function redraw(){
+        trendBanner.style.display='none';
+        trendBanner.innerHTML='';
+        statsArea.innerHTML='';
+        const activeSeason=allSeasons.filter(s=>selected.has(s.key));
+        if(!activeSeason.length) return;
+        const groups=activeSeason.map(s=>computeSeasonData(s));
+
+        // Size canvas after layout so offsetWidth is real
+        setTimeout(()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=chartCard.offsetWidth-28||300;
+          const h2=Math.max(260,Math.min(groups.length*60,360));
+          canvas.width=w*dpr; canvas.height=h2*dpr;
+          canvas.style.width='100%'; canvas.style.height=h2+'px';
+          drawStackedBar(canvas,groups,'Season','Hives');
+        },50);
+
+        // Trend banner
+        if(groups.length>=2){
+          const pcts=groups.map(g=>g.totalHives>0?Math.round(100*g.totalDead/g.totalHives):0);
+          const first=pcts[0],last=pcts[pcts.length-1];
+          const delta=last-first;
+          const trendColor=delta>0?'#c0392b':delta<0?'#3d7a4f':'#888';
+          const trendIcon=delta>0?'↑':delta<0?'↓':'→';
+          const trendMsg=delta===0?'Loss rate is stable across selected seasons':(Math.abs(delta)+'pp '+(delta>0?'higher':'lower')+' at end vs start of selection');
+          trendBanner.style.display='flex';
+          trendBanner.appendChild(h('span',{style:{fontSize:'22px',color:trendColor,lineHeight:'1'}},trendIcon));
+          trendBanner.appendChild(h('span',{style:{color:trendColor,fontWeight:'700',fontSize:'14px'}},trendMsg));
+        }
+
+        // Per-season stat rows — two-line layout so nothing wraps awkwardly
+        groups.forEach(g=>{
+          const pct=g.totalHives>0?Math.round(100*g.totalDead/g.totalHives):0;
+          const pctColor=pct>20?'#c0392b':pct>10?'#b05a1a':'#3d7a4f';
+          const row=h('div',{style:{background:'#fff',border:'.5px solid #eee',borderRadius:'10px',padding:'12px 16px'}});
+          // Top line: season name + % badge
+          const top=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}});
+          top.appendChild(h('span',{style:{fontWeight:'700',fontSize:'14px',color:'#222'}},g.label));
+          top.appendChild(h('span',{style:{fontWeight:'700',fontSize:'15px',color:pctColor,background:pct>0?pctColor+'18':'#f0f7f2',borderRadius:'8px',padding:'3px 10px'}},pct+'% loss'));
+          row.appendChild(top);
+          // Bottom line: alive and dead counts in their own chips
+          const chips=h('div',{style:{display:'flex',gap:'10px'}});
+          chips.appendChild(h('div',{style:{flex:'1',background:'#f0f7f2',borderRadius:'8px',padding:'8px 10px',textAlign:'center'}},
+            h('div',{style:{fontSize:'18px',fontWeight:'700',color:'#3d7a4f',lineHeight:'1.1'}},g.totalAlive),
+            h('div',{style:{fontSize:'11px',color:'#3d7a4f',marginTop:'3px'}},'alive')
+          ));
+          chips.appendChild(h('div',{style:{flex:'1',background:g.totalDead>0?'#fdecea':'#f5f5f2',borderRadius:'8px',padding:'8px 10px',textAlign:'center'}},
+            h('div',{style:{fontSize:'18px',fontWeight:'700',color:g.totalDead>0?'#c0392b':'#aaa',lineHeight:'1.1'}},g.totalDead),
+            h('div',{style:{fontSize:'11px',color:g.totalDead>0?'#c0392b':'#aaa',marginTop:'3px'}},'dead')
+          ));
+          chips.appendChild(h('div',{style:{flex:'1',background:'#f5f5f2',borderRadius:'8px',padding:'8px 10px',textAlign:'center'}},
+            h('div',{style:{fontSize:'18px',fontWeight:'700',color:'#555',lineHeight:'1.1'}},g.totalHives),
+            h('div',{style:{fontSize:'11px',color:'#888',marginTop:'3px'}},'total')
+          ));
+          row.appendChild(chips);
+          statsArea.appendChild(row);
+        });
+      }
+      redraw();
     }
 
     function getValsFn(entries){
