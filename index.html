@@ -6951,13 +6951,19 @@ function renderEntriesList(){
       });
       body.appendChild(grid);
     }
-    // Cause of death pill — shown when a cause was recorded alongside dead hives
-    if(entry.dead_cause){
-      const causeDisplay=entry.dead_cause==='Other'?(entry.dead_cause_other||'Other'):entry.dead_cause;
-      body.appendChild(h('div',{style:{marginTop:'6px',display:'flex',alignItems:'center',gap:'6px'}},
-        h('span',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},'Cause'),
-        h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',background:'#fde8e8',borderRadius:'10px',padding:'2px 9px'}},causeDisplay)
-      ));
+    // Cause of death pills — shown when one or more causes were recorded
+    {
+      const rawCause=entry.dead_cause;
+      const causes=Array.isArray(rawCause)?rawCause:(rawCause?[rawCause]:[]);
+      if(causes.length>0){
+        const row=h('div',{style:{marginTop:'6px',display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
+        row.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',flexShrink:'0'}},'Cause'));
+        causes.forEach(c=>{
+          const label=c==='Other'?(entry.dead_cause_other||'Other'):c;
+          row.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',background:'#fde8e8',borderRadius:'10px',padding:'2px 9px'}},label));
+        });
+        body.appendChild(row);
+      }
     }
     if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
     // Carrot score breakdown
@@ -7225,38 +7231,60 @@ function renderForm(){
     }});
     causeWrap.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:'#c0392b',
       textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'8px'
-    }},'Cause of death'));
+    }},'Cause of death (select all that apply)'));
 
     const pillRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
     let _otherInpWrap=null;
+
+    // Support both old single-string format and new array format
+    function getCauses(){
+      const v=STATE.formVals.dead_cause;
+      if(!v||v==='') return [];
+      if(Array.isArray(v)) return v;
+      return [v]; // backward compat
+    }
+    function setCauses(arr){ STATE.formVals.dead_cause=arr; }
 
     function styleCausePill(btn,active){
       btn.style.border=`1px solid ${active?'#c0392b':'#ddd'}`;
       btn.style.background=active?'#fde8e8':'#fff';
       btn.style.color=active?'#c0392b':'#888';
     }
+
+    // Initialise from saved value (handle legacy string)
+    if(!Array.isArray(STATE.formVals.dead_cause)&&STATE.formVals.dead_cause){
+      STATE.formVals.dead_cause=[STATE.formVals.dead_cause];
+    } else if(!STATE.formVals.dead_cause){
+      STATE.formVals.dead_cause=[];
+    }
+
     DEAD_CAUSES.forEach(cause=>{
-      const active=(vals.dead_cause||'')===cause;
+      const active=getCauses().includes(cause);
       const btn=h('button',{type:'button',style:{
         padding:'4px 11px',borderRadius:'14px',fontSize:'12px',fontWeight:'600',cursor:'pointer',
         border:`1px solid ${active?'#c0392b':'#ddd'}`,
         background:active?'#fde8e8':'#fff',color:active?'#c0392b':'#888'
       }},cause);
       btn.addEventListener('click',()=>{
-        // Toggle off if already selected
-        const pick=STATE.formVals.dead_cause===cause?'':cause;
-        STATE.formVals.dead_cause=pick;
-        if(pick!=='Other') STATE.formVals.dead_cause_other='';
-        [...pillRow.children].forEach(b=>styleCausePill(b,b.textContent===STATE.formVals.dead_cause));
-        if(_otherInpWrap) _otherInpWrap.style.display=STATE.formVals.dead_cause==='Other'?'block':'none';
-        if(_otherInpWrap&&STATE.formVals.dead_cause!=='Other') _otherInpWrap.querySelector('input').value='';
+        const cur=getCauses();
+        const next=cur.includes(cause)?cur.filter(c=>c!==cause):[...cur,cause];
+        setCauses(next);
+        [...pillRow.children].forEach(b=>styleCausePill(b,getCauses().includes(b.textContent)));
+        if(_otherInpWrap) _otherInpWrap.style.display=getCauses().includes('Other')?'block':'none';
+        if(!getCauses().includes('Other')){
+          STATE.formVals.dead_cause_other='';
+          if(_otherInpWrap) _otherInpWrap.querySelector('input').value='';
+        }
       });
       pillRow.appendChild(btn);
     });
     causeWrap.appendChild(pillRow);
 
     // "Other" free-text field
-    _otherInpWrap=h('div',{style:{display:(vals.dead_cause||'')==='Other'?'block':'none'}});
+    const initOtherVisible=Array.isArray(STATE.formVals.dead_cause)
+      ?STATE.formVals.dead_cause.includes('Other')
+      :STATE.formVals.dead_cause==='Other';
+    _otherInpWrap=h('div',{style:{display:initOtherVisible?'block':'none'}});
     const otherInp=h('input',{type:'text',placeholder:'How did it die…',style:{
       width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',
       fontSize:'14px',background:'#fff',boxSizing:'border-box'
@@ -8141,13 +8169,19 @@ function renderEntriesList(){
       });
       body.appendChild(grid);
     }
-    // Cause of death pill — shown when a cause was recorded alongside dead hives
-    if(entry.dead_cause){
-      const causeDisplay=entry.dead_cause==='Other'?(entry.dead_cause_other||'Other'):entry.dead_cause;
-      body.appendChild(h('div',{style:{marginTop:'6px',display:'flex',alignItems:'center',gap:'6px'}},
-        h('span',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},'Cause'),
-        h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',background:'#fde8e8',borderRadius:'10px',padding:'2px 9px'}},causeDisplay)
-      ));
+    // Cause of death pills — shown when one or more causes were recorded
+    {
+      const rawCause=entry.dead_cause;
+      const causes=Array.isArray(rawCause)?rawCause:(rawCause?[rawCause]:[]);
+      if(causes.length>0){
+        const row=h('div',{style:{marginTop:'6px',display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
+        row.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',flexShrink:'0'}},'Cause'));
+        causes.forEach(c=>{
+          const label=c==='Other'?(entry.dead_cause_other||'Other'):c;
+          row.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',background:'#fde8e8',borderRadius:'10px',padding:'2px 9px'}},label));
+        });
+        body.appendChild(row);
+      }
     }
     if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
     // Carrot score breakdown
