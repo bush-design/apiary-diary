@@ -7217,6 +7217,26 @@ function renderForm(){
     inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
     if(f.key==='dead') _deadInpRef=inp;
     tile.appendChild(inp);
+    // Light gets +/- steppers so it's quick to adjust without the keyboard
+    if(f.key==='light'){
+      const stepRow=h('div',{style:{display:'flex',gap:'6px',marginTop:'8px'}});
+      function mkStep(label,delta){
+        const btn=h('button',{type:'button',style:{
+          flex:'1',padding:'5px 0',borderRadius:'8px',border:`.5px solid ${f.color}44`,
+          background:'#fff',color:f.color,fontSize:'16px',fontWeight:'700',cursor:'pointer',lineHeight:'1'
+        }},label);
+        btn.addEventListener('click',()=>{
+          const cur=parseInt(inp.value)||0;
+          const next=Math.max(0,cur+delta);
+          inp.value=next||'';
+          STATE.formVals[f.key]=inp.value;
+        });
+        return btn;
+      }
+      stepRow.appendChild(mkStep('−',-1));
+      stepRow.appendChild(mkStep('+',1));
+      tile.appendChild(stepRow);
+    }
     quickGrid.appendChild(tile);
   });
   fc.appendChild(quickGrid);
