@@ -6954,12 +6954,18 @@ function renderEntriesList(){
     // Cause of death pills — shown when one or more causes were recorded
     {
       const rawCause=entry.dead_cause;
-      const causes=Array.isArray(rawCause)?rawCause:(rawCause?[rawCause]:[]);
-      if(causes.length>0){
+      // Normalise to {cause:count} object for display (handle legacy string/array)
+      let causeObj={};
+      if(rawCause&&typeof rawCause==='string') causeObj={[rawCause]:1};
+      else if(Array.isArray(rawCause)) rawCause.forEach(c=>{causeObj[c]=(causeObj[c]||0)+1;});
+      else if(rawCause&&typeof rawCause==='object') causeObj=rawCause;
+      const causeEntries=Object.entries(causeObj).filter(([,n])=>n>0);
+      if(causeEntries.length>0){
         const row=h('div',{style:{marginTop:'6px',display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
         row.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',flexShrink:'0'}},'Cause'));
-        causes.forEach(c=>{
-          const label=c==='Other'?(entry.dead_cause_other||'Other'):c;
+        causeEntries.forEach(([c,n])=>{
+          const base=c==='Other'?(entry.dead_cause_other||'Other'):c;
+          const label=n>1?`${base} (${n})`:base;
           row.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',background:'#fde8e8',borderRadius:'10px',padding:'2px 9px'}},label));
         });
         body.appendChild(row);
@@ -7256,54 +7262,67 @@ function renderForm(){
     const pillRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
     let _otherInpWrap=null;
 
-    // Support both old single-string format and new array format
-    function getCauses(){
+    // Storage: object {cause: count}, e.g. {DL:2, Varroa:1}
+    // Backward compat: migrate string → {str:1}, array → {item:1,...}
+    function normaliseCauses(){
       const v=STATE.formVals.dead_cause;
-      if(!v||v==='') return [];
-      if(Array.isArray(v)) return v;
-      return [v]; // backward compat
+      if(!v||v===''){STATE.formVals.dead_cause={};return;}
+      if(typeof v==='string'){STATE.formVals.dead_cause={[v]:1};return;}
+      if(Array.isArray(v)){
+        const obj={};v.forEach(c=>{obj[c]=(obj[c]||0)+1;});
+        STATE.formVals.dead_cause=obj;return;
+      }
+      // already an object — good
     }
-    function setCauses(arr){ STATE.formVals.dead_cause=arr; }
+    normaliseCauses();
 
-    function styleCausePill(btn,active){
+    function getCount(cause){ return(STATE.formVals.dead_cause[cause])||0; }
+    function setCount(cause,n){
+      if(n<=0) delete STATE.formVals.dead_cause[cause];
+      else STATE.formVals.dead_cause[cause]=n;
+    }
+
+    function styleCausePill(btn,cause){
+      const n=getCount(cause);
+      const active=n>0;
       btn.style.border=`1px solid ${active?'#c0392b':'#ddd'}`;
       btn.style.background=active?'#fde8e8':'#fff';
       btn.style.color=active?'#c0392b':'#888';
+      btn.textContent=active&&n>1?`${cause} (${n})`:cause;
     }
 
-    // Initialise from saved value (handle legacy string)
-    if(!Array.isArray(STATE.formVals.dead_cause)&&STATE.formVals.dead_cause){
-      STATE.formVals.dead_cause=[STATE.formVals.dead_cause];
-    } else if(!STATE.formVals.dead_cause){
-      STATE.formVals.dead_cause=[];
-    }
-
+    const pillBtns={};
     DEAD_CAUSES.forEach(cause=>{
-      const active=getCauses().includes(cause);
       const btn=h('button',{type:'button',style:{
         padding:'4px 11px',borderRadius:'14px',fontSize:'12px',fontWeight:'600',cursor:'pointer',
-        border:`1px solid ${active?'#c0392b':'#ddd'}`,
-        background:active?'#fde8e8':'#fff',color:active?'#c0392b':'#888'
+        border:'1px solid #ddd',background:'#fff',color:'#888'
       }},cause);
+      pillBtns[cause]=btn;
+      styleCausePill(btn,cause);
       btn.addEventListener('click',()=>{
-        const cur=getCauses();
-        const next=cur.includes(cause)?cur.filter(c=>c!==cause):[...cur,cause];
-        setCauses(next);
-        [...pillRow.children].forEach(b=>styleCausePill(b,getCauses().includes(b.textContent)));
-        if(_otherInpWrap) _otherInpWrap.style.display=getCauses().includes('Other')?'block':'none';
-        if(!getCauses().includes('Other')){
+        setCount(cause,getCount(cause)+1);
+        styleCausePill(btn,cause);
+        if(_otherInpWrap) _otherInpWrap.style.display=getCount('Other')>0?'block':'none';
+        if(getCount('Other')===0){
           STATE.formVals.dead_cause_other='';
           if(_otherInpWrap) _otherInpWrap.querySelector('input').value='';
         }
       });
+      // Long-press to reset count to 0
+      let _lpt=null;
+      btn.addEventListener('pointerdown',()=>{_lpt=setTimeout(()=>{
+        setCount(cause,0);styleCausePill(btn,cause);
+        if(cause==='Other'&&_otherInpWrap){_otherInpWrap.style.display='none';STATE.formVals.dead_cause_other='';_otherInpWrap.querySelector('input').value='';}
+      },600);});
+      btn.addEventListener('pointerup',()=>clearTimeout(_lpt));
+      btn.addEventListener('pointerleave',()=>clearTimeout(_lpt));
       pillRow.appendChild(btn);
     });
     causeWrap.appendChild(pillRow);
+    causeWrap.appendChild(h('div',{style:{fontSize:'10px',color:'#bbb',marginBottom:'6px'}},'Tap to add · hold to remove'));
 
     // "Other" free-text field
-    const initOtherVisible=Array.isArray(STATE.formVals.dead_cause)
-      ?STATE.formVals.dead_cause.includes('Other')
-      :STATE.formVals.dead_cause==='Other';
+    const initOtherVisible=(STATE.formVals.dead_cause['Other']||0)>0;
     _otherInpWrap=h('div',{style:{display:initOtherVisible?'block':'none'}});
     const otherInp=h('input',{type:'text',placeholder:'How did it die…',style:{
       width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',
@@ -8192,12 +8211,18 @@ function renderEntriesList(){
     // Cause of death pills — shown when one or more causes were recorded
     {
       const rawCause=entry.dead_cause;
-      const causes=Array.isArray(rawCause)?rawCause:(rawCause?[rawCause]:[]);
-      if(causes.length>0){
+      // Normalise to {cause:count} object for display (handle legacy string/array)
+      let causeObj={};
+      if(rawCause&&typeof rawCause==='string') causeObj={[rawCause]:1};
+      else if(Array.isArray(rawCause)) rawCause.forEach(c=>{causeObj[c]=(causeObj[c]||0)+1;});
+      else if(rawCause&&typeof rawCause==='object') causeObj=rawCause;
+      const causeEntries=Object.entries(causeObj).filter(([,n])=>n>0);
+      if(causeEntries.length>0){
         const row=h('div',{style:{marginTop:'6px',display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
         row.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',flexShrink:'0'}},'Cause'));
-        causes.forEach(c=>{
-          const label=c==='Other'?(entry.dead_cause_other||'Other'):c;
+        causeEntries.forEach(([c,n])=>{
+          const base=c==='Other'?(entry.dead_cause_other||'Other'):c;
+          const label=n>1?`${base} (${n})`:base;
           row.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',background:'#fde8e8',borderRadius:'10px',padding:'2px 9px'}},label));
         });
         body.appendChild(row);
