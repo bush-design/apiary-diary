@@ -7451,7 +7451,7 @@ function renderForm(){
     function renderSwabBtn(){
       swabBtn.innerHTML='';
       const lbl=h('span',{style:{fontSize:'10px',fontWeight:'700',color:swabCount>0?'#1a6fb0':'#aaa',textTransform:'uppercase',letterSpacing:'.05em'}},'To Swab');
-      const val=h('span',{style:{fontSize:'20px',fontWeight:'700',color:swabCount>0?'#1a6fb0':'#ccc',lineHeight:'1'}},swabCount>0?String(swabCount),'—');
+      const val=h('span',{style:{fontSize:'20px',fontWeight:'700',color:swabCount>0?'#1a6fb0':'#ccc',lineHeight:'1'}},swabCount>0?String(swabCount):'—');
       swabBtn.appendChild(lbl);
       swabBtn.appendChild(val);
       swabBtn.style.border=`1.5px solid ${swabCount>0?'#6ab0e0':'#ddd'}`;
