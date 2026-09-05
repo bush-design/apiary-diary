@@ -1695,7 +1695,7 @@ function calcSummary(opName){
   const sites=allSitesFor(opName);
   // include custom yards
   let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0;
-  const breederSites=[],finisherSites=[];
+  const breederSites=[],finisherSites=[],swabSites=[];
   const siteScoreEntries={};
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
   let st=0,sc=0,logged=0,flagged=0;
@@ -1763,6 +1763,8 @@ function calcSummary(opName){
     const breederCount=getSiteBreederCount(opName,site);
     if(breederCount>0) breederSites.push({site,count:breederCount});
     if(parseInt(getSiteFieldAnyRound(opName,site,'finishers'))>0) finisherSites.push({site,count:parseInt(getSiteFieldAnyRound(opName,site,'finishers'))});
+    const swabN=parseInt(getSiteFieldAnyRound(opName,site,'to_swab'))||0;
+    if(swabN>0) swabSites.push({site,count:swabN});
     // Spring score — most recent entry in ANY round, not just the "spring" bucket, since the
     // Hive Strength/score section can be filled in on an entry logged under any season. Using
     // latestEntry(...,'spring') here missed scores entered on entries filed under a different
@@ -1774,7 +1776,7 @@ function calcSummary(opName){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(siteScoreEntries[site]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites};
 }
 
 // ── Shared: current breeder count for a site — most recent entry (any round) that actually
@@ -5661,6 +5663,31 @@ function renderSummaryPanel(opName){
     panel.appendChild(boxDiv);
   }
   // Breeders / Finishers section
+  if(s.swabSites.length>0){
+    const totalSw=s.swabSites.reduce((a,b)=>a+b.count,0);
+    const swabPill=h('button',{style:{width:'100%',padding:'8px 14px',borderRadius:'10px',background:'rgba(26,111,176,0.15)',border:'1.5px solid #6ab0e0',color:'#6ab0e0',fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}});
+    const swabLeft=h('span',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+    swabLeft.appendChild(h('span',null,'To Swab'));
+    swabLeft.appendChild(h('span',{style:{background:'#6ab0e0',color:'#fff',borderRadius:'10px',padding:'1px 8px',fontSize:'12px',fontWeight:'800'}},totalSw));
+    swabPill.appendChild(swabLeft);
+    swabPill.appendChild(h('span',{style:{fontSize:'12px',color:'#6ab0e0',opacity:'0.7'}},'▾'));
+    // Expandable site list
+    const swabList=h('div',{style:{display:'none',background:'rgba(26,111,176,0.08)',borderRadius:'8px',padding:'8px',marginBottom:'6px'}});
+    s.swabSites.forEach(sw=>{
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',cursor:'pointer',borderRadius:'7px'},
+        onClick:()=>{Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(sw.site))setState({op:opName,tab:'diary',run:batch,site:sw.site,diaryView:'entries'});});}});
+      row.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px',color:'#dde8f0'}},sw.site));
+      row.appendChild(h('span',{style:{fontWeight:'800',fontSize:'16px',color:'#6ab0e0'}},sw.count+' ›'));
+      swabList.appendChild(row);
+    });
+    swabPill.addEventListener('click',()=>{
+      const open=swabList.style.display!=='none';
+      swabList.style.display=open?'none':'block';
+      swabPill.querySelector('span:last-child').textContent=open?'▾':'▴';
+    });
+    panel.appendChild(swabPill);
+    panel.appendChild(swabList);
+  }
   if(s.breederSites.length>0||s.finisherSites.length>0){
     const qyRow=h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'4px',marginBottom:'4px'}});
     if(s.breederSites.length>0){
@@ -6917,7 +6944,7 @@ function renderEntriesList(){
     const ALL_FIELDS=[
       {key:'hives',label:'Hives'},{key:'dead',label:'Dead'},{key:'singles',label:'Singles'},
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
-      {key:'weak',label:'Weak'},{key:'check',label:'Check'},
+      {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},
       // Requeening
       {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_needed',label:'Cell Needed'},
       {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
@@ -7411,6 +7438,41 @@ function renderForm(){
   checkTile.appendChild(checkNoteInp);
   checkFullRow.appendChild(checkTile);
   fc.appendChild(checkFullRow);
+
+  // To Swab — tap to increment, hold to reset
+  {
+    const swabWrap=h('div',{style:{marginBottom:'8px'}});
+    let swabCount=parseInt(vals.to_swab)||0;
+    const swabBtn=h('button',{type:'button',style:{
+      width:'100%',padding:'11px 14px',borderRadius:'10px',border:'1.5px solid #ddd',
+      background:'#f8f8f6',color:'#888',fontSize:'13px',fontWeight:'700',
+      cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'
+    }});
+    function renderSwabBtn(){
+      swabBtn.innerHTML='';
+      const lbl=h('span',{style:{fontSize:'10px',fontWeight:'700',color:swabCount>0?'#1a6fb0':'#aaa',textTransform:'uppercase',letterSpacing:'.05em'}},'To Swab');
+      const val=h('span',{style:{fontSize:'20px',fontWeight:'700',color:swabCount>0?'#1a6fb0':'#ccc',lineHeight:'1'}},swabCount>0?String(swabCount),'—');
+      swabBtn.appendChild(lbl);
+      swabBtn.appendChild(val);
+      swabBtn.style.border=`1.5px solid ${swabCount>0?'#6ab0e0':'#ddd'}`;
+      swabBtn.style.background=swabCount>0?'#f0f7fd':'#f8f8f6';
+    }
+    renderSwabBtn();
+    swabBtn.addEventListener('click',()=>{
+      swabCount++;
+      STATE.formVals.to_swab=swabCount;
+      renderSwabBtn();
+    });
+    let _swabLpt=null;
+    swabBtn.addEventListener('pointerdown',()=>{_swabLpt=setTimeout(()=>{
+      swabCount=0;STATE.formVals.to_swab=0;renderSwabBtn();
+    },600);});
+    swabBtn.addEventListener('pointerup',()=>clearTimeout(_swabLpt));
+    swabBtn.addEventListener('pointerleave',()=>clearTimeout(_swabLpt));
+    swabWrap.appendChild(swabBtn);
+    swabWrap.appendChild(h('div',{style:{fontSize:'10px',color:'#ccc',marginTop:'3px',textAlign:'right'}},'Tap to add · hold to reset'));
+    fc.appendChild(swabWrap);
+  }
 
   // Comments + Flag
   const commWrap=h('div',{style:{marginBottom:'10px'}});
@@ -8174,7 +8236,7 @@ function renderEntriesList(){
     const ALL_FIELDS=[
       {key:'hives',label:'Hives'},{key:'dead',label:'Dead'},{key:'singles',label:'Singles'},
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
-      {key:'weak',label:'Weak'},{key:'check',label:'Check'},
+      {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},
       // Requeening
       {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_needed',label:'Cell Needed'},
       {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
