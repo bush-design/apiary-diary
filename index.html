@@ -1764,7 +1764,8 @@ function calcSummary(opName){
     if(breederCount>0) breederSites.push({site,count:breederCount});
     if(parseInt(getSiteFieldAnyRound(opName,site,'finishers'))>0) finisherSites.push({site,count:parseInt(getSiteFieldAnyRound(opName,site,'finishers'))});
     const swabN=parseInt(getSiteFieldAnyRound(opName,site,'to_swab'))||0;
-    if(swabN>0) swabSites.push({site,count:swabN});
+    const swabWhole=!!(getSiteFieldAnyRound(opName,site,'swab_whole_yard'));
+    if(swabN>0||swabWhole) swabSites.push({site,count:swabN,whole:swabWhole});
     // Spring score — most recent entry in ANY round, not just the "spring" bucket, since the
     // Hive Strength/score section can be filled in on an entry logged under any season. Using
     // latestEntry(...,'spring') here missed scores entered on entries filed under a different
@@ -5665,10 +5666,12 @@ function renderSummaryPanel(opName){
   // Breeders / Finishers section
   if(s.swabSites.length>0){
     const totalSw=s.swabSites.reduce((a,b)=>a+b.count,0);
+    const wholeYardCount=s.swabSites.filter(sw=>sw.whole).length;
     const swabPill=h('button',{style:{width:'100%',padding:'8px 14px',borderRadius:'10px',background:'rgba(26,111,176,0.15)',border:'1.5px solid #6ab0e0',color:'#6ab0e0',fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}});
     const swabLeft=h('span',{style:{display:'flex',alignItems:'center',gap:'8px'}});
     swabLeft.appendChild(h('span',null,'To Swab'));
-    swabLeft.appendChild(h('span',{style:{background:'#6ab0e0',color:'#fff',borderRadius:'10px',padding:'1px 8px',fontSize:'12px',fontWeight:'800'}},totalSw));
+    if(totalSw>0) swabLeft.appendChild(h('span',{style:{background:'#6ab0e0',color:'#fff',borderRadius:'10px',padding:'1px 8px',fontSize:'12px',fontWeight:'800'}},String(totalSw)));
+    if(wholeYardCount>0) swabLeft.appendChild(h('span',{style:{background:'rgba(26,111,176,0.25)',color:'#6ab0e0',borderRadius:'10px',padding:'1px 8px',fontSize:'11px',fontWeight:'700'}},wholeYardCount+' whole yard'+(wholeYardCount>1?'s':'')));
     swabPill.appendChild(swabLeft);
     swabPill.appendChild(h('span',{style:{fontSize:'12px',color:'#6ab0e0',opacity:'0.7'}},'▾'));
     // Expandable site list
@@ -5676,8 +5679,13 @@ function renderSummaryPanel(opName){
     s.swabSites.forEach(sw=>{
       const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',cursor:'pointer',borderRadius:'7px'},
         onClick:()=>{Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(sw.site))setState({op:opName,tab:'diary',run:batch,site:sw.site,diaryView:'entries'});});}});
-      row.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px',color:'#dde8f0'}},sw.site));
-      row.appendChild(h('span',{style:{fontWeight:'800',fontSize:'16px',color:'#6ab0e0'}},sw.count+' ›'));
+      const siteLabel=h('span',{style:{fontWeight:'600',fontSize:'14px',color:'#dde8f0'}},sw.site);
+      row.appendChild(siteLabel);
+      const countPart=h('span',{style:{display:'flex',alignItems:'center',gap:'6px'}});
+      if(sw.whole) countPart.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:'#6ab0e0',background:'rgba(26,111,176,0.25)',borderRadius:'8px',padding:'1px 7px'}},'Whole Yard'));
+      if(sw.count>0) countPart.appendChild(h('span',{style:{fontWeight:'800',fontSize:'16px',color:'#6ab0e0'}},sw.count+' ›'));
+      else countPart.appendChild(h('span',{style:{fontWeight:'800',fontSize:'16px',color:'#6ab0e0'}},'›'));
+      row.appendChild(countPart);
       swabList.appendChild(row);
     });
     swabPill.addEventListener('click',()=>{
@@ -6944,7 +6952,7 @@ function renderEntriesList(){
     const ALL_FIELDS=[
       {key:'hives',label:'Hives'},{key:'dead',label:'Dead'},{key:'singles',label:'Singles'},
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
-      {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},
+      {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
       {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_needed',label:'Cell Needed'},
       {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
@@ -6965,11 +6973,12 @@ function renderEntriesList(){
       {key:'mites_found',label:'Mites Found'},{key:'mites_tested',label:'Hives Tested'},
       {key:'diseases',label:'Diseases'},
     ];
-    const visFields=ALL_FIELDS.filter(f=>entry[f.key]!==undefined&&entry[f.key]!==null&&entry[f.key]!=='');
+    const visFields=ALL_FIELDS.filter(f=>{const v=entry[f.key];if(v===undefined||v===null||v==='')return false;if(typeof v==='boolean')return v===true;return true;});
     if(visFields.length){
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});
       visFields.forEach(f=>{
-        const val=String(entry[f.key]);
+        const raw=entry[f.key];
+        const val=typeof raw==='boolean'?'Yes':String(raw);
         grid.appendChild(h('div',null,
           h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
           h('div',{style:{fontWeight:'600',fontSize:'14px',color:f.key==='dead'&&parseInt(val)>0?'#e24b4a':'#1a1a1a'}},
@@ -7439,38 +7448,75 @@ function renderForm(){
   checkFullRow.appendChild(checkTile);
   fc.appendChild(checkFullRow);
 
-  // To Swab — tap to increment, hold to reset
+  // To Swab — stepper + Whole Yard toggle
   {
+    const swabColor='#1a6fb0';
     const swabWrap=h('div',{style:{marginBottom:'8px'}});
-    let swabCount=parseInt(vals.to_swab)||0;
-    const swabBtn=h('button',{type:'button',style:{
-      width:'100%',padding:'11px 14px',borderRadius:'10px',border:'1.5px solid #ddd',
-      background:'#f8f8f6',color:'#888',fontSize:'13px',fontWeight:'700',
-      cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'
+    // Tile
+    const swabTile=h('div',{style:{
+      background:'#f0f7fd',borderRadius:'10px',border:'.5px solid #6ab0e044',
+      padding:'10px 12px',marginBottom:'6px'
     }});
-    function renderSwabBtn(){
-      swabBtn.innerHTML='';
-      const lbl=h('span',{style:{fontSize:'10px',fontWeight:'700',color:swabCount>0?'#1a6fb0':'#aaa',textTransform:'uppercase',letterSpacing:'.05em'}},'To Swab');
-      const val=h('span',{style:{fontSize:'20px',fontWeight:'700',color:swabCount>0?'#1a6fb0':'#ccc',lineHeight:'1'}},swabCount>0?String(swabCount):'—');
-      swabBtn.appendChild(lbl);
-      swabBtn.appendChild(val);
-      swabBtn.style.border=`1.5px solid ${swabCount>0?'#6ab0e0':'#ddd'}`;
-      swabBtn.style.background=swabCount>0?'#f0f7fd':'#f8f8f6';
-    }
-    renderSwabBtn();
-    swabBtn.addEventListener('click',()=>{
-      swabCount++;
-      STATE.formVals.to_swab=swabCount;
-      renderSwabBtn();
+    const swabTopRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'6px'}});
+    swabTopRow.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:swabColor,textTransform:'uppercase',letterSpacing:'.05em'}},'To Swab'));
+    const swabValSpan=h('span',{style:{fontSize:'20px',fontWeight:'700',color:swabColor,lineHeight:'1'}});
+    swabTopRow.appendChild(swabValSpan);
+    swabTile.appendChild(swabTopRow);
+    // Input
+    const swabInp=h('input',{type:'number',min:'0',placeholder:'0',style:{
+      width:'100%',fontSize:'15px',fontWeight:'600',color:swabColor,
+      border:'none',borderBottom:`.5px solid ${swabColor}44`,background:'transparent',
+      outline:'none',textAlign:'center',padding:'2px 0',boxSizing:'border-box',marginBottom:'6px'
+    }});
+    swabInp.value=parseInt(vals.to_swab)||0?String(parseInt(vals.to_swab)):'';
+    STATE.formVals.to_swab=parseInt(vals.to_swab)||0;
+    swabInp.addEventListener('input',e=>{
+      const n=Math.max(0,parseInt(e.target.value)||0);
+      STATE.formVals.to_swab=n;
+      swabValSpan.textContent=n>0?String(n):'';
     });
-    let _swabLpt=null;
-    swabBtn.addEventListener('pointerdown',()=>{_swabLpt=setTimeout(()=>{
-      swabCount=0;STATE.formVals.to_swab=0;renderSwabBtn();
-    },600);});
-    swabBtn.addEventListener('pointerup',()=>clearTimeout(_swabLpt));
-    swabBtn.addEventListener('pointerleave',()=>clearTimeout(_swabLpt));
-    swabWrap.appendChild(swabBtn);
-    swabWrap.appendChild(h('div',{style:{fontSize:'10px',color:'#ccc',marginTop:'3px',textAlign:'right'}},'Tap to add · hold to reset'));
+    swabValSpan.textContent=STATE.formVals.to_swab>0?String(STATE.formVals.to_swab):'';
+    swabTile.appendChild(swabInp);
+    // −/+ buttons
+    const swabStepRow=h('div',{style:{display:'flex',gap:'6px'}});
+    function mkSwabStep(label,delta){
+      const btn=h('button',{type:'button',style:{
+        flex:'1',padding:'5px 0',borderRadius:'8px',
+        border:`.5px solid ${swabColor}44`,background:'#fff',
+        color:swabColor,fontSize:'16px',fontWeight:'700',cursor:'pointer',lineHeight:'1'
+      }},label);
+      btn.addEventListener('click',()=>{
+        const cur=parseInt(swabInp.value)||0;
+        const next=Math.max(0,cur+delta);
+        swabInp.value=next||'';
+        STATE.formVals.to_swab=next;
+        swabValSpan.textContent=next>0?String(next):'';
+      });
+      return btn;
+    }
+    swabStepRow.appendChild(mkSwabStep('−',-1));
+    swabStepRow.appendChild(mkSwabStep('+',1));
+    swabTile.appendChild(swabStepRow);
+    swabWrap.appendChild(swabTile);
+    // Whole Yard toggle
+    let wholeYard=!!(vals.swab_whole_yard);
+    STATE.formVals.swab_whole_yard=wholeYard;
+    const wyBtn=h('button',{type:'button',style:{
+      width:'100%',padding:'9px 14px',borderRadius:'10px',
+      border:wholeYard?`1.5px solid ${swabColor}`:'1px solid #ddd',
+      background:wholeYard?'#e4f0fb':'#f8f8f6',
+      color:wholeYard?swabColor:'#aaa',
+      fontSize:'12px',fontWeight:'700',cursor:'pointer',letterSpacing:'.03em'
+    }},wholeYard?'Whole Yard — ON':'Whole Yard');
+    wyBtn.addEventListener('click',()=>{
+      wholeYard=!wholeYard;
+      STATE.formVals.swab_whole_yard=wholeYard;
+      wyBtn.textContent=wholeYard?'Whole Yard — ON':'Whole Yard';
+      wyBtn.style.border=wholeYard?`1.5px solid ${swabColor}`:'1px solid #ddd';
+      wyBtn.style.background=wholeYard?'#e4f0fb':'#f8f8f6';
+      wyBtn.style.color=wholeYard?swabColor:'#aaa';
+    });
+    swabWrap.appendChild(wyBtn);
     fc.appendChild(swabWrap);
   }
 
@@ -8236,7 +8282,7 @@ function renderEntriesList(){
     const ALL_FIELDS=[
       {key:'hives',label:'Hives'},{key:'dead',label:'Dead'},{key:'singles',label:'Singles'},
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
-      {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},
+      {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
       {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_needed',label:'Cell Needed'},
       {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
@@ -8257,11 +8303,12 @@ function renderEntriesList(){
       {key:'mites_found',label:'Mites Found'},{key:'mites_tested',label:'Hives Tested'},
       {key:'diseases',label:'Diseases'},
     ];
-    const visFields=ALL_FIELDS.filter(f=>entry[f.key]!==undefined&&entry[f.key]!==null&&entry[f.key]!=='');
+    const visFields=ALL_FIELDS.filter(f=>{const v=entry[f.key];if(v===undefined||v===null||v==='')return false;if(typeof v==='boolean')return v===true;return true;});
     if(visFields.length){
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});
       visFields.forEach(f=>{
-        const val=String(entry[f.key]);
+        const raw=entry[f.key];
+        const val=typeof raw==='boolean'?'Yes':String(raw);
         grid.appendChild(h('div',null,
           h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
           h('div',{style:{fontWeight:'600',fontSize:'14px',color:f.key==='dead'&&parseInt(val)>0?'#e24b4a':'#1a1a1a'}},
