@@ -6938,7 +6938,18 @@ function renderEntriesList(){
     if(entry._movement&&entry.hivesMoved)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hivesMoved+' hives moved'));
     else if(!entry._movement&&entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
-    if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
+    {
+      const byStr=entry.logged_by||(entry.logged_at||entry.saved_at?'':null);
+      const ts=entry.logged_at||entry.saved_at||'';
+      let timeStr='';
+      if(ts){try{const d=new Date(ts);timeStr=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}catch(e){}}
+      if(byStr||timeStr){
+        const parts=[];
+        if(byStr) parts.push(byStr+(entry.edited_by?' · edited by '+entry.edited_by:''));
+        if(timeStr) parts.push(timeStr);
+        hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},parts.join(' · ')));
+      }
+    }
     if(!entry._movement&&hasScores&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
     // Carrot score avg in header
     const cbd2=entry.carrot_score||{};
@@ -8268,7 +8279,18 @@ function renderEntriesList(){
     if(entry._movement&&entry.hivesMoved)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hivesMoved+' hives moved'));
     else if(!entry._movement&&entry.hives)hl.appendChild(h('span',{style:{fontSize:'13px',color:'#666'}},entry.hives+' hives'));
     if(entry.treatment)hl.appendChild(h('span',{style:{fontSize:'11px',background:'#f3e8ff',color:'#7a4fa8',borderRadius:'10px',padding:'2px 7px',fontWeight:'600'}},'Tx: '+entry.treatment));
-    if(entry.logged_by)hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},entry.logged_by+(entry.edited_by?' · edited by '+entry.edited_by:'')));
+    {
+      const byStr=entry.logged_by||(entry.logged_at||entry.saved_at?'':null);
+      const ts=entry.logged_at||entry.saved_at||'';
+      let timeStr='';
+      if(ts){try{const d=new Date(ts);timeStr=d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}catch(e){}}
+      if(byStr||timeStr){
+        const parts=[];
+        if(byStr) parts.push(byStr+(entry.edited_by?' · edited by '+entry.edited_by:''));
+        if(timeStr) parts.push(timeStr);
+        hl.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},parts.join(' · ')));
+      }
+    }
     if(!entry._movement&&hasScores&&avg!==null)hl.appendChild(scoreCircle(avg,22,11));
     // Carrot score avg in header
     const cbd2=entry.carrot_score||{};
