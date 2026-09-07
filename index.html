@@ -5831,20 +5831,36 @@ function renderOverviewTab(){
     const q=(query||'').toLowerCase().trim();
     let anyResults=false;
 
-    // Build flat list of all sites with their latest date, then sort by date DESC
+    // Build flat list of all sites with their latest date, then sort by date DESC then logged time DESC.
+    // Back-dated entries (logged_at > 1 day after entry date) sort last within their date.
+    function entryEffectiveSortKey(e){
+      const dateStr=e.date||'';
+      const ts=e.logged_at||e.saved_at||'';
+      if(!ts) return dateStr?dateStr+'T12:00:00':'';
+      try{
+        const diffDays=(new Date(ts)-new Date(dateStr+'T12:00:00'))/(86400000);
+        if(diffDays>1) return dateStr+'T00:00:00'; // back-dated: sink to bottom of that date
+      }catch(_){}
+      return ts;
+    }
     const allSitesFlat=[];
     Object.entries(yards).forEach(([batchName,batchData])=>{
       batchData.sites.forEach(site=>{
-        const latestDate=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);})[0]?.date||'';
-        allSitesFlat.push({batchName,batchData,site,latestDate});
+        const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement));
+        const latestEntry=allEntries.sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return entryEffectiveSortKey(b).localeCompare(entryEffectiveSortKey(a));})[0];
+        const latestDate=latestEntry?.date||'';
+        const latestSortKey=latestEntry?entryEffectiveSortKey(latestEntry):'';
+        allSitesFlat.push({batchName,batchData,site,latestDate,latestSortKey});
       });
     });
-    // Sort by most recent visit DESC (not visited goes to bottom)
+    // Sort by most recent visit DESC — same-date tiebreaker by logged time; not visited goes to bottom
     allSitesFlat.sort((a,b)=>{
       if(!a.latestDate&&!b.latestDate) return 0;
       if(!a.latestDate) return 1;
       if(!b.latestDate) return -1;
-      return b.latestDate.localeCompare(a.latestDate);
+      const dc=b.latestDate.localeCompare(a.latestDate);
+      if(dc!==0) return dc;
+      return b.latestSortKey.localeCompare(a.latestSortKey);
     });
 
     // Filter by search
