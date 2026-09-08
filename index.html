@@ -10763,35 +10763,75 @@ function renderYardsTab(opName){
           const box=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'22px',width:'100%',maxWidth:'320px'}});
           box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Rename yard'));
           box.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'12px'}},'Updates every diary entry, movement, nuc batch, pallet split, and AFB record for this yard.'));
-          const nameInp=h('input',{type:'text',value:site,className:'inp',style:{marginBottom:'14px'}});
+          const nameInp=h('input',{type:'text',value:site,className:'inp',style:{marginBottom:'12px'}});
           box.appendChild(nameInp);
+          box.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#555',marginBottom:'4px'}},'Batch'));
+          let selectedNewBatch=batchName;
+          const allBatchesForEdit=Object.keys(getYards(opName));
+          const batchSel2=h('select',{className:'inp',style:{marginBottom:'8px',opacity:isCustomSite?'1':'0.5',pointerEvents:isCustomSite?'auto':'none'}});
+          allBatchesForEdit.forEach(b=>{
+            const opt=h('option',{value:b},b);
+            if(b===batchName) opt.selected=true;
+            batchSel2.appendChild(opt);
+          });
+          batchSel2.appendChild(h('option',{value:'__new__'},'+ New batch...'));
+          batchSel2.addEventListener('change',e=>{
+            selectedNewBatch=e.target.value;
+            newBatchRow2.style.display=e.target.value==='__new__'?'block':'none';
+          });
+          box.appendChild(batchSel2);
+          if(!isCustomSite) box.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb',marginBottom:'10px',marginTop:'-4px'}},'Batch cannot be changed for built-in yards'));
+          const newBatchRow2=h('div',{style:{display:'none',marginBottom:'12px'}});
+          newBatchRow2.appendChild(h('input',{type:'text',placeholder:'New batch name',className:'inp',oninput(e){selectedNewBatch='__new__'; this._val=e.target.value;}}));
+          box.appendChild(newBatchRow2);
           const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
           btnRow.appendChild(h('button',{style:{flex:'1',padding:'11px',background:opData.color,color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
             onClick:async()=>{
               const newName=nameInp.value.trim();
               if(!newName){showToast('Enter a name');return;}
-              if(newName===site){overlay.remove();return;}
-              if(getYards(opName)[batchName]?.sites.includes(newName)){showToast('That name already exists in this batch');return;}
+              let targetBatch=selectedNewBatch;
+              if(selectedNewBatch==='__new__'){
+                targetBatch=newBatchRow2.querySelector('input')?.value.trim()||'';
+                if(!targetBatch){showToast('Enter a batch name');return;}
+              }
+              const nameChanged=newName!==site;
+              const batchChanged=isCustomSite&&targetBatch!==batchName;
+              if(!nameChanged&&!batchChanged){overlay.remove();return;}
+              if(nameChanged&&getYards(opName)[targetBatch]?.sites.includes(newName)){showToast('That name already exists in that batch');return;}
               if(isCustomSite){
                 const cy=loadCustomYards();
-                cy[opName][batchName].sites=cy[opName][batchName].sites.map(s=>s===site?newName:s);
+                if(!cy[opName])cy[opName]={};
+                if(batchChanged){
+                  if(cy[opName][batchName])cy[opName][batchName].sites=cy[opName][batchName].sites.filter(s=>s!==site);
+                  if(!cy[opName][targetBatch])cy[opName][targetBatch]={type:'run',sites:[]};
+                  const addName=nameChanged?newName:site;
+                  if(!cy[opName][targetBatch].sites.includes(addName))cy[opName][targetBatch].sites.push(addName);
+                } else {
+                  if(cy[opName][batchName])cy[opName][batchName].sites=cy[opName][batchName].sites.map(s=>s===site?newName:s);
+                }
                 saveCustomYards(cy);
                 pushToSupabase('custom_yards',cy);
               } else {
-                const renames=loadYardRenames();
-                if(!renames[opName])renames[opName]={};
-                if(!renames[opName][batchName])renames[opName][batchName]={};
-                renames[opName][batchName][site]=newName;
-                saveYardRenames(renames);
-                pushToSupabase('yard_renames',renames);
+                if(nameChanged){
+                  const renames=loadYardRenames();
+                  if(!renames[opName])renames[opName]={};
+                  if(!renames[opName][batchName])renames[opName][batchName]={};
+                  renames[opName][batchName][site]=newName;
+                  saveYardRenames(renames);
+                  pushToSupabase('yard_renames',renames);
+                }
               }
-              const report=await renameYardEverywhere(opName,site,newName);
+              let report={entries:0,movements:0,nucs:0};
+              if(nameChanged) report=await renameYardEverywhere(opName,site,newName);
               overlay.remove();
               const parts=[];
               if(report.entries) parts.push(report.entries+' entr'+(report.entries===1?'y':'ies'));
               if(report.movements) parts.push(report.movements+' movement'+(report.movements===1?'':'s'));
               if(report.nucs) parts.push(report.nucs+' nuc batch'+(report.nucs===1?'':'es'));
-              showToast(site+' renamed to '+newName+(parts.length?' · '+parts.join(', ')+' updated':''));
+              let toastMsg=nameChanged?(site+' renamed to '+newName):'';
+              if(batchChanged) toastMsg+=(toastMsg?' · ':'')+'Moved to '+targetBatch;
+              if(parts.length) toastMsg+=' · '+parts.join(', ')+' updated';
+              showToast(toastMsg||'Saved');
               setState({tab:'settings'});
             }
           },'Save'));
