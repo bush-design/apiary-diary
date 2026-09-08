@@ -1737,7 +1737,10 @@ function calcSummary(opName){
         if(raw===undefined||raw===null||raw==='') continue;
         const v=parseInt(raw);
         if(!isNaN(v)){
-          if(NON_ZERO_FIELDS.includes(k)){if(v>0) return v;}
+          if(NON_ZERO_FIELDS.includes(k)){
+            if(v>0) return v;
+            return 0; // explicit 0 = "checked and none needed" — stop; don't reach back to a stale value
+          }
           else if(v>0) return v;
         }
       }
