@@ -1696,7 +1696,7 @@ function calcSummary(opName){
   const sites=allSitesFor(opName);
   // include custom yards
   let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0;
-  const breederSites=[],finisherSites=[],swabSites=[],polSinglesSites=[],polBcSites=[];
+  const breederSites=[],finisherSites=[],swabSites=[],polSinglesSites=[],polBcSites=[],polPalletSites=[],partPalletSites=[],carrotSites=[];
   const siteScoreEntries={};
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
   let st=0,sc=0,logged=0,flagged=0;
@@ -1769,6 +1769,9 @@ function calcSummary(opName){
     if(swabN>0||swabWhole) swabSites.push({site,count:swabN,whole:swabWhole});
     const psi=lastVal('pol_singles'); if(psi>0) polSinglesSites.push({site,count:psi});
     const pbc=lastVal('pol_bc'); if(pbc>0) polBcSites.push({site,count:pbc});
+    const ppal=lastVal('pol_pallet'); if(ppal>0) polPalletSites.push({site,count:ppal});
+    const ppart=lastVal('part_pallet'); if(ppart>0) partPalletSites.push({site,count:ppart});
+    const pcar=lastVal('carrot'); if(pcar>0) carrotSites.push({site,count:pcar});
     // Spring score — most recent entry in ANY round, not just the "spring" bucket, since the
     // Hive Strength/score section can be filled in on an entry logged under any season. Using
     // latestEntry(...,'spring') here missed scores entered on entries filed under a different
@@ -1780,7 +1783,7 @@ function calcSummary(opName){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(siteScoreEntries[site]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polPalletSites,partPalletSites,carrotSites};
 }
 
 // ── Shared: current breeder count for a site — most recent entry (any round) that actually
@@ -5789,48 +5792,45 @@ function renderSummaryPanel(opName){
     }
     panel.appendChild(lfRow);
   }
-  if(s.pol+s.part+s.carrot>0){
-    const g3b=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
-    [{l:'POL Pallet',v:s.pol,key:'pol_pallet',color:'#555'},{l:'Part Pallet',v:s.part,key:'part_pallet',color:'#555'},{l:'Carrot',v:s.carrot,key:'carrot',color:'#b05a1a'}].forEach(st=>{
-      const clickable=st.v>0;
-      const bpol=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}44`}:{}});
-      bpol.appendChild(h('div',{className:'stat-val'},st.v));
-      bpol.appendChild(h('div',{className:'stat-lbl'},st.l+(clickable?' ↗':'')));
-      if(clickable) bpol.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color));
-      g3b.appendChild(bpol);
-    });
-    panel.appendChild(g3b);
+  // POL Pallet, POL Indiv., POL Singles BC, Part Pallet, Carrot — all expandable per-yard pills
+  {
+    const polPills=[
+      {sites:s.polPalletSites, label:'POL Pallet',     color:'#ef9f27', bg:'rgba(239,159,39,0.12)'},
+      {sites:s.polSinglesSites,label:'POL Indiv.',     color:'#ef9f27', bg:'rgba(239,159,39,0.12)'},
+      {sites:s.polBcSites,     label:'POL Singles BC', color:'#e67e22', bg:'rgba(230,126,34,0.10)'},
+      {sites:s.partPalletSites,label:'Part Pallet',    color:'#b8860b', bg:'rgba(184,134,11,0.10)'},
+      {sites:s.carrotSites,    label:'Carrot',         color:'#b05a1a', bg:'rgba(176,90,26,0.10)'},
+    ];
+    const anyPol=polPills.some(p=>p.sites&&p.sites.length>0);
+    if(anyPol){
+      polPills.forEach(({sites:pSites,label,color,bg})=>{
+        if(!pSites||!pSites.length) return;
+        const total=pSites.reduce((a,b)=>a+b.count,0);
+        const pill=h('button',{style:{width:'100%',padding:'8px 14px',borderRadius:'10px',background:bg,border:`1.5px solid ${color}`,color,fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px',textAlign:'left'}});
+        const pillLeft=h('span',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+        pillLeft.appendChild(h('span',null,label));
+        pillLeft.appendChild(h('span',{style:{background:color,color:'#fff',borderRadius:'10px',padding:'1px 8px',fontSize:'12px',fontWeight:'800'}},String(total)));
+        pill.appendChild(pillLeft);
+        const chevron=h('span',{style:{fontSize:'12px',color,opacity:'0.7'}},'▾');
+        pill.appendChild(chevron);
+        const list=h('div',{style:{display:'none',background:bg,borderRadius:'8px',padding:'8px',marginBottom:'6px'}});
+        pSites.forEach(ps=>{
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',cursor:'pointer',borderRadius:'7px'},
+            onClick:()=>{Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(ps.site))setState({op:opName,tab:'diary',run:batch,site:ps.site,diaryView:'entries'});});}});
+          row.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px',color:'#f0e8d0'}},ps.site));
+          row.appendChild(h('span',{style:{fontWeight:'800',fontSize:'16px',color}},ps.count+' ›'));
+          list.appendChild(row);
+        });
+        pill.addEventListener('click',()=>{
+          const open=list.style.display!=='none';
+          list.style.display=open?'none':'block';
+          chevron.textContent=open?'▾':'▴';
+        });
+        panel.appendChild(pill);
+        panel.appendChild(list);
+      });
+    }
   }
-  // POL Indiv. and POL Singles BC — expandable per-yard pills
-  [
-    {sites:s.polSinglesSites,label:'POL Indiv.',color:'#ef9f27'},
-    {sites:s.polBcSites,label:'POL Singles BC',color:'#e67e22'},
-  ].forEach(({sites:pSites,label,color})=>{
-    if(!pSites||!pSites.length) return;
-    const total=pSites.reduce((a,b)=>a+b.count,0);
-    const pill=h('button',{style:{width:'100%',padding:'8px 14px',borderRadius:'10px',background:`rgba(239,159,39,0.12)`,border:`1.5px solid ${color}`,color,fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}});
-    const pillLeft=h('span',{style:{display:'flex',alignItems:'center',gap:'8px'}});
-    pillLeft.appendChild(h('span',null,label));
-    pillLeft.appendChild(h('span',{style:{background:color,color:'#fff',borderRadius:'10px',padding:'1px 8px',fontSize:'12px',fontWeight:'800'}},String(total)));
-    pill.appendChild(pillLeft);
-    const chevron=h('span',{style:{fontSize:'12px',color,opacity:'0.7'}},'▾');
-    pill.appendChild(chevron);
-    const list=h('div',{style:{display:'none',background:'rgba(239,159,39,0.07)',borderRadius:'8px',padding:'8px',marginBottom:'6px'}});
-    pSites.forEach(ps=>{
-      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',cursor:'pointer',borderRadius:'7px'},
-        onClick:()=>{Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(ps.site))setState({op:opName,tab:'diary',run:batch,site:ps.site,diaryView:'entries'});});}});
-      row.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px',color:'#f0e8d0'}},ps.site));
-      row.appendChild(h('span',{style:{fontWeight:'800',fontSize:'16px',color}},(ps.count)+' ›'));
-      list.appendChild(row);
-    });
-    pill.addEventListener('click',()=>{
-      const open=list.style.display!=='none';
-      list.style.display=open?'none':'block';
-      chevron.textContent=open?'▾':'▴';
-    });
-    panel.appendChild(pill);
-    panel.appendChild(list);
-  });
   // Boxes on hives
   if(s.fdOn+s.on34+s.hcFdOn+s.hcHdOn>0){
     const boxDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
