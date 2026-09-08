@@ -3380,6 +3380,7 @@ function renderReportsScreen(){
       {label:'Pollination hives by orchard',custom:'pollination'},
       {label:'Nuc success rate',custom:'nucsuccess'},
       {label:'Hive loss by season',custom:'hloss'},
+      {label:'Hive strength by scoring round',custom:'scoreround'},
     ];
     function backToCharts(){
       customArea.style.display='none';customArea.innerHTML='';
@@ -3403,6 +3404,7 @@ function renderReportsScreen(){
       else if(key==='pollination') renderPollinationReport(body);
       else if(key==='nucsuccess') renderNucSuccessReport(body);
       else if(key==='hloss') renderHiveLossReport(body);
+      else if(key==='scoreround') renderHiveStrengthByRound(body);
     }
     QUICK_REPORTS.forEach(q=>{
       const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
@@ -4031,6 +4033,153 @@ function renderReportsScreen(){
       opSel.addEventListener('change',()=>{refreshBatchSel();draw();});
       batchSel.addEventListener('change',()=>{refreshSiteSel();draw();});
       siteSel.addEventListener('change',draw);
+      draw();
+    }
+
+    // ── Hive strength by scoring round (spring clean vs round 2 vs round 3) ──
+    function renderHiveStrengthByRound(container){
+      container.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},'Hive strength by scoring round'));
+      if(!years.length){container.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'Add a seasonal year to see this report'));return;}
+
+      const selRow=h('div',{style:{display:'flex',gap:'8px',marginBottom:'6px'}});
+      const yearSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      [...years].sort((a,b)=>b.startYear-a.startYear).forEach(yr=>yearSel.appendChild(h('option',{value:yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1))));
+      const opSel=h('select',{style:{flex:'1',padding:'8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa'}});
+      opSel.appendChild(h('option',{value:'all'},'All operations'));
+      Object.keys(OPERATIONS).forEach(op=>opSel.appendChild(h('option',{value:op},op)));
+      selRow.appendChild(yearSel);selRow.appendChild(opSel);
+      container.appendChild(selRow);
+      container.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'12px'}},'Compares average hive scores across the first three scored spring visits. Feed bars count how many yards had pollen or sugar recorded between rounds.'));
+
+      const chartCard=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
+      const canvas=document.createElement('canvas');
+      canvas.style.width='100%';canvas.style.display='block';
+      chartCard.appendChild(canvas);
+      container.appendChild(chartCard);
+
+      const legend=h('div',{style:{display:'flex',gap:'12px',marginBottom:'10px',flexWrap:'wrap'}});
+      [[{color:'#3d7a4f',round:true},'Avg score (line)'],[{color:'#ef9f27',round:false},'Pollen fed (bars)'],[{color:'#1a6fb0',round:false},'Sugar fed (bars)']].forEach(([{color,round},lbl])=>{
+        const dot=h('span',{style:{width:'10px',height:'10px',borderRadius:round?'50%':'2px',background:color,display:'inline-block',marginRight:'4px',flexShrink:'0'}});
+        legend.appendChild(h('span',{style:{display:'flex',alignItems:'center',fontSize:'11px',color:'#666'}},dot,lbl));
+      });
+      container.appendChild(legend);
+
+      const tableWrap=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
+      container.appendChild(tableWrap);
+
+      function scoreAvg(bd){
+        let at=0,ac=0;
+        [0,1,2,3,4,5,6].forEach(n=>{const v=parseInt((bd||{})[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
+        return ac>0?at/ac:null;
+      }
+      function scoreColor(s){return s===null?'#ccc':s<=1?'#e24b4a':s<=2.5?'#ef9f27':s<=4?'#c8b400':'#3d7a4f';}
+
+      function draw(){
+        const yr=years.find(y=>String(y.startYear)===String(yearSel.value))||years[0];
+        const spring=getSeasonRanges(yr).spring;
+        const scopeOp=opSel.value!=='all'?opSel.value:null;
+
+        // Gather all spring entries grouped by site
+        const allSpring=getSeasonEntries(spring).filter(e=>!scopeOp||e._op===scopeOp);
+
+        // Group by site key
+        const bySite={};
+        allSpring.forEach(e=>{
+          const k=e._op+'__'+e._site;
+          if(!bySite[k]) bySite[k]={op:e._op,batch:e._batch,site:e._site,entries:[]};
+          bySite[k].entries.push(e);
+        });
+
+        // For each site: find scored entries (oldest first = R1, R2, R3)
+        const siteData=Object.values(bySite).map(({op,batch,site,entries})=>{
+          const sorted=entries.slice().sort((a,b)=>{
+            const dc=(a.date||'').localeCompare(b.date||'');
+            return dc!==0?dc:(a.logged_at||a.saved_at||'').localeCompare(b.logged_at||b.saved_at||'');
+          });
+          // Spring clean is any entry with spring_clean===true, else use chronological order
+          const scored=sorted.filter(e=>{const bd=e.score_breakdown||{};return Object.values(bd).some(v=>parseInt(v)>0);});
+          if(!scored.length) return null;
+          // Prefer spring_clean entry as R1 if present
+          const scIdx=scored.findIndex(e=>e.spring_clean);
+          const ordered=scIdx>0?[scored[scIdx],...scored.slice(0,scIdx),...scored.slice(scIdx+1)]:scored;
+          const rounds=ordered.slice(0,3);
+          const roundData=rounds.map((re,ri)=>{
+            const prevDate=ri>0?rounds[ri-1].date:spring.start;
+            const window=sorted.filter(e=>e.date>=prevDate&&e.date<=re.date);
+            const pollenFed=window.some(e=>parseInt(e.pollen_hives_fed)>0);
+            const sugarFed=window.some(e=>parseInt(e.hives_fed)>0||parseInt(e.litres_fed)>0);
+            const score=scoreAvg(re.score_breakdown);
+            return{entry:re,score,pollenFed,sugarFed,isSpringClean:!!(re.spring_clean)};
+          });
+          return{op,batch,site,roundData};
+        }).filter(Boolean);
+
+        const maxRounds=Math.max(0,...siteData.map(s=>s.roundData.length));
+        const roundLabels=['Spring Clean','Round 2','Round 3'].slice(0,maxRounds);
+
+        const avgScores=roundLabels.map((_,ri)=>{
+          const vals=siteData.map(s=>s.roundData[ri]?.score).filter(v=>v!=null);
+          return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null;
+        });
+        const pollenCounts=roundLabels.map((_,ri)=>siteData.filter(s=>s.roundData[ri]?.pollenFed).length);
+        const sugarCounts=roundLabels.map((_,ri)=>siteData.filter(s=>s.roundData[ri]?.sugarFed).length);
+
+        const scoreLine={label:'Avg score',color:'#3d7a4f',points:roundLabels.map((lbl,ri)=>avgScores[ri]!=null?{x:lbl,y:parseFloat(avgScores[ri].toFixed(2))}:null).filter(Boolean)};
+        const pollenBar={label:'Pollen fed',color:'#ef9f27',points:roundLabels.map((lbl,ri)=>({x:lbl,y:pollenCounts[ri]}))};
+        const sugarBar={label:'Sugar fed',color:'#1a6fb0',points:roundLabels.map((lbl,ri)=>({x:lbl,y:sugarCounts[ri]}))};
+
+        setTimeout(()=>{
+          const dpr=window.devicePixelRatio||1;
+          const w=canvas.parentElement?.offsetWidth||300;
+          canvas.width=w*dpr;canvas.height=260*dpr;
+          canvas.style.width='100%';canvas.style.height='260px';
+          drawComboChart(canvas,[scoreLine],[pollenBar,sugarBar],'Score','Sites fed');
+        },50);
+
+        // Per-site table
+        tableWrap.innerHTML='';
+        if(!siteData.length){tableWrap.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'8px 0'}},'No spring scoring data for this selection'));return;}
+        tableWrap.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'10px'}},(yr.name||yr.startYear+'-'+(yr.startYear+1))+' Spring · '+siteData.length+' yards scored'));
+
+        // Sort sites by R1 score desc
+        const sorted=[...siteData].sort((a,b)=>{
+          const sa=a.roundData[0]?.score??-1,sb=b.roundData[0]?.score??-1;
+          return sb-sa;
+        });
+
+        sorted.forEach(({op,batch,site,roundData})=>{
+          const card=h('div',{style:{padding:'9px 0',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'}});
+          card.addEventListener('click',()=>{Object.entries(getYards(op)).forEach(([bk,bd])=>{if(bd.sites.includes(site))setState({op,tab:'diary',run:bk,site,diaryView:'entries',round:STATE.round});});});
+          const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'5px'}});
+          topRow.appendChild(h('span',{style:{fontWeight:'600',fontSize:'13px',color:'#1a1a1a'}},site));
+          topRow.appendChild(h('span',{style:{fontSize:'10px',color:'#bbb'}},op));
+          card.appendChild(topRow);
+          const rndRow=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
+          roundData.forEach((rd,ri)=>{
+            const sc=rd.score;
+            const col=scoreColor(sc);
+            const pill=h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',background:col+'15',borderRadius:'9px',border:'1.5px solid '+col+'55',padding:'5px 10px',minWidth:'70px'}});
+            pill.appendChild(h('span',{style:{fontSize:'9px',fontWeight:'700',color:col,textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'2px'}},rd.isSpringClean?'Spr Clean':ri===0?'Round 1':ri===1?'Round 2':'Round 3'));
+            pill.appendChild(h('span',{style:{fontSize:'18px',fontWeight:'800',color:col,lineHeight:'1'}},sc!==null?sc.toFixed(1):'—'));
+            const feedRow=h('div',{style:{display:'flex',gap:'3px',marginTop:'3px'}});
+            if(rd.pollenFed) feedRow.appendChild(h('span',{style:{fontSize:'9px',background:'#ef9f2720',color:'#b07800',borderRadius:'6px',padding:'1px 5px',fontWeight:'700'}},'Pol'));
+            if(rd.sugarFed) feedRow.appendChild(h('span',{style:{fontSize:'9px',background:'#1a6fb020',color:'#1a6fb0',borderRadius:'6px',padding:'1px 5px',fontWeight:'700'}},'Sug'));
+            pill.appendChild(feedRow);
+            rndRow.appendChild(pill);
+            if(ri<roundData.length-1){
+              const arrow=h('span',{style:{alignSelf:'center',fontSize:'14px',color:'#ccc',flexShrink:'0'}});
+              const delta=roundData[ri+1]?.score!=null&&sc!=null?roundData[ri+1].score-sc:null;
+              arrow.textContent=delta===null?'→':delta>0?'↑':delta<0?'↓':'→';
+              arrow.style.color=delta===null?'#ccc':delta>0?'#3d7a4f':delta<0?'#e24b4a':'#ccc';
+              rndRow.appendChild(arrow);
+            }
+          });
+          card.appendChild(rndRow);
+          tableWrap.appendChild(card);
+        });
+      }
+      yearSel.addEventListener('change',draw);
+      opSel.addEventListener('change',draw);
       draw();
     }
 
