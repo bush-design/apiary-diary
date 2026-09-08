@@ -9117,6 +9117,8 @@ function renderMovementsScreen(){
     const loadDriver={val:''};
     const loadVehicle={val:''};
     const loadCrop={val:''};
+    // draftPickup — persists across direction switches so in-progress form fields survive
+    const draftPickup={site:'',op:'',pallets:'',singles:'',half_pallet:false,alive_hives:'',dead_hives:'',doubles:'',singles_boxes:'',light:''};
     // pickups: [{id, site, op, pallets, singles, splits:[{dest, dest_op, pallets, singles}]}]
     const pickups=[];
     let nextId=1;
@@ -9140,7 +9142,16 @@ function renderMovementsScreen(){
     }
     [['to_orchard','Yard → Orchard'],['from_orchard','Orchard → Yard'],['yard_yard','Yard → Yard'],['orchard_orchard','Orchard → Orchard']].forEach(([val,label])=>{
       dirRow.appendChild(h('button',{style:{padding:'8px 6px',borderRadius:'8px',border:'2px solid '+(loadDirection.val===val?movColor:'#ddd'),background:loadDirection.val===val?'#f3e8ff':'#fff',color:loadDirection.val===val?movColor:'#555',fontWeight:'600',fontSize:'12px',cursor:'pointer'},
-        onClick:()=>{loadDirection.val=val;pickups.length=0;if(!['to_orchard','from_orchard','orchard_orchard'].includes(val))loadCrop.val='';updateDirBtns();refreshCropPill();rebuildAll();}}
+        onClick:()=>{
+          const prevSrcIsYard=['to_orchard','yard_yard'].includes(loadDirection.val);
+          const newSrcIsYard=['to_orchard','yard_yard'].includes(val);
+          loadDirection.val=val;
+          pickups.length=0;
+          if(!['to_orchard','from_orchard','orchard_orchard'].includes(val))loadCrop.val='';
+          // Clear source site only when flipping between yard-source and orchard-source
+          if(prevSrcIsYard!==newSrcIsYard){draftPickup.site='';draftPickup.op='';}
+          updateDirBtns();refreshCropPill();rebuildAll();
+        }}
       ,label));
     });
 
@@ -9705,15 +9716,18 @@ function renderMovementsScreen(){
 
     function renderAddPickupForm(){
       addPickupArea.innerHTML='';
-      // Pre-fill if editing an existing pickup
-      const pre=editingPickup||{};
+      // Pre-fill from an existing pickup being edited, otherwise use the persistent draft
+      const pre=editingPickup||null;
       editingPickup=null;
-      const pickupData={site:pre.site||'',op:pre.op||'',pallets:pre.pallets||'',singles:pre.singles||'',
-        half_pallet:pre.half_pallet||false,alive_hives:pre.alive_hives||'',dead_hives:pre.dead_hives||'',
-        doubles:pre.doubles||'',singles_boxes:pre.singles_boxes||'',light:pre.light||''};
+      // pickupData IS draftPickup when not editing, so mutations auto-persist across rebuildAll()
+      const pickupData=pre
+        ?{site:pre.site||'',op:pre.op||'',pallets:pre.pallets||'',singles:pre.singles||'',
+           half_pallet:pre.half_pallet||false,alive_hives:pre.alive_hives||'',dead_hives:pre.dead_hives||'',
+           doubles:pre.doubles||'',singles_boxes:pre.singles_boxes||'',light:pre.light||''}
+        :draftPickup;
       const isYY=loadDirection.val==='yard_yard';
       const isOut=loadDirection.val==='to_orchard';
-      const isEditing=!!(pre.site);
+      const isEditing=!!(pre&&pre.site);
       const card=h('div',{className:'form-card',style:{marginBottom:'12px',border:isEditing?'1.5px solid #9b59b6':''}});
       // Collapsible header — collapsed by default when there are already pickups
       const addTitle=isEditing?`Editing: ${pre.site}`:(isOut?'+ Pick up from yard':isYY?'+ Pick up from yard':'+ Pick up from orchard');
@@ -10136,6 +10150,8 @@ function renderMovementsScreen(){
           if(!pickupData.site){showToast(isOut?'Select a yard site':isYY?'Select a yard site':'Select an orchard');return;}
           if(!pickupData.pallets&&!pickupData.singles&&!pickupData.half_pallet){showToast('Enter truck space (pallets or singles)');return;}
           pickups.push({...pickupData,id:nextId++,splits:[]});
+          // Reset draft so the next pickup starts fresh
+          Object.assign(draftPickup,{site:'',op:'',pallets:'',singles:'',half_pallet:false,alive_hives:'',dead_hives:'',doubles:'',singles_boxes:'',light:''});
           renderPickups();
           renderAddPickupForm();
         }
