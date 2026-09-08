@@ -472,7 +472,7 @@ async function addMovement(mov){
     // numeric fields sum together, comma-separated fields (treatment, diseases) merge uniquely,
     // free-text notes concatenate.
     const COLLATE_SUM_FIELDS=['qr','virgin','cell_needed','tops','splits','nuc_splits','breeders','finishers',
-      'pol_pallet','part_pallet','pol_singles','hives_fed','honey_hives_fed','pollen_hives_fed',
+      'pol_pallet','part_pallet','pol_singles','pol_bc','hives_fed','honey_hives_fed','pollen_hives_fed',
       'fd_on','on_34','fd_harv','harv_34','honeycomb_fd','honeycomb_hd','best_hive_boxes'];
     // Litres Fed is a per-hive rate applied across the whole yard, not a running total — when
     // multiple sources merge into one destination, this should average across them, not sum.
@@ -642,6 +642,7 @@ const ROUNDS = {
     {key:"score_breakdown",label:"Spring Score",type:"score_grid"},
     {key:"pol_pallet",label:"POL Pallet",type:"number"},{key:"part_pallet",label:"Part Pallet",type:"number"},
     {key:"pol_singles",label:"Pollination Individuals",type:"number"},
+    {key:"pol_bc",label:"POL Singles (BC)",type:"number"},
     {key:"sugar_feed",label:"Sugar Feed",type:"sugar_feed"},
     {key:"queen_yard",label:"Queen Yard",type:"queen_yard"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
@@ -1114,7 +1115,7 @@ function buildDailyReport(opName, date, userName){
         hasData=true;
         todayEntries.forEach(e=>{
           batchLines.push(`\n  ${site} — ${rd.label}`);
-          const fields=['hives','singles','doubles','light','dead','check','pol_pallet','part_pallet','pol_singles','qr','virgin','cell_needed','tops','splits','carrot','fd_harv','harv_34','on_34','fd_on'];
+          const fields=['hives','singles','doubles','light','dead','check','pol_pallet','part_pallet','pol_singles','pol_bc','qr','virgin','cell_needed','tops','splits','carrot','fd_harv','harv_34','on_34','fd_on'];
           fields.forEach(k=>{if(e[k]!==undefined&&e[k]!==''){batchLines.push(`    ${k.replace(/_/g,' ')}: ${e[k]}`)}});
           if(e.score_breakdown){
             const bd=e.score_breakdown;
@@ -1265,7 +1266,7 @@ async function maybeQuarterlyBackup(){
 function buildExportRows(opName){
   const sites=allSitesFor(opName);
   const yards=OPERATIONS[opName].yards;
-  const header=['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indv.','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
+  const header=['Operation','Batch','Site','Round','Date','Hives','Singles','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indv.','POL Singles BC','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
   const dataRows=[];
   sites.forEach(site=>{
     const batch=Object.entries(yards).find(([,d])=>d.sites.includes(site))?.[0]||'';
@@ -1275,7 +1276,7 @@ function buildExportRows(opName){
         const bd=e.score_breakdown||{};
         let st=0,sc=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){st+=n*v;sc+=v;}});
         const avg=sc>0?(st/sc).toFixed(1):'';
-        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.qr||'',e.virgin||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
+        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.pol_bc||'',e.qr||'',e.virgin||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
       });
     });
   });
@@ -7005,6 +7006,7 @@ function renderEntriesList(){
       {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'POL Indv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'POL Singles BC',v:lv('pol_bc'),show:lv('pol_bc')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
       {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
@@ -7135,7 +7137,7 @@ function renderEntriesList(){
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
-      {key:'pol_singles',label:'POL Indv.'},
+      {key:'pol_singles',label:'POL Indv.'},{key:'pol_bc',label:'POL Singles BC'},
       // Feed
       {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
@@ -7724,7 +7726,7 @@ function renderForm(){
     ]},
     {key:'pollination',label:'Pollination',color:'#b07800',fields:[
       {key:'pol_pallet',label:'POL Pallets',type:'number'},{key:'part_pallet',label:'Part Pallets',type:'number'},
-      {key:'pol_singles',label:'POL Indv.',type:'number'},
+      {key:'pol_singles',label:'POL Indv.',type:'number'},{key:'pol_bc',label:'POL Singles (BC)',type:'number'},
     ]},
     {key:'feed',label:'Feed',color:'#3d7a4f',fields:[
       {key:'_sugar_label',label:'Sugar Feed',type:'subtitle'},
@@ -8346,6 +8348,7 @@ function renderEntriesList(){
       {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'POL Indv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'POL Singles BC',v:lv('pol_bc'),show:lv('pol_bc')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
       {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
@@ -8476,7 +8479,7 @@ function renderEntriesList(){
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
-      {key:'pol_singles',label:'POL Indv.'},
+      {key:'pol_singles',label:'POL Indv.'},{key:'pol_bc',label:'POL Singles BC'},
       // Feed
       {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
