@@ -6882,11 +6882,20 @@ function renderBatchList(){
   Object.entries(yards).forEach(([batch,data])=>{
     const s=calcBatchSummary(op,batch,data.sites);
     const hasOverdue=data.sites.some(site=>{const dates=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).map(e=>e.date));const last=dates.sort().reverse()[0];return !last||daysBetween(last)>21;});
+
+    // Batch spring score — aggregate breakdown across all scored sites
+    const batchScoreBd={};
+    data.sites.forEach(site=>{
+      const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
+      [0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0)batchScoreBd[n]=(batchScoreBd[n]||0)+v;});
+    });
+    const hasBatchScores=Object.keys(batchScoreBd).length>0;
+
     const card=h('div',{style:{background:'#fff',border:`1.5px solid ${hasOverdue?'#f4a0a0':'#ddd'}`,borderRadius:'12px',padding:'12px 14px',marginBottom:'10px',cursor:'pointer'},
       onClick:()=>setState({run:batch,diaryView:'sites',round:STATE.round})});
 
     // Title row
-    const titleRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom: s.hives>0?'10px':'0'}});
+    const titleRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:(s.hives>0||hasBatchScores)?'10px':'0'}});
     titleRow.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',color:'#1a1a1a'}},batch));
     const badges=h('div',{style:{display:'flex',gap:'6px',alignItems:'center'}});
     if(s.flagCount>0) badges.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#b07800',background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'10px',padding:'2px 8px'}},'! '+s.flagCount));
@@ -6894,6 +6903,21 @@ function renderBatchList(){
     badges.appendChild(h('span',{style:{color:'#ccc',fontSize:'18px'}},'›'));
     titleRow.appendChild(badges);
     card.appendChild(titleRow);
+
+    // Spring score breakdown graph — coloured circles with count, one per score value present
+    if(hasBatchScores){
+      const scoreRow=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap',marginBottom:s.hives>0?'8px':'0'}});
+      [0,1,2,3,4,5,6].forEach(n=>{
+        const cnt=batchScoreBd[n];
+        if(!cnt) return;
+        const col=scoreColor(n);
+        scoreRow.appendChild(h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',gap:'2px'}},
+          h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:col,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'8px':'11px'}},n===6?'6+':String(n)),
+          h('div',{style:{fontSize:'11px',fontWeight:'600',color:'#555',textAlign:'center'}},String(cnt))
+        ));
+      });
+      card.appendChild(scoreRow);
+    }
 
     if(s.hives>0){
       // Hive counts row
@@ -11331,7 +11355,7 @@ function showPinGate(onSuccess){
   overlay.style.cssText='position:fixed;inset:0;background:#1a2e1a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;padding:30px;';
 
   const logo=document.createElement('div');
-  logo.style.cssText='font-size:40px;margin-bottom:8px;';
+  logo.style.cssText='font-size:48px;margin-bottom:12px;';
   logo.textContent='🐝';
   overlay.appendChild(logo);
 
