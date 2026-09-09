@@ -8079,7 +8079,7 @@ function renderForm(){
         fw.appendChild(hfRow);
       } else if(f.type==='pollen_amount'){
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'6px'}},f.label));
-        const amountOptions=['1/3','1/2','Full'];
+        const amountOptions=['1/6','1/3','1/2','Full'];
         const paRow=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
         amountOptions.forEach(opt=>{
           const btn=h('button',{type:'button',style:{padding:'7px 14px',borderRadius:'20px',fontSize:'13px',fontWeight:'600',cursor:'pointer',border:`1.5px solid ${vals.pollen_amount===opt?sec.color:'#ddd'}`,background:vals.pollen_amount===opt?`${sec.color}18`:'#fff',color:vals.pollen_amount===opt?sec.color:'#888'}},opt);
