@@ -422,9 +422,9 @@ async function addMovement(mov){
     const lastReal=allSiteEntries.find(e=>!e._movement)||null;
     const lastHives = parseInt(lastWithHives?.hives)||0;
     const lastDead = parseInt((mergeTarget||lastWithHives)?.dead)||0;
-    const lastDoubles=parseInt((mergeTarget||lastReal)?.doubles)||0;
-    const lastSingles=parseInt((mergeTarget||lastReal)?.singles)||0;
-    const lastLight=parseInt((mergeTarget||lastReal)?.light)||0;
+    const lastDoubles=parseInt((mergeTarget||lastReal||lastWithHives)?.doubles)||0;
+    const lastSingles=parseInt((mergeTarget||lastReal||lastWithHives)?.singles)||0;
+    const lastLight=parseInt((mergeTarget||lastReal||lastWithHives)?.light)||0;
     const newHives = isDeduction ? Math.max(0,lastHives-aliveChange) : lastHives+aliveChange;
     const newDead = isDeduction ? Math.max(0,lastDead-deadChange) : lastDead+deadChange;
 
@@ -566,12 +566,35 @@ async function addMovement(mov){
       STATE.entries = updated;
       return;
     }
+    // Previous accumulated movement entry at this destination — used to carry forward
+    // scores, treatments, and disease records that arrived with earlier separate movements,
+    // so each new movement adds to the existing picture rather than replacing it.
+    const lastMovEntry=allSiteEntries.find(e=>e._movement)||null;
+
     const freshExtra={};
+    // Score breakdown: carry forward previous accumulated movement scores and combine with
+    // incoming source scores so each separate movement into this yard adds to the total.
+    {
+      const baseScore={...(lastMovEntry?.score_breakdown||{})};
+      if(sourceCollated?.score_breakdown){
+        Object.entries(sourceCollated.score_breakdown).forEach(([lvl,v])=>{
+          const add=parseInt(v)||0;
+          if(add>0) baseScore[lvl]=String((parseInt(baseScore[lvl])||0)+add);
+        });
+      }
+      if(Object.keys(baseScore).length) freshExtra.score_breakdown=baseScore;
+    }
+    // Treatments and diseases: always merge whatever was accumulated at the destination from
+    // previous movements with whatever comes in from the new source.
+    COLLATE_MERGE_FIELDS.forEach(k=>{
+      const existing=(lastMovEntry?.[k]||'').split(',').map(t=>t.trim()).filter(Boolean);
+      const incoming=((sourceCollated||{})[k]||'').split(',').map(t=>t.trim()).filter(Boolean);
+      const merged=[...new Set([...existing,...incoming])];
+      if(merged.length) freshExtra[k]=merged.join(', ');
+    });
     if(sourceCollated){
-      if(sourceCollated.score_breakdown) freshExtra.score_breakdown={...sourceCollated.score_breakdown};
       COLLATE_SUM_FIELDS.forEach(k=>{if(sourceCollated[k]!==undefined)freshExtra[k]=String(sourceCollated[k]);});
       COLLATE_AVG_FIELDS.forEach(k=>{if(sourceCollated[k]!==undefined){freshExtra[k]=String(sourceCollated[k]);freshExtra['_'+k+'_n']='1';}});
-      COLLATE_MERGE_FIELDS.forEach(k=>{if(sourceCollated[k])freshExtra[k]=sourceCollated[k];});
       COLLATE_NOTE_FIELDS.forEach(k=>{if(sourceCollated[k])freshExtra[k]=sourceCollated[k];});
     }
     const movEntry = {
