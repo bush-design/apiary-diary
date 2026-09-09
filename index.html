@@ -4123,7 +4123,32 @@ function renderReportsScreen(){
           return{op,batch,site,roundData};
         }).filter(Boolean);
 
-        const maxRounds=Math.max(0,...siteData.map(s=>s.roundData.length));
+        // ── Inherit Round 2 score from a "host" yard (e.g. Simpson) for yards that were
+        // moved there during this spring via yard_yard movement. If the yard already has its
+        // own Round 2 score (it moved back and was re-scored independently), don't override it.
+        const allMovs=loadMovements();
+        // For every site: find the yard it was moved INTO during this spring (if any)
+        const siteHostMap={}; // site key → host site name
+        allMovs.filter(m=>m.direction==='yard_yard'&&m.date>=spring.start&&m.date<=spring.end&&m.to_site&&m.from_site)
+          .forEach(m=>{ siteHostMap[m.from_site]=m.to_site; });
+        // Build a lookup of host site → its Round 2 roundData object (index 1, i.e. the non-spring-clean round)
+        const hostR2Map={}; // host site name → {score, pollenFed, sugarFed, isInherited:true}
+        siteData.forEach(sd=>{
+          // Round 2 is the second entry in roundData (index 1 if Spring Clean is index 0, else index 1 directly)
+          const r2=sd.roundData.length>=2?sd.roundData[1]:null;
+          if(r2) hostR2Map[sd.site]=r2;
+        });
+        // Mark each siteData entry with an inherited R2 if applicable
+        siteData.forEach(sd=>{
+          if(sd.roundData.length>=2) return; // already has its own R2
+          const host=siteHostMap[sd.site];
+          if(!host) return;
+          const hostR2=hostR2Map[host];
+          if(!hostR2) return;
+          sd._inheritedR2={...hostR2,isInherited:true,fromSite:host};
+        });
+
+        const maxRounds=Math.max(0,...siteData.map(s=>s.roundData.length+(s._inheritedR2?1:0)));
         const roundLabels=['Spring Clean','Round 2','Round 3'].slice(0,maxRounds);
 
         const avgScores=roundLabels.map((_,ri)=>{
@@ -4156,7 +4181,7 @@ function renderReportsScreen(){
           return sb-sa;
         });
 
-        sorted.forEach(({op,batch,site,roundData})=>{
+        sorted.forEach(({op,batch,site,roundData,_inheritedR2})=>{
           const card=h('div',{style:{padding:'9px 0',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'}});
           card.addEventListener('click',()=>{Object.entries(getYards(op)).forEach(([bk,bd])=>{if(bd.sites.includes(site))setState({op,tab:'diary',run:bk,site,diaryView:'entries',round:STATE.round});});});
           const topRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'5px'}});
@@ -4164,25 +4189,46 @@ function renderReportsScreen(){
           topRow.appendChild(h('span',{style:{fontSize:'10px',color:'#bbb'}},op));
           card.appendChild(topRow);
           const rndRow=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
-          roundData.forEach((rd,ri)=>{
-            const sc=rd.score;
-            const col=scoreColor(sc);
+
+          function makePill(rd,label,col){
             const pill=h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',background:col+'15',borderRadius:'9px',border:'1.5px solid '+col+'55',padding:'5px 10px',minWidth:'70px'}});
-            pill.appendChild(h('span',{style:{fontSize:'9px',fontWeight:'700',color:col,textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'2px'}},rd.isSpringClean?'Spr Clean':ri===0?'Round 1':ri===1?'Round 2':'Round 3'));
+            pill.appendChild(h('span',{style:{fontSize:'9px',fontWeight:'700',color:col,textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'2px'}},label));
+            const sc=rd.score;
             pill.appendChild(h('span',{style:{fontSize:'18px',fontWeight:'800',color:col,lineHeight:'1'}},sc!==null?sc.toFixed(1):'—'));
             const feedRow=h('div',{style:{display:'flex',gap:'3px',marginTop:'3px'}});
             if(rd.pollenFed) feedRow.appendChild(h('span',{style:{fontSize:'9px',background:'#ef9f2720',color:'#b07800',borderRadius:'6px',padding:'1px 5px',fontWeight:'700'}},'Pol'));
             if(rd.sugarFed) feedRow.appendChild(h('span',{style:{fontSize:'9px',background:'#1a6fb020',color:'#1a6fb0',borderRadius:'6px',padding:'1px 5px',fontWeight:'700'}},'Sug'));
             pill.appendChild(feedRow);
-            rndRow.appendChild(pill);
-            if(ri<roundData.length-1){
+            return pill;
+          }
+
+          roundData.forEach((rd,ri)=>{
+            const sc=rd.score;
+            const col=scoreColor(sc);
+            const label=rd.isSpringClean?'Spr Clean':ri===0?'Round 1':ri===1?'Round 2':'Round 3';
+            rndRow.appendChild(makePill(rd,label,col));
+            // Arrow between own rounds
+            const nextOwn=roundData[ri+1];
+            const nextScore=nextOwn?.score??(_inheritedR2&&ri===roundData.length-1?_inheritedR2.score:null);
+            if(nextOwn||(_inheritedR2&&ri===roundData.length-1)){
               const arrow=h('span',{style:{alignSelf:'center',fontSize:'14px',color:'#ccc',flexShrink:'0'}});
-              const delta=roundData[ri+1]?.score!=null&&sc!=null?roundData[ri+1].score-sc:null;
+              const delta=nextScore!=null&&sc!=null?nextScore-sc:null;
               arrow.textContent=delta===null?'→':delta>0?'↑':delta<0?'↓':'→';
               arrow.style.color=delta===null?'#ccc':delta>0?'#3d7a4f':delta<0?'#e24b4a':'#ccc';
               rndRow.appendChild(arrow);
             }
           });
+
+          // Inherited Round 2 from host yard (e.g. hives are currently at Simpson)
+          if(_inheritedR2){
+            const sc=_inheritedR2.score;
+            const col=scoreColor(sc);
+            const inh=makePill(_inheritedR2,'Round 2',col);
+            // Add small "@ YardName" tag inside pill
+            inh.appendChild(h('span',{style:{fontSize:'8px',color:col+'99',marginTop:'2px',fontStyle:'italic'}},'@ '+_inheritedR2.fromSite));
+            rndRow.appendChild(inh);
+          }
+
           card.appendChild(rndRow);
           tableWrap.appendChild(card);
         });
