@@ -5377,6 +5377,178 @@ function renderReportsScreen(){
     }
     diseaseSeasonSel.addEventListener('change',renderDiseaseStats);
     renderDiseaseStats();
+
+    // ── Deaths report ──────────────────────────────────────────────────────────
+    const CAUSE_COLORS={Varroa:'#8e44ad',DL:'#2980b9',Queenless:'#e67e22',Starved:'#c0392b',AFB:'#c0392b',Froze:'#1a6fb0',Other:'#7f8c8d'};
+    const deathsSec=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginTop:'12px',border:'.5px solid #c0392b33'}});
+    deathsSec.appendChild(h('div',{style:{fontWeight:'700',fontSize:'13px',color:'#c0392b',marginBottom:'10px',textTransform:'uppercase',letterSpacing:'.05em'}},'Deaths by Season'));
+    const deathsYrSel=h('select',{style:{width:'100%',padding:'7px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'13px',background:'#fafafa',marginBottom:'10px'}});
+    deathsYrSel.appendChild(h('option',{value:'all'},'All time'));
+    years.forEach(yr=>{
+      const ranges=getSeasonRanges(yr);
+      deathsYrSel.appendChild(h('option',{value:'year_'+yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1)+' (full year)'));
+      Object.entries(ranges).forEach(([rk,sr])=>deathsYrSel.appendChild(h('option',{value:sr.start+'|'+sr.end},sr.label)));
+    });
+    deathsSec.appendChild(deathsYrSel);
+    const deathsArea=h('div',null);
+    deathsSec.appendChild(deathsArea);
+    metricsArea.appendChild(deathsSec);
+
+    function renderDeathsReport(){
+      deathsArea.innerHTML='';
+      const val=deathsYrSel.value;
+
+      // Build flat list of all matching entries across ops, with dead or dead_cause data
+      const deadEntries=[];
+
+      function collectDeadEntries(start,end){
+        Object.entries(OPERATIONS).forEach(([opName])=>{
+          Object.entries(getYards(opName)).forEach(([batchName,batch])=>{
+            batch.sites.forEach(site=>{
+              Object.keys(ROUNDS).forEach(rk=>{
+                (STATE.entries[eKey(opName,site,rk)]||[])
+                  .filter(e=>!e._movement&&(!start||(e.date>=start&&e.date<=end)))
+                  .forEach(e=>{
+                    const deadCnt=parseInt(e.dead)||0;
+                    const cause=e.dead_cause&&typeof e.dead_cause==='object'?e.dead_cause:{};
+                    const hasCause=Object.values(cause).some(n=>n>0);
+                    if(deadCnt>0||hasCause){
+                      deadEntries.push({op:opName,batch:batchName,site,date:e.date,dead:deadCnt,cause});
+                    }
+                  });
+              });
+            });
+          });
+        });
+      }
+
+      if(val==='all'){
+        collectDeadEntries(null,null);
+      } else if(val.startsWith('year_')){
+        const sy=parseInt(val.replace('year_',''));
+        const yr=years.find(y=>y.startYear===sy)||years[0];
+        if(yr){const r=getSeasonRanges(yr);collectDeadEntries(r.winter.start,r.autumn.end);}
+      } else if(val.includes('|')){
+        const [s,e]=val.split('|');
+        collectDeadEntries(s,e);
+      } else {
+        collectDeadEntries(null,null);
+      }
+
+      if(!deadEntries.length){
+        deathsArea.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px'}},'No death data recorded for this period'));
+        return;
+      }
+
+      // Aggregate totals
+      const totalDead=deadEntries.reduce((a,e)=>a+e.dead,0);
+      const allCauses={};
+      deadEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{allCauses[c]=(allCauses[c]||0)+(parseInt(n)||0);});});
+
+      // Summary header
+      const sumRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}});
+      sumRow.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'800',color:'#c0392b'}},totalDead+' dead'));
+      sumRow.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},deadEntries.length+' entr'+(deadEntries.length!==1?'ies':'y')+' across '+new Set(deadEntries.map(e=>e.op+'__'+e.site)).size+' yards'));
+      deathsArea.appendChild(sumRow);
+
+      // Cause pill row (overall)
+      if(Object.keys(allCauses).length){
+        const pillRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'12px'}});
+        Object.entries(allCauses).sort((a,b)=>b[1]-a[1]).forEach(([c,n])=>{
+          const col=CAUSE_COLORS[c]||'#888';
+          pillRow.appendChild(h('span',{style:{padding:'3px 10px',borderRadius:'12px',fontSize:'12px',fontWeight:'700',background:col+'18',color:col,border:'1px solid '+col+'44'}},c+(n>1?' ('+n+')':'')));
+        });
+        deathsArea.appendChild(pillRow);
+      }
+
+      // Group by operation
+      const ops=[...new Set(deadEntries.map(e=>e.op))];
+      ops.forEach(opName=>{
+        const opEntries=deadEntries.filter(e=>e.op===opName);
+        const opDead=opEntries.reduce((a,e)=>a+e.dead,0);
+        const opCauses={};
+        opEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{opCauses[c]=(opCauses[c]||0)+(parseInt(n)||0);});});
+        const opColor=OPERATIONS[opName]?.accent||'#888';
+
+        const opCard=h('div',{style:{marginBottom:'10px',border:'.5px solid #f0eeec',borderRadius:'10px',overflow:'hidden'}});
+
+        // Op header — collapsible
+        const opHdr=h('div',{style:{padding:'8px 12px',background:'#faf9f7',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}});
+        const opLeft=h('div',null);
+        opLeft.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'700',color:'#333'}},opName));
+        opLeft.appendChild(h('span',{style:{fontSize:'12px',color:'#888',marginLeft:'8px'}},opDead+' dead · '+opEntries.length+' entr'+(opEntries!==1?'ies':'y')));
+        opHdr.appendChild(opLeft);
+        const opChev=h('span',{style:{color:'#aaa',fontSize:'13px'}},'▼');
+        opHdr.appendChild(opChev);
+
+        const opBody=h('div',{style:{display:'none',padding:'8px 12px'}});
+
+        // Cause breakdown for this op
+        if(Object.keys(opCauses).length){
+          const causeRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'4px',marginBottom:'8px',paddingBottom:'8px',borderBottom:'.5px solid #f0f0ee'}});
+          Object.entries(opCauses).sort((a,b)=>b[1]-a[1]).forEach(([c,n])=>{
+            const col=CAUSE_COLORS[c]||'#888';
+            causeRow.appendChild(h('span',{style:{padding:'2px 8px',borderRadius:'10px',fontSize:'11px',fontWeight:'700',background:col+'18',color:col}},c+(n>1?' ('+n+')':'')));
+          });
+          opBody.appendChild(causeRow);
+        }
+
+        // Site rows
+        const siteGroups={};
+        opEntries.forEach(e=>{
+          const k=e.site+'__'+e.batch;
+          if(!siteGroups[k]) siteGroups[k]={site:e.site,batch:e.batch,dead:0,causes:{},dates:[]};
+          siteGroups[k].dead+=e.dead;
+          Object.entries(e.cause).forEach(([c,n])=>{siteGroups[k].causes[c]=(siteGroups[k].causes[c]||0)+(parseInt(n)||0);});
+          if(e.date) siteGroups[k].dates.push(e.date);
+        });
+
+        // Group sites by batch
+        const batchGroups={};
+        Object.values(siteGroups).forEach(sg=>{
+          if(!batchGroups[sg.batch]) batchGroups[sg.batch]=[];
+          batchGroups[sg.batch].push(sg);
+        });
+
+        Object.entries(batchGroups).sort(([a],[b])=>a.localeCompare(b)).forEach(([batch,sites])=>{
+          opBody.appendChild(h('div',{style:{fontSize:'10px',fontWeight:'700',color:'#aaa',textTransform:'uppercase',letterSpacing:'.06em',margin:'6px 0 4px'}},batch));
+          sites.sort((a,b)=>b.dead-a.dead).forEach(sg=>{
+            const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'4px 0',borderBottom:'.5px solid #f8f8f6'}});
+            const left=h('div',null);
+            left.appendChild(h('div',{style:{fontSize:'13px',color:'#333',fontWeight:'600'}},sg.site));
+            if(Object.keys(sg.causes).length){
+              const cs=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'3px',marginTop:'3px'}});
+              Object.entries(sg.causes).sort((a,b)=>b[1]-a[1]).forEach(([c,n])=>{
+                const col=CAUSE_COLORS[c]||'#888';
+                cs.appendChild(h('span',{style:{fontSize:'10px',padding:'1px 6px',borderRadius:'8px',background:col+'18',color:col,fontWeight:'600'}},c+(n>1?' ×'+n:'')));
+              });
+              left.appendChild(cs);
+            }
+            if(sg.dates.length){
+              const latest=sg.dates.sort().reverse()[0];
+              left.appendChild(h('div',{style:{fontSize:'10px',color:'#bbb',marginTop:'2px'}},fmtDate(latest)));
+            }
+            row.appendChild(left);
+            if(sg.dead>0){
+              row.appendChild(h('span',{style:{fontSize:'18px',fontWeight:'800',color:'#c0392b',lineHeight:'1',flexShrink:'0',marginTop:'2px'}},sg.dead));
+            }
+            opBody.appendChild(row);
+          });
+        });
+
+        opHdr.addEventListener('click',()=>{
+          const open=opBody.style.display!=='none';
+          opBody.style.display=open?'none':'block';
+          opChev.textContent=open?'▼':'▲';
+        });
+        opCard.appendChild(opHdr);
+        opCard.appendChild(opBody);
+        deathsArea.appendChild(opCard);
+      });
+    }
+
+    deathsYrSel.addEventListener('change',renderDeathsReport);
+    renderDeathsReport();
   }
 
   renderChart();
