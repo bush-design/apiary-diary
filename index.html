@@ -7620,28 +7620,38 @@ function renderEntriesList(){
         // moves/deletes — that approach is intentionally removed.)
         if(entryToDelete&&entryToDelete._movement){
           const movs=await getMergedRemoteMovements();
-          const matchIdx=movs.findIndex(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
-          if(matchIdx<0){
+          const tid=entryToDelete.truckload_id;
+          // Match by truckload_id so ALL pickups in that load are tombstoned together.
+          // A truckload can have multiple movement records (one per source yard), so findIndex
+          // would only catch the first — filter finds every leg that belongs to this diary entry.
+          // Fall back to date+site matching for older entries that predate truckload_id.
+          const matchingMovs=tid
+            ? movs.filter(m=>m.truckload_id===tid&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site))
+            : movs.filter(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
+          if(matchingMovs.length===0){
             // Couldn't find the matching record in the movements log — make this visible
             // instead of silently leaving an orphaned entry that keeps affecting hive counts.
             showToast('⚠ Could not find the matching movement record — check Hive Movements → History and remove it manually if it\'s still listed.',6000);
           }
-          if(matchIdx>=0){
-            const mov=movs[matchIdx];
-            const updatedMovs=movs.map((x,i)=>i===matchIdx?{...x,deleted:true,deletedAt:new Date().toISOString()}:x);
+          if(matchingMovs.length>0){
+            const matchingIds=new Set(matchingMovs.map(m=>m.id));
+            const updatedMovs=movs.map(x=>matchingIds.has(x.id)?{...x,deleted:true,deletedAt:new Date().toISOString()}:x);
             saveMovements(updatedMovs);
             await pushToSupabase('hive_movements',updatedMovs);
 
-            const allRelated=[
-              {s:mov.from_site,o:mov.from_op||op},
-              {s:mov.to_site,o:mov.to_op||op}
-            ].filter(r=>r.s&&r.s!==site);
-
-            for(const rel of allRelated){
+            // Collect all OTHER sites touched by any leg of this truckload and clean up their
+            // auto-generated diary entries too.
+            const relatedSites=new Map();
+            matchingMovs.forEach(m=>{
+              if(m.from_site&&m.from_site!==site) relatedSites.set(m.from_site,m.from_op||op);
+              if(m.to_site&&m.to_site!==site) relatedSites.set(m.to_site,m.to_op||op);
+            });
+            for(const [rs,ro] of relatedSites){
               for(const rk2 of Object.keys(ROUNDS)){
-                const rk2Key=eKey(rel.o,rel.s,rk2);
+                const rk2Key=eKey(ro,rs,rk2);
                 const relEntries=updated[rk2Key]||STATE.entries[rk2Key]||[];
-                const filtered=relEntries.filter(e=>!(e._movement&&e.date===entryToDelete.date));
+                // Match by truckload_id when available, otherwise fall back to date
+                const filtered=relEntries.filter(e=>!(e._movement&&(tid?e.truckload_id===tid:e.date===entryToDelete.date)));
                 if(filtered.length!==relEntries.length){
                   updated={...updated,[rk2Key]:filtered};
                   await pushToSupabase(rk2Key,filtered);
@@ -8955,28 +8965,38 @@ function renderEntriesList(){
         // moves/deletes — that approach is intentionally removed.)
         if(entryToDelete&&entryToDelete._movement){
           const movs=await getMergedRemoteMovements();
-          const matchIdx=movs.findIndex(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
-          if(matchIdx<0){
+          const tid=entryToDelete.truckload_id;
+          // Match by truckload_id so ALL pickups in that load are tombstoned together.
+          // A truckload can have multiple movement records (one per source yard), so findIndex
+          // would only catch the first — filter finds every leg that belongs to this diary entry.
+          // Fall back to date+site matching for older entries that predate truckload_id.
+          const matchingMovs=tid
+            ? movs.filter(m=>m.truckload_id===tid&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site))
+            : movs.filter(m=>m.date===entryToDelete.date&&(m.from_site===site||m.to_site===site||m.from_orchard===site||m.to_orchard===site));
+          if(matchingMovs.length===0){
             // Couldn't find the matching record in the movements log — make this visible
             // instead of silently leaving an orphaned entry that keeps affecting hive counts.
             showToast('⚠ Could not find the matching movement record — check Hive Movements → History and remove it manually if it\'s still listed.',6000);
           }
-          if(matchIdx>=0){
-            const mov=movs[matchIdx];
-            const updatedMovs=movs.map((x,i)=>i===matchIdx?{...x,deleted:true,deletedAt:new Date().toISOString()}:x);
+          if(matchingMovs.length>0){
+            const matchingIds=new Set(matchingMovs.map(m=>m.id));
+            const updatedMovs=movs.map(x=>matchingIds.has(x.id)?{...x,deleted:true,deletedAt:new Date().toISOString()}:x);
             saveMovements(updatedMovs);
             await pushToSupabase('hive_movements',updatedMovs);
 
-            const allRelated=[
-              {s:mov.from_site,o:mov.from_op||op},
-              {s:mov.to_site,o:mov.to_op||op}
-            ].filter(r=>r.s&&r.s!==site);
-
-            for(const rel of allRelated){
+            // Collect all OTHER sites touched by any leg of this truckload and clean up their
+            // auto-generated diary entries too.
+            const relatedSites=new Map();
+            matchingMovs.forEach(m=>{
+              if(m.from_site&&m.from_site!==site) relatedSites.set(m.from_site,m.from_op||op);
+              if(m.to_site&&m.to_site!==site) relatedSites.set(m.to_site,m.to_op||op);
+            });
+            for(const [rs,ro] of relatedSites){
               for(const rk2 of Object.keys(ROUNDS)){
-                const rk2Key=eKey(rel.o,rel.s,rk2);
+                const rk2Key=eKey(ro,rs,rk2);
                 const relEntries=updated[rk2Key]||STATE.entries[rk2Key]||[];
-                const filtered=relEntries.filter(e=>!(e._movement&&e.date===entryToDelete.date));
+                // Match by truckload_id when available, otherwise fall back to date
+                const filtered=relEntries.filter(e=>!(e._movement&&(tid?e.truckload_id===tid:e.date===entryToDelete.date)));
                 if(filtered.length!==relEntries.length){
                   updated={...updated,[rk2Key]:filtered};
                   await pushToSupabase(rk2Key,filtered);
