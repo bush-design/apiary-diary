@@ -6904,17 +6904,56 @@ function renderBatchList(){
     titleRow.appendChild(badges);
     card.appendChild(titleRow);
 
-    // Spring score breakdown graph — coloured circles with count, one per score value present
+    // Spring score breakdown graph — coloured circles with count, tap to see which sites
     if(hasBatchScores){
       const scoreRow=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap',marginBottom:s.hives>0?'8px':'0'}});
       [0,1,2,3,4,5,6].forEach(n=>{
         const cnt=batchScoreBd[n];
         if(!cnt) return;
         const col=scoreColor(n);
-        scoreRow.appendChild(h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',gap:'2px'}},
+        const pill=h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',gap:'2px',cursor:'pointer'}},
           h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:col,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'8px':'11px'}},n===6?'6+':String(n)),
           h('div',{style:{fontSize:'11px',fontWeight:'600',color:'#555',textAlign:'center'}},String(cnt))
-        ));
+        );
+        pill.addEventListener('click',e=>{
+          e.stopPropagation();
+          // Collect sites that have hives at this score value
+          const matches=[];
+          data.sites.forEach(site=>{
+            const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
+            const v=parseInt(bd[n]);
+            if(!isNaN(v)&&v>0) matches.push({site,count:v});
+          });
+          matches.sort((a,b)=>b.count-a.count);
+          // Show modal
+          const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.55)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:'200',padding:'0'}});
+          const box=h('div',{style:{background:'#fff',borderRadius:'16px 16px 0 0',padding:'20px 18px 32px',width:'100%',maxWidth:'430px',maxHeight:'70vh',overflowY:'auto'}});
+          const label=n===6?'6+':String(n);
+          box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},
+            'Score '+label+' — '+batch));
+          box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'16px',textTransform:'uppercase',letterSpacing:'.05em'}},
+            cnt+' hive'+(cnt!==1?'s':'')+' across '+matches.length+' site'+(matches.length!==1?'s':'')));
+          if(matches.length===0){
+            box.appendChild(h('div',{style:{color:'#bbb',fontSize:'14px',textAlign:'center',padding:'20px 0'}},'No sites found'));
+          } else {
+            matches.forEach(({site,count})=>{
+              const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'.5px solid #eee',cursor:'pointer'}},
+                h('span',{style:{fontWeight:'600',fontSize:'15px',color:'#1a1a1a'}},site),
+                h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}},
+                  h('span',{style:{fontSize:'13px',color:'#777'}},count+' hive'+(count!==1?'s':'')),
+                  h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:col,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'8px':'11px'}},label)
+                )
+              );
+              row.addEventListener('click',()=>{overlay.remove();setState({run:batch,site,diaryView:'entries'});});
+              box.appendChild(row);
+            });
+          }
+          box.appendChild(h('button',{style:{marginTop:'16px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+          overlay.appendChild(box);
+          overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+          document.body.appendChild(overlay);
+        });
+        scoreRow.appendChild(pill);
       });
       card.appendChild(scoreRow);
     }
