@@ -7510,7 +7510,7 @@ function renderForm(){
     const causeWrap=h('div',{style:{
       background:'#fff5f5',border:'1px solid #f5c6cb',borderRadius:'10px',
       padding:'10px 12px',marginBottom:'10px',
-      display:(parseInt(vals.dead)||0)>0?'block':'none'
+      display:'block'
     }});
     causeWrap.appendChild(h('label',{style:{fontSize:'10px',fontWeight:'700',color:'#c0392b',
       textTransform:'uppercase',letterSpacing:'.05em',display:'block',marginBottom:'8px'
@@ -7592,12 +7592,7 @@ function renderForm(){
 
     fc.appendChild(causeWrap);
 
-    // Show / hide the cause section as the dead count changes
-    if(_deadInpRef){
-      _deadInpRef.addEventListener('input',e=>{
-        causeWrap.style.display=(parseInt(e.target.value)||0)>0?'block':'none';
-      });
-    }
+    // Cause section always visible — no show/hide on dead count change
   }
 
   // Row 1: Weak + Treatment (side by side)
