@@ -5399,13 +5399,23 @@ function showStatModal(opName, fieldKey, label, color){
     // entry, together — searching independently per field (as this used to) lets them drift
     // apart when a visit fills in one field but leaves another blank, silently mixing today's
     // value for one field with an old value for another (same bug already fixed in calcSummary,
-    // calcBatchSummary, getSiteHiveState, and the yard tile). lids_floors stays independent —
-    // "0" there plausibly just means "wasn't checked this visit", unlike the others.
+    // calcBatchSummary, getSiteHiveState, and the yard tile).
+    // For lids_floors: an empty field means "not checked this visit" (skip, look back further),
+    // but an explicit 0 means "checked and all done" — stop there and return 0, don't reach back.
     const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
+    // NON_ZERO_FIELDS: skip blank entries but stop on explicit 0 (cleared), not hunt for non-zero
+    const MODAL_NON_ZERO_FIELDS=['lids_floors'];
     let val=0;
     if(HIVE_FIELDS.includes(fieldKey)){
       const anchor=allE.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
       if(anchor){const raw=anchor[fieldKey];val=(raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);}
+    } else if(MODAL_NON_ZERO_FIELDS.includes(fieldKey)){
+      for(const e of allE){
+        const raw=e[fieldKey];
+        if(raw===undefined||raw===null||raw==='') continue; // not checked this visit — look back
+        const v=parseInt(raw);
+        if(!isNaN(v)){val=v;break;} // stop at first recorded value, even if 0
+      }
     } else {
       for(const e of allE){const v=parseInt(e[fieldKey]);if(!isNaN(v)&&v>0){val=v;break;}}
     }
