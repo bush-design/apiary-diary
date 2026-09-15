@@ -1730,10 +1730,9 @@ function calcSummary(opName){
       const list=STATE.entries[eKey(opName,site,rk)]||[];
       list.forEach(e=>{if(!best||e.date>best.date){best=e;bestRk=rk;}});
     });
-    // Also find most recent date for overdue check
-    const allDates=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).map(e=>e.date));
-    const latestDate=allDates.sort().reverse()[0];
-    if(!latestDate||daysBetween(latestDate)>21)flagged++;
+    // Overdue check — if site is empty, follow the hive chain to the destination yard
+    const effectiveVisitDate=getEffectiveLastVisitDate(opName,site);
+    if(!effectiveVisitDate||daysBetween(effectiveVisitDate)>21)flagged++;
     if(!best)return;
     logged++;
     // For each field, use the most recent entry that actually has a value for it
@@ -1919,6 +1918,42 @@ function computeCurrentHivesForSite(op, site){
   });
   const mostRecentWithHives=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
   return mostRecentWithHives?Math.max(0,parseInt(mostRecentWithHives.hives)||0):0;
+}
+
+// ── Shared: effective last-visit date, following the hive chain when a site is empty ──
+// If all hives have moved out of a site (current count = 0), the "last managed" date for
+// those hives is really the last visit at whichever yard they are now in. This lets an empty
+// source yard inherit the destination yard's visit recency so it doesn't incorrectly show as
+// overdue when its hives are actively being managed elsewhere.
+function getEffectiveLastVisitDate(op, site, _visited){
+  const seen=_visited||new Set();
+  const key=op+'||'+site;
+  if(seen.has(key)) return null; // cycle guard
+  seen.add(key);
+
+  // Last real (non-movement) visit at this site across all rounds
+  const realDates=Object.keys(ROUNDS)
+    .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])
+      .filter(e=>!e._movement&&e.date)
+      .map(e=>e.date)
+    );
+  const lastReal=realDates.sort().reverse()[0]||null;
+
+  // If the site still has hives, its own visit history is the source of truth
+  if(computeCurrentHivesForSite(op,site)>0) return lastReal;
+
+  // Site is empty — find the most recent outgoing movement and follow the chain
+  const outMov=loadMovements()
+    .filter(m=>m.from_site===site&&(m.from_op||op)===op&&m.to_site&&!m.deleted)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0]||null;
+
+  if(!outMov) return lastReal; // empty but no recorded movement out — use own history
+
+  const destDate=getEffectiveLastVisitDate(outMov.to_op||op, outMov.to_site, seen);
+  // Fall back to the movement date itself if the destination has no real visits yet
+  const effectiveDest=destDate||outMov.date;
+  if(!lastReal) return effectiveDest;
+  return lastReal>effectiveDest?lastReal:effectiveDest;
 }
 
 // ── Shared: carry-forward hive-state fields for a single site, as of an optional cutoff date ──
@@ -6317,7 +6352,8 @@ function renderOverviewTab(){
       }).filter(Boolean);
       const latest=allE.sort((a,b)=>b.entry.date.localeCompare(a.entry.date))[0]||null;
       const days=latest?daysBetween(latest.entry.date):null;
-      const overdue=!latest||days>21;
+      const effectiveVisit=getEffectiveLastVisitDate(op,site);
+      const overdue=!effectiveVisit||daysBetween(effectiveVisit)>21;
       const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
       let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
       const avg=ac>0?Math.round(at/ac):null;
@@ -7024,7 +7060,8 @@ function renderSitesList(){
     const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>({...e,_rk:rk}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
     const latest=allReal[0]||null;
     const days=latest?daysBetween(latest.date):null;
-    const overdue=!latest||days>21;
+    const effectiveVisit=getEffectiveLastVisitDate(op,site);
+    const overdue=!effectiveVisit||daysBetween(effectiveVisit)>21;
 
     // Field lookup — hives/dead/singles/doubles/light/weak must all come from the SAME most
     // recent entry, together — searching for each field independently (whichever entry most
