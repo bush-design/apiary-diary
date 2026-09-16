@@ -452,7 +452,17 @@ async function addMovement(mov){
       newSingles=lastSingles+movSingles;
       newLight=lastLight+movLight;
     }
-    const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(parseInt(mov.singles)>0?' + '+mov.singles+'indv':'');
+    const indvCount=parseInt(mov.singles)||0;
+    let indvBoxDesc='';
+    if(indvCount>0){
+      const bParts=[];
+      if(movDoubles>0) bParts.push(movDoubles===1?'double':movDoubles+' doubles');
+      if(movSingles>0) bParts.push(movSingles===1?'single':movSingles+' singles');
+      if(movLight>0) bParts.push(movLight===1?'light':movLight+' light');
+      if(bParts.length===1) indvBoxDesc=' '+bParts[0];
+      else if(bParts.length>1) indvBoxDesc=' ('+bParts.join(', ')+')';
+    }
+    const truckStr=(parseInt(mov.pallets)||0)+(mov.half_pallet?'½':'')+'p'+(indvCount>0?' + '+indvCount+'indv'+indvBoxDesc:'');
     const hiveStr=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)>0?` alive, ${mov.dead_hives} dead`+' hives':' alive hives');
     const hiveDetail=parseInt(mov.alive_hives)>0?' ('+hiveStr+')':'';
     // legDesc is just this pickup's own contribution (no "MOVED IN:" prefix) — reused whether
@@ -9439,7 +9449,17 @@ function showEditMovementModal(m){
         const newLight=isDeduction?Math.max(0,baseLight-movLight):baseLight+movLight;
 
         // Rebuild the description with new values
-        const truckStr=(parseInt(newMov2.pallets)||0)+(newMov2.half_pallet?'½':'')+'p'+(parseInt(newMov2.singles)>0?' + '+newMov2.singles+'indv':'');
+        const indvCount2=parseInt(newMov2.singles)||0;
+        let indvBoxDesc2='';
+        if(indvCount2>0){
+          const bParts2=[];
+          if(movDoubles>0) bParts2.push(movDoubles===1?'double':movDoubles+' doubles');
+          if(movSingles>0) bParts2.push(movSingles===1?'single':movSingles+' singles');
+          if(movLight>0) bParts2.push(movLight===1?'light':movLight+' light');
+          if(bParts2.length===1) indvBoxDesc2=' '+bParts2[0];
+          else if(bParts2.length>1) indvBoxDesc2=' ('+bParts2.join(', ')+')';
+        }
+        const truckStr=(parseInt(newMov2.pallets)||0)+(newMov2.half_pallet?'½':'')+'p'+(indvCount2>0?' + '+indvCount2+'indv'+indvBoxDesc2:'');
         let desc;
         if(isOut) desc=`MOVEMENT OUT: ${truckStr} → ${newMov2.to_orchard}`;
         else if(!isOut&&!isYY) desc=`MOVEMENT IN: ${truckStr} ← ${newMov2.from_orchard}`;
