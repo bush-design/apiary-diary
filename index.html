@@ -433,11 +433,14 @@ async function addMovement(mov){
     // packing if genuinely nothing was entered there at all — e.g. moving from an orchard,
     // which has no yard-level composition to pre-fill from in the first place.
     let movDoubles=parseInt(mov.doubles)||0;
-    let movSingles=parseInt(mov.singles_boxes)||0;
+    // POL singles/individuals are a physical subset of the regular count — take whichever is
+    // larger so entering only the POL tile (when all movers are POL quality) still deducts correctly,
+    // and entering both (e.g. 6 singles total, 4 POL) uses the real physical total.
+    let movSingles=Math.max(parseInt(mov.singles_boxes)||0, parseInt(mov.pol_singles_count)||0);
     let movLight=parseInt(mov.light)||0;
     if(!movDoubles&&!movSingles&&!movLight){
       movDoubles=(parseInt(mov.pallets)||0)+(mov.half_pallet?0.5:0);
-      movSingles=parseInt(mov.singles)||0;
+      movSingles=Math.max(parseInt(mov.singles)||0, parseInt(mov.pol_indv)||0);
     }
 
     let newDoubles,newSingles,newLight;
@@ -10430,7 +10433,7 @@ function renderMovementsScreen(){
       const polIndvTile=h('div',{style:{background:'rgba(155,89,182,0.08)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
       const polIndvInp=mkTInp('rgba(130,60,180,0.65)');
       if(pickupData.pol_indv) polIndvInp.value=pickupData.pol_indv;
-      polIndvInp.addEventListener('input',e=>{pickupData.pol_indv=e.target.value;});
+      polIndvInp.addEventListener('input',e=>{pickupData.pol_indv=e.target.value;updateHiveTotal();});
       polIndvTile.appendChild(polIndvInp);
       polIndvTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Indv.'));
 
@@ -10446,7 +10449,7 @@ function renderMovementsScreen(){
       const polSingTile=h('div',{style:{background:'rgba(155,89,182,0.08)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
       const polSingInp=mkTInp('rgba(130,60,180,0.65)');
       if(pickupData.pol_singles_count) polSingInp.value=pickupData.pol_singles_count;
-      polSingInp.addEventListener('input',e=>{pickupData.pol_singles_count=e.target.value;});
+      polSingInp.addEventListener('input',e=>{pickupData.pol_singles_count=e.target.value;updateHiveTotal();});
       polSingTile.appendChild(polSingInp);
       polSingTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Singles'));
 
@@ -10493,7 +10496,9 @@ function renderMovementsScreen(){
       const hiveTotal=h('div',{style:{textAlign:'center',fontSize:'12px',color:movColor,fontWeight:'600',marginBottom:'4px'}});
       let compositionTouched=false;
       function updateHiveTotal(){
-        const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+(parseInt(sinInp.value)||0)+(parseInt(singBoxInp.value)||0);
+        const indv=Math.max(parseInt(sinInp.value)||0, parseInt(polIndvInp.value)||0);
+        const sings=Math.max(parseInt(singBoxInp.value)||0, parseInt(polSingInp.value)||0);
+        const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+indv+sings;
         hiveTotal.textContent=p>0?'= '+p+' hive'+(p!==1?'s':''):'';
       }
       updateHiveTotal();
@@ -10593,7 +10598,7 @@ function renderMovementsScreen(){
       addBody.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'rgba(155,89,182,0.1)',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'13px',fontWeight:'700',color:movColor,cursor:'pointer'},
         onClick:()=>{
           if(!pickupData.site){showToast(isOut?'Select a yard site':isYY?'Select a yard site':'Select an orchard');return;}
-          if(!pickupData.pallets&&!pickupData.singles&&!pickupData.singles_boxes&&!pickupData.half_pallet){showToast('Enter truck space (pallets, individuals, or singles)');return;}
+          if(!pickupData.pallets&&!pickupData.singles&&!pickupData.singles_boxes&&!pickupData.half_pallet&&!pickupData.pol_indv&&!pickupData.pol_singles_count){showToast('Enter truck space (pallets, individuals, or singles)');return;}
           pickups.push({...pickupData,id:nextId++,splits:[]});
           // Reset draft so the next pickup starts fresh
           Object.assign(draftPickup,{site:'',op:'',pallets:'',singles:'',half_pallet:false,alive_hives:'',dead_hives:'',doubles:'',singles_boxes:'',light:'',pol_indv:'',pol_singles_count:''});
