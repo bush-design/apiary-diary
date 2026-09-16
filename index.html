@@ -607,6 +607,15 @@ async function addMovement(mov){
       COLLATE_AVG_FIELDS.forEach(k=>{if(sourceCollated[k]!==undefined){freshExtra[k]=String(sourceCollated[k]);freshExtra['_'+k+'_n']='1';}});
       COLLATE_NOTE_FIELDS.forEach(k=>{if(sourceCollated[k])freshExtra[k]=sourceCollated[k];});
     }
+    // POL Individual and POL Singles entered directly on the movement record — add to the
+    // destination entry's pol_singles and pol_bc fields respectively, on top of whatever
+    // was already collated from the source yard.
+    if(!isDeduction){
+      const polIndvMov=parseInt(mov.pol_indv)||0;
+      if(polIndvMov>0) freshExtra.pol_singles=String((parseInt(freshExtra.pol_singles)||0)+polIndvMov);
+      const polSingsMov=parseInt(mov.pol_singles_count)||0;
+      if(polSingsMov>0) freshExtra.pol_bc=String((parseInt(freshExtra.pol_bc)||0)+polSingsMov);
+    }
     const movEntry = {
       id: genEntryId(),
       date: mov.date,
@@ -7416,7 +7425,6 @@ function renderEntriesList(){
       {l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
       {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
-      {l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
       {l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
       {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
       {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
@@ -9539,7 +9547,7 @@ function renderMovementsScreen(){
     const loadVehicle={val:''};
     const loadCrop={val:''};
     // draftPickup — persists across direction switches so in-progress form fields survive
-    const draftPickup={site:'',op:'',pallets:'',singles:'',half_pallet:false,alive_hives:'',dead_hives:'',doubles:'',singles_boxes:'',light:''};
+    const draftPickup={site:'',op:'',pallets:'',singles:'',half_pallet:false,alive_hives:'',dead_hives:'',doubles:'',singles_boxes:'',light:'',pol_indv:'',pol_singles_count:''};
     // pickups: [{id, site, op, pallets, singles, splits:[{dest, dest_op, pallets, singles}]}]
     const pickups=[];
     let nextId=1;
@@ -10021,6 +10029,8 @@ function renderMovementsScreen(){
                     light:p.light||'',
                     alive_hives:p.alive_hives||'',
                     dead_hives:p.dead_hives||'',
+                    pol_indv:p.pol_indv||'',
+                    pol_singles_count:p.pol_singles_count||'',
                     hives:s.hives,
                     logged_by:STATE.userName||'Unknown',
                     id:ts+(i++),
@@ -10144,7 +10154,8 @@ function renderMovementsScreen(){
       const pickupData=pre
         ?{site:pre.site||'',op:pre.op||'',pallets:pre.pallets||'',singles:pre.singles||'',
            half_pallet:pre.half_pallet||false,alive_hives:pre.alive_hives||'',dead_hives:pre.dead_hives||'',
-           doubles:pre.doubles||'',singles_boxes:pre.singles_boxes||'',light:pre.light||''}
+           doubles:pre.doubles||'',singles_boxes:pre.singles_boxes||'',light:pre.light||'',
+           pol_indv:pre.pol_indv||'',pol_singles_count:pre.pol_singles_count||''}
         :draftPickup;
       const isYY=loadDirection.val==='yard_yard';
       const isOut=loadDirection.val==='to_orchard';
@@ -10186,10 +10197,10 @@ function renderMovementsScreen(){
                 pickupData.site='';pickupData.op='';searchArea.style.display='block';selectedDisplay.style.display='none';
                 // Clear anything pulled in from the previous yard — starting fresh for whichever gets picked next
                 compositionTouched=false;
-                ['doubles','singles_boxes','light','alive_hives','dead_hives'].forEach(k=>{pickupData[k]='';});
-                if(boxInputs.doubles) boxInputs.doubles.value='';
-                if(boxInputs.singles_boxes) boxInputs.singles_boxes.value='';
-                if(boxInputs.light) boxInputs.light.value='';
+                ['doubles','singles_boxes','light','alive_hives','dead_hives','pol_indv','pol_singles_count'].forEach(k=>{pickupData[k]='';});
+                if(singBoxInp) singBoxInp.value='';
+                if(polIndvInp) polIndvInp.value='';
+                if(polSingInp) polSingInp.value='';
                 if(hiveInputs.alive_hives) hiveInputs.alive_hives.value='';
                 if(hiveInputs.dead_hives) hiveInputs.dead_hives.value='';
                 refreshTruckSpaceHints();
@@ -10360,124 +10371,120 @@ function renderMovementsScreen(){
         }
       }
 
-      // Truck space — pallets (large), ½ pill, singles, live hive total
+      // Movement form — 3×2 editable tile grid (Pallets/POL, Individuals/POL, Singles/POL)
       const truckRow=h('div',{style:{marginBottom:'10px'}});
-      truckRow.appendChild(h('label',{className:'lbl'},'Truck space'));
 
-      // Faded hints from the source yard's actual pallet/singles split (transport packing,
-      // not brood-chamber box count) — purely a placeholder, never overwrites what's typed.
-      const hintWarning=h('div',{style:{fontSize:'11px',color:'#ef9f27',marginBottom:'6px',display:'none'}},
-        '⚠ Pallet/individual split not set for this yard yet — set it on the yard summary tile for a hint here.');
-      truckRow.appendChild(hintWarning);
+      // Tile input helper: number field transparent over tile background
+      const mkTInp=(clr)=>{const el=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{display:'block',width:'100%',padding:'0',border:'none',outline:'none',background:'transparent',textAlign:'center',fontFamily:'inherit',boxSizing:'border-box',fontSize:'17px',fontWeight:'700',color:clr,MozAppearance:'textfield',appearance:'none',WebkitAppearance:'none',marginBottom:'0'}});return el;};
 
-      // Pallets — big prominent input, full width; label and +½ sit on their own row below it
-      // rather than squeezed alongside, since that was overflowing off the edge on narrower
-      // screens.
-      const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'10px 12px',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'22px',fontWeight:'800',background:'#fff',boxSizing:'border-box',color:'#1a1a1a',textAlign:'center',marginBottom:'6px'}});
+      // ── Pallets tile (grey, left) ──
+      const palTile=h('div',{style:{background:'rgba(0,0,0,0.05)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
+      const palInp=mkTInp('rgba(0,0,0,0.55)');
       if(pickupData.pallets) palInp.value=pickupData.pallets;
       palInp.addEventListener('input',e=>{pickupData.pallets=e.target.value;updateHiveTotal();});
-      truckRow.appendChild(palInp);
-
-      const palSubRow=h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'8px'}});
-      palSubRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888'}},'pallets'));
-      const halfBtn=h('button',{type:'button',style:{padding:'8px 10px',borderRadius:'20px',border:pickupData.half_pallet?'1.5px solid '+movColor:'1.5px solid #ddd',background:pickupData.half_pallet?movColor:'#fff',color:pickupData.half_pallet?'#fff':'#aaa',fontSize:'12px',fontWeight:'700',cursor:'pointer',flexShrink:'0',transition:'all .15s',whiteSpace:'nowrap'}},'+½');
+      palTile.appendChild(palInp);
+      const halfBtn=h('button',{type:'button',style:{padding:'2px 8px',borderRadius:'10px',border:pickupData.half_pallet?'1px solid '+movColor:'1px solid rgba(0,0,0,0.15)',background:pickupData.half_pallet?movColor:'transparent',color:pickupData.half_pallet?'#fff':'rgba(0,0,0,0.3)',fontSize:'10px',fontWeight:'700',cursor:'pointer',display:'inline-block',marginBottom:'3px',transition:'all .15s',lineHeight:'1.4'}},'+½');
       halfBtn.addEventListener('click',()=>{
         pickupData.half_pallet=!pickupData.half_pallet;
-        halfBtn.style.border=pickupData.half_pallet?'1.5px solid '+movColor:'1.5px solid #ddd';
-        halfBtn.style.background=pickupData.half_pallet?movColor:'#fff';
-        halfBtn.style.color=pickupData.half_pallet?'#fff':'#aaa';
+        halfBtn.style.border=pickupData.half_pallet?'1px solid '+movColor:'1px solid rgba(0,0,0,0.15)';
+        halfBtn.style.background=pickupData.half_pallet?movColor:'transparent';
+        halfBtn.style.color=pickupData.half_pallet?'#fff':'rgba(0,0,0,0.3)';
         updateHiveTotal();
       });
-      palSubRow.appendChild(halfBtn);
-      truckRow.appendChild(palSubRow);
+      palTile.appendChild(halfBtn);
+      palTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(0,0,0,0.3)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'1px'}},'Pallets'));
 
-      const sourceCaption=h('div',{style:{fontSize:'11px',color:'#9b59b6',marginTop:'-4px',marginBottom:'8px',fontWeight:'600',width:'100%',boxSizing:'border-box',whiteSpace:'normal',wordWrap:'break-word',overflowWrap:'break-word',lineHeight:'1.4'}});
-      truckRow.appendChild(sourceCaption);
+      // ── POL Pallets tile (purple, readonly reference) ──
+      const polPalTile=h('div',{style:{background:'rgba(155,89,182,0.08)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
+      const polPalVal=h('div',{style:{fontSize:'17px',fontWeight:'700',color:'rgba(130,60,180,0.6)',lineHeight:'1.1',marginBottom:'3px'}},'–');
+      polPalTile.appendChild(polPalVal);
+      polPalTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Pallets'));
 
-      // Singles — smaller secondary input
-      const singRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}});
-      const sinInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{flex:'1',padding:'8px 12px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'16px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box',color:'#555',textAlign:'center'}});
+      // ── Individuals tile (grey, left) ──
+      const indvTile=h('div',{style:{background:'rgba(0,0,0,0.05)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
+      const sinInp=mkTInp('rgba(0,0,0,0.55)');
       if(pickupData.singles) sinInp.value=pickupData.singles;
       sinInp.addEventListener('input',e=>{pickupData.singles=e.target.value;updateHiveTotal();});
-      singRow.appendChild(sinInp);
-      singRow.appendChild(h('span',{style:{fontSize:'14px',color:'#888',flexShrink:'0'}},'individual'));
-      truckRow.appendChild(singRow);
+      indvTile.appendChild(sinInp);
+      indvTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(0,0,0,0.3)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'Individuals'));
 
-      // Re-reads the source yard's pallet/singles split and updates the placeholders live —
-      // called on initial build AND every time the pickup yard selection changes, since picking
-      // a yard from search only updates a small local display, not this whole section.
+      // ── POL Indv. tile (purple, right) ──
+      const polIndvTile=h('div',{style:{background:'rgba(155,89,182,0.08)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
+      const polIndvInp=mkTInp('rgba(130,60,180,0.65)');
+      if(pickupData.pol_indv) polIndvInp.value=pickupData.pol_indv;
+      polIndvInp.addEventListener('input',e=>{pickupData.pol_indv=e.target.value;});
+      polIndvTile.appendChild(polIndvInp);
+      polIndvTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Indv.'));
+
+      // ── Singles tile (grey, left) ──
+      const singTile=h('div',{style:{background:'rgba(0,0,0,0.05)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
+      const singBoxInp=mkTInp('rgba(0,0,0,0.55)');
+      if(pickupData.singles_boxes) singBoxInp.value=pickupData.singles_boxes;
+      singBoxInp.addEventListener('input',e=>{pickupData.singles_boxes=e.target.value;updateHiveTotal();compositionTouched=true;});
+      singTile.appendChild(singBoxInp);
+      singTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(0,0,0,0.3)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'Singles'));
+
+      // ── POL Singles tile (purple, right) ──
+      const polSingTile=h('div',{style:{background:'rgba(155,89,182,0.08)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
+      const polSingInp=mkTInp('rgba(130,60,180,0.65)');
+      if(pickupData.pol_singles_count) polSingInp.value=pickupData.pol_singles_count;
+      polSingInp.addEventListener('input',e=>{pickupData.pol_singles_count=e.target.value;});
+      polSingTile.appendChild(polSingInp);
+      polSingTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Singles'));
+
+      // Assemble 3×2 grid
+      const tileGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px',marginBottom:'6px'}});
+      [palTile,polPalTile,indvTile,polIndvTile,singTile,polSingTile].forEach(t=>tileGrid.appendChild(t));
+      truckRow.appendChild(tileGrid);
+
+      // Updates tile placeholders + POL Pallets ref value from the selected yard's data
       function refreshTruckSpaceHints(){
         if(pickupData.site&&pickupData.op){
           const split=getCurrentPalletSplit(pickupData.op,pickupData.site);
-          // If POL Pallet has been recorded for this yard, suggest that number instead of the
-          // general transport baseline — it specifically represents how many are set aside
-          // ready for pollination, which is usually the more relevant number for a movement.
           const siteEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(pickupData.op,pickupData.site,r2)]||[]))
             .filter(e=>!e._movement)
             .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
           const polEntry=siteEntries.find(e=>e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
-          if(polEntry){
-            palInp.placeholder=String(polEntry.pol_pallet);
-            sinInp.placeholder=split?String(split.singles):'0';
-            hintWarning.style.display='none';
-            sourceCaption.textContent='Suggestion: '+polEntry.pol_pallet+' pallets (POL Pallet)'+(split?' · '+split.pallets+' total at yard':'');
-          } else if(split){
-            palInp.placeholder=String(split.pallets);
-            sinInp.placeholder=String(split.singles);
-            hintWarning.style.display='none';
-            sourceCaption.textContent='Suggestion: '+split.pallets+' pallets (total currently at yard)';
-          } else {
-            palInp.placeholder='0';
-            sinInp.placeholder='0';
-            hintWarning.style.display='block';
-            sourceCaption.textContent='';
-          }
+          palInp.placeholder=polEntry?String(polEntry.pol_pallet):split?String(split.pallets):'0';
+          sinInp.placeholder=split?String(split.singles):'0';
+          const allYardEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(pickupData.op,pickupData.site,r2)]||[]))
+            .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+          const polPalN=polEntry?(parseInt(polEntry.pol_pallet)||0):0;
+          polPalVal.textContent=polPalN>0?String(polPalN):'–';
+          const mrhEntry=allYardEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
+          const singStat=mrhEntry?(parseInt(mrhEntry.singles)||0):0;
+          singBoxInp.placeholder=singStat>0?String(singStat):'0';
+          let polIndvStat=0;
+          for(const e of allYardEntries){const v=parseInt(e.pol_singles);if(!isNaN(v)&&v>0){polIndvStat=v;break;}}
+          polIndvInp.placeholder=polIndvStat>0?String(polIndvStat):'0';
+          let polBcStat=0;
+          for(const e of allYardEntries){const v=parseInt(e.pol_bc);if(!isNaN(v)&&v>0){polBcStat=v;break;}}
+          polSingInp.placeholder=polBcStat>0?String(polBcStat):'0';
         } else {
           palInp.placeholder='0';
           sinInp.placeholder='0';
-          hintWarning.style.display='none';
-          sourceCaption.textContent='';
+          singBoxInp.placeholder='0';
+          polIndvInp.placeholder='0';
+          polSingInp.placeholder='0';
+          polPalVal.textContent='–';
         }
       }
       refreshTruckSpaceHints();
 
       // Live hive total
       const hiveTotal=h('div',{style:{textAlign:'center',fontSize:'12px',color:movColor,fontWeight:'600',marginBottom:'4px'}});
+      let compositionTouched=false;
       function updateHiveTotal(){
-        const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+(parseInt(sinInp.value)||0);
+        const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+(parseInt(sinInp.value)||0)+(parseInt(singBoxInp.value)||0);
         hiveTotal.textContent=p>0?'= '+p+' hive'+(p!==1?'s':''):'';
       }
       updateHiveTotal();
       truckRow.appendChild(hiveTotal);
       addBody.appendChild(truckRow);
 
-      // Doubles and singles boxes in this load — pre-filled from the source yard's own
-      // current numbers, but adjusted for whether the pallets entered cover the WHOLE yard or
-      // only PART of it: a whole-yard move carries the real mix across as-is (dead included —
-      // a dead hive sits on a pallet the same as any other). A partial move (not everything)
-      // defaults to all doubles, all alive — a partial pallet-load pull is virtually always the
-      // actively productive stock, not the dead-outs. This is just the starting suggestion:
-      // editing any of these fields yourself stops it from being overwritten further.
-      const boxRow=h('div',{style:{marginBottom:'8px'}});
-      const boxHdrRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'4px'}});
-      boxHdrRow.appendChild(h('label',{className:'lbl',style:{marginBottom:'0'}},'Number of brood chambers'));
-      const moveEntireBtn=h('button',{type:'button',style:{padding:'5px 10px',borderRadius:'14px',border:'1.5px solid '+movColor,background:'#fff',color:movColor,fontSize:'11px',fontWeight:'700',cursor:'pointer',whiteSpace:'nowrap'}},'↕ Move entire yard');
-      boxHdrRow.appendChild(moveEntireBtn);
-      boxRow.appendChild(boxHdrRow);
-      const boxGrid2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}});
-      const boxInputs={};
-      let compositionTouched=false;
-      [{label:'Doubles',key:'doubles'},{label:'Singles',key:'singles_boxes'},{label:'Light',key:'light'}].forEach(({label,key})=>{
-        const wrap2=h('div',null);
-        wrap2.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},label));
-        const bi=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ccc',borderRadius:'7px',fontSize:'15px',fontWeight:'700',background:'#fafafa',boxSizing:'border-box'}});
-        bi.value=pickupData[key]||'';
-        bi.addEventListener('input',e=>{pickupData[key]=e.target.value;compositionTouched=true;});
-        boxInputs[key]=bi;
-        wrap2.appendChild(bi);boxGrid2.appendChild(wrap2);
-      });
-      boxRow.appendChild(boxGrid2);
-      addBody.appendChild(boxRow);
+      // Move entire yard button — lives in the truck row header area
+      const moveEntireBtn=h('button',{type:'button',style:{padding:'5px 10px',borderRadius:'14px',border:'1.5px solid '+movColor,background:'#fff',color:movColor,fontSize:'11px',fontWeight:'700',cursor:'pointer',whiteSpace:'nowrap',marginBottom:'8px'}},'↕ Move entire yard');
+      addBody.appendChild(moveEntireBtn);
 
       // Hive count row — alive + dead — same pre-fill treatment
       const hiveRow=h('div',{style:{marginBottom:'10px'}});
@@ -10521,9 +10528,7 @@ function renderMovementsScreen(){
         pickupData.light=String(yardState.light||0);
         pickupData.alive_hives=String(yardState.hives||0);
         pickupData.dead_hives=String(yardState.dead||0);
-        boxInputs.doubles.value=pickupData.doubles;
-        boxInputs.singles_boxes.value=pickupData.singles_boxes;
-        boxInputs.light.value=pickupData.light;
+        singBoxInp.value=pickupData.singles_boxes;
         hiveInputs.alive_hives.value=pickupData.alive_hives;
         hiveInputs.dead_hives.value=pickupData.dead_hives;
         compositionTouched=true; // lock these in — stop the auto-suggest from overwriting them
@@ -10555,9 +10560,9 @@ function renderMovementsScreen(){
         } else {
           sDoubles='';sSingles='';sLight='';sAlive='';sDead='';
         }
-        boxInputs.doubles.value=sDoubles;pickupData.doubles=sDoubles;
-        boxInputs.singles_boxes.value=sSingles;pickupData.singles_boxes=sSingles;
-        boxInputs.light.value=sLight;pickupData.light=sLight;
+        pickupData.doubles=sDoubles;
+        pickupData.singles_boxes=sSingles;singBoxInp.value=String(sSingles||'');
+        pickupData.light=sLight;
         hiveInputs.alive_hives.value=sAlive;pickupData.alive_hives=sAlive;
         hiveInputs.dead_hives.value=sDead;pickupData.dead_hives=sDead;
       }
@@ -10565,14 +10570,15 @@ function renderMovementsScreen(){
       // Re-suggest whenever the truck space changes too, not just when the yard is picked
       palInp.addEventListener('input',()=>{if(isOut||isYY) refreshCompositionFromYard();});
       sinInp.addEventListener('input',()=>{if(isOut||isYY) refreshCompositionFromYard();});
+      singBoxInp.addEventListener('input',()=>{if(isOut||isYY) refreshCompositionFromYard();});
 
       addBody.appendChild(h('button',{style:{width:'100%',padding:'10px',background:'rgba(155,89,182,0.1)',border:'1.5px solid '+movColor,borderRadius:'8px',fontSize:'13px',fontWeight:'700',color:movColor,cursor:'pointer'},
         onClick:()=>{
           if(!pickupData.site){showToast(isOut?'Select a yard site':isYY?'Select a yard site':'Select an orchard');return;}
-          if(!pickupData.pallets&&!pickupData.singles&&!pickupData.half_pallet){showToast('Enter truck space (pallets or singles)');return;}
+          if(!pickupData.pallets&&!pickupData.singles&&!pickupData.singles_boxes&&!pickupData.half_pallet){showToast('Enter truck space (pallets, individuals, or singles)');return;}
           pickups.push({...pickupData,id:nextId++,splits:[]});
           // Reset draft so the next pickup starts fresh
-          Object.assign(draftPickup,{site:'',op:'',pallets:'',singles:'',half_pallet:false,alive_hives:'',dead_hives:'',doubles:'',singles_boxes:'',light:''});
+          Object.assign(draftPickup,{site:'',op:'',pallets:'',singles:'',half_pallet:false,alive_hives:'',dead_hives:'',doubles:'',singles_boxes:'',light:'',pol_indv:'',pol_singles_count:''});
           renderPickups();
           renderAddPickupForm();
         }
