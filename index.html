@@ -607,14 +607,29 @@ async function addMovement(mov){
       COLLATE_AVG_FIELDS.forEach(k=>{if(sourceCollated[k]!==undefined){freshExtra[k]=String(sourceCollated[k]);freshExtra['_'+k+'_n']='1';}});
       COLLATE_NOTE_FIELDS.forEach(k=>{if(sourceCollated[k])freshExtra[k]=sourceCollated[k];});
     }
-    // POL Individual and POL Singles entered directly on the movement record — add to the
-    // destination entry's pol_singles and pol_bc fields respectively, on top of whatever
-    // was already collated from the source yard.
-    if(!isDeduction){
+    // POL Individual / Singles — maintain a running total at each yard so the fleet
+    // summary stays accurate as hives move between batches:
+    //   source (deduction)  → subtract pol_indv/pol_singles_count from current count
+    //   destination (add)   → add pol_indv/pol_singles_count to current count
+    // We read the THIS yard's current count directly from allSiteEntries so the entry
+    // accumulates correctly across multiple movements rather than overwriting itself.
+    {
+      let sitePolSingles=0,sitePolBc=0;
+      for(const e of allSiteEntries){const raw=e.pol_singles;if(raw!==undefined&&raw!==null&&raw!==''){const v=parseInt(raw);if(!isNaN(v)){sitePolSingles=v;break;}}}
+      for(const e of allSiteEntries){const raw=e.pol_bc;if(raw!==undefined&&raw!==null&&raw!==''){const v=parseInt(raw);if(!isNaN(v)){sitePolBc=v;break;}}}
       const polIndvMov=parseInt(mov.pol_indv)||0;
-      if(polIndvMov>0) freshExtra.pol_singles=String((parseInt(freshExtra.pol_singles)||0)+polIndvMov);
       const polSingsMov=parseInt(mov.pol_singles_count)||0;
-      if(polSingsMov>0) freshExtra.pol_bc=String((parseInt(freshExtra.pol_bc)||0)+polSingsMov);
+      if(isDeduction){
+        // Source yard loses POL stock — store the new (lower) count so lastVal picks it up
+        freshExtra.pol_singles=String(Math.max(0,sitePolSingles-polIndvMov));
+        freshExtra.pol_bc=String(Math.max(0,sitePolBc-polSingsMov));
+      } else {
+        // Destination yard gains POL stock — add to whatever is already there
+        // (use pol_indv from the movement form rather than collated source pol_singles to
+        //  avoid double-counting when a partial move doesn't take all POL hives from the source)
+        freshExtra.pol_singles=String(sitePolSingles+polIndvMov);
+        freshExtra.pol_bc=String(sitePolBc+polSingsMov);
+      }
     }
     const movEntry = {
       id: genEntryId(),
@@ -1761,7 +1776,10 @@ function calcSummary(opName){
     // Only lids_floors wants "most recent non-zero" (a maintenance item genuinely may not have
     // been checked this visit). singles/doubles/light/weak respect an explicit 0 — a hive count
     // that correctly records no doubles left shouldn't be skipped for an older stale number.
-    const NON_ZERO_FIELDS=['lids_floors'];
+    // pol_singles/pol_bc can reach 0 after hives move out — an explicit '0' on a movement
+    // entry should stop the search (meaning "none left here"), not be skipped in favour of an
+    // older diary entry that still shows the pre-movement count.
+    const NON_ZERO_FIELDS=['lids_floors','pol_singles','pol_bc'];
     // hives/dead/singles/doubles/light/weak/alive_hives/dead_hives must all come from the SAME
     // visit — picking each independently (whichever entry most recently happened to record that
     // one field) lets them drift apart when a visit records hives but skips the box count, which
