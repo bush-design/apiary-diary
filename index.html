@@ -674,16 +674,24 @@ function getOrchardTotals(){
   movements.forEach(m=>{
     const pallets=parseInt(m.pallets)||0;
     const singles=parseInt(m.singles)||0;
-    const hives=pallets*4+singles;
+    // Use m.hives when present — it's the split-specific count assigned to this destination.
+    // Without it, two orchards each receiving half of a pickup would both show the full pickup
+    // count because pallets/singles always reflect the full pickup on each split movement.
+    const rawHives=pallets*4+singles;
+    const hives=parseInt(m.hives)>0?parseInt(m.hives):rawHives;
+    // Scale pallets/singles proportionally when a split hive count is provided
+    const scaleFactor=(rawHives>0&&hives!==rawHives)?(hives/rawHives):1;
+    const effPallets=Math.round(pallets*scaleFactor);
+    const effSingles=Math.round(singles*scaleFactor);
     if(m.direction==='to_orchard'){
       const o=m.to_orchard;
       if(!totals[o])totals[o]={pallets:0,singles:0,hives:0};
-      totals[o].pallets+=pallets;totals[o].singles+=singles;totals[o].hives+=hives;
+      totals[o].pallets+=effPallets;totals[o].singles+=effSingles;totals[o].hives+=hives;
     } else {
       const o=m.from_orchard;
       if(!totals[o])totals[o]={pallets:0,singles:0,hives:0};
-      totals[o].pallets=Math.max(0,totals[o].pallets-pallets);
-      totals[o].singles=Math.max(0,totals[o].singles-singles);
+      totals[o].pallets=Math.max(0,totals[o].pallets-effPallets);
+      totals[o].singles=Math.max(0,totals[o].singles-effSingles);
       totals[o].hives=Math.max(0,totals[o].hives-hives);
     }
   });
@@ -10013,7 +10021,8 @@ function renderMovementsScreen(){
                     const ts2=Date.now();let j=0;
                     for(const p of pickups){for(const s of (p.splits||[])){
                       const isOutMov2=loadDirection.val==='to_orchard';const isYYMov2=loadDirection.val==='yard_yard';
-                      await addMovement({direction:loadDirection.val,date:loadDate.val,notes:loadNotes.val,driver:loadDriver.val,vehicle:loadVehicle.val,crop:loadCrop.val,from_site:(isOutMov2||isYYMov2)?p.site:'',from_op:(isOutMov2||isYYMov2)?p.op:'',to_orchard:isOutMov2?s.dest:'',from_orchard:(!isOutMov2&&!isYYMov2)?p.site:'',to_site:(!isOutMov2)?s.dest:'',to_op:(!isOutMov2)?s.dest_op:'',pallets:s.pallets,singles:s.singles,logged_by:STATE.userName||'Unknown',id:ts2+(j++),truckload_id:ts2});
+                      const fh2=totalHivesForPickup(p)||1;const sf2=s.hives/fh2;
+                      await addMovement({direction:loadDirection.val,date:loadDate.val,notes:loadNotes.val,driver:loadDriver.val,vehicle:loadVehicle.val,crop:loadCrop.val,from_site:(isOutMov2||isYYMov2)?p.site:'',from_op:(isOutMov2||isYYMov2)?p.op:'',to_orchard:isOutMov2?s.dest:'',from_orchard:(!isOutMov2&&!isYYMov2)?p.site:'',to_site:(!isOutMov2)?s.dest:'',to_op:(!isOutMov2)?s.dest_op:'',pallets:String(Math.round((parseInt(p.pallets)||0)*sf2)),singles:String(Math.round((parseInt(p.singles)||0)*sf2)),alive_hives:p.alive_hives?String(Math.round(parseInt(p.alive_hives)*sf2)):'',dead_hives:p.dead_hives?String(Math.round(parseInt(p.dead_hives)*sf2)):'',hives:s.hives,logged_by:STATE.userName||'Unknown',id:ts2+(j++),truckload_id:ts2});
                     }}
                     showToast(`${totalSplits} movements saved`);setState({tab:'orchards'});
                   }},'Save anyway');
@@ -10032,6 +10041,15 @@ function renderMovementsScreen(){
                   const isOutMov=loadDirection.val==='to_orchard';
                   const isYYMov=loadDirection.val==='yard_yard';
                   const isOOMov=loadDirection.val==='orchard_orchard';
+                  // Scale pallet/singles/alive/dead proportionally to this split's hive count.
+                  // Without this, every split would carry the full pickup count — a 16-hive pickup
+                  // split 8/8 would log 16 to each orchard AND deduct 16 twice from the source yard.
+                  const fullHives=totalHivesForPickup(p)||1;
+                  const splitFrac=s.hives/fullHives;
+                  const splitPallets=Math.round((parseInt(p.pallets)||0)*splitFrac);
+                  const splitSingles=Math.round((parseInt(p.singles)||0)*splitFrac);
+                  const splitAlive=p.alive_hives?String(Math.round(parseInt(p.alive_hives)*splitFrac)):'';
+                  const splitDead=p.dead_hives?String(Math.round(parseInt(p.dead_hives)*splitFrac)):'';
                   const mov={
                     direction:loadDirection.val,
                     date:loadDate.val,
@@ -10046,14 +10064,14 @@ function renderMovementsScreen(){
                     from_yards:isOOMov?(p.from_yards||[]):[],
                     to_site:(!isOutMov&&!isOOMov)?s.dest:'',
                     to_op:(!isOutMov&&!isOOMov)?s.dest_op:'',
-                    pallets:p.pallets,
-                    singles:p.singles,
-                    half_pallet:p.half_pallet||false,
+                    pallets:String(splitPallets),
+                    singles:String(splitSingles),
+                    half_pallet:splitFrac>=1?(p.half_pallet||false):false,
                     doubles:p.doubles||'',
                     singles_boxes:p.singles_boxes||'',
                     light:p.light||'',
-                    alive_hives:p.alive_hives||'',
-                    dead_hives:p.dead_hives||'',
+                    alive_hives:splitAlive,
+                    dead_hives:splitDead,
                     pol_indv:p.pol_indv||'',
                     pol_singles_count:p.pol_singles_count||'',
                     hives:s.hives,
@@ -10499,11 +10517,16 @@ function renderMovementsScreen(){
       // Live hive total
       const hiveTotal=h('div',{style:{textAlign:'center',fontSize:'12px',color:movColor,fontWeight:'600',marginBottom:'4px'}});
       let compositionTouched=false;
+      let aliveTouched=false;
       function updateHiveTotal(){
         const indv=Math.max(parseInt(sinInp.value)||0, parseInt(polIndvInp.value)||0);
         const sings=Math.max(parseInt(singBoxInp.value)||0, parseInt(polSingInp.value)||0);
         const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+indv+sings;
         hiveTotal.textContent=p>0?'= '+p+' hive'+(p!==1?'s':''):'';
+        if(!aliveTouched&&hiveInputs&&hiveInputs.alive_hives){
+          hiveInputs.alive_hives.value=p>0?String(p):'';
+          pickupData.alive_hives=p>0?String(p):'';
+        }
       }
       updateHiveTotal();
       truckRow.appendChild(hiveTotal);
@@ -10523,7 +10546,7 @@ function renderMovementsScreen(){
         nw.appendChild(h('label',{style:{fontSize:'10px',color:color,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
         const ni=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'100%',padding:'8px 10px',border:`.5px solid ${color}55`,borderRadius:'7px',fontSize:'15px',background:'#fafafa',boxSizing:'border-box',fontWeight:'700'}});
         if(pickupData[key]) ni.value=pickupData[key];
-        ni.addEventListener('input',e=>{pickupData[key]=e.target.value;compositionTouched=true;});
+        ni.addEventListener('input',e=>{pickupData[key]=e.target.value;compositionTouched=true;if(key==='alive_hives')aliveTouched=true;});
         hiveInputs[key]=ni;
         nw.appendChild(ni);hiveGrid.appendChild(nw);
       });
@@ -10559,6 +10582,7 @@ function renderMovementsScreen(){
         hiveInputs.alive_hives.value=pickupData.alive_hives;
         hiveInputs.dead_hives.value=pickupData.dead_hives;
         compositionTouched=true; // lock these in — stop the auto-suggest from overwriting them
+        aliveTouched=true; // "Move entire yard" sets explicit alive+dead counts, don't auto-fill over them
         updateHiveTotal();
         showToast('Loaded '+(yardState.hives||0)+' alive, '+(yardState.dead||0)+' dead from the yard');
       });
