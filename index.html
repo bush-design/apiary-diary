@@ -10518,6 +10518,7 @@ function renderMovementsScreen(){
       const hiveTotal=h('div',{style:{textAlign:'center',fontSize:'12px',color:movColor,fontWeight:'600',marginBottom:'4px'}});
       let compositionTouched=false;
       let aliveTouched=false;
+      const hiveInputs={};  // declared here so updateHiveTotal can reference it safely before the inputs are appended
       function updateHiveTotal(){
         const indv=Math.max(parseInt(sinInp.value)||0, parseInt(polIndvInp.value)||0);
         const sings=Math.max(parseInt(singBoxInp.value)||0, parseInt(polSingInp.value)||0);
@@ -10540,7 +10541,6 @@ function renderMovementsScreen(){
       const hiveRow=h('div',{style:{marginBottom:'10px'}});
       hiveRow.appendChild(h('label',{className:'lbl'},'Hives on this pickup'));
       const hiveGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
-      const hiveInputs={};
       [{label:'Alive',key:'alive_hives',color:'#3d7a4f'},{label:'Dead',key:'dead_hives',color:'#e24b4a'}].forEach(({label,key,color})=>{
         const nw=h('div',null);
         nw.appendChild(h('label',{style:{fontSize:'10px',color:color,textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700',display:'block',marginBottom:'3px'}},label));
