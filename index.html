@@ -9395,6 +9395,105 @@ function showEditPickupModal(p, onSave){
   document.body.appendChild(overlay);
 }
 
+function showEditTruckloadModal(legs){
+  const existing=document.getElementById('edit-tl-modal');
+  if(existing) existing.remove();
+  const rep=legs[0];
+  const isSolo=legs.length===1;
+  const legDesc=leg=>{
+    const isOut=leg.direction==='to_orchard';const isYY=leg.direction==='yard_yard';const isOO=leg.direction==='orchard_orchard';
+    return isOut?(leg.from_site||'?')+' → '+(leg.to_orchard||'?'):isYY?(leg.from_site||'?')+' → '+(leg.to_site||'?'):isOO?(leg.from_orchard||'?')+' → '+(leg.to_orchard||'?'):(leg.from_orchard||'?')+' → '+(leg.to_site||'?');
+  };
+
+  const overlay=h('div',{id:'edit-tl-modal',style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'16px',overflowY:'auto'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px'}});
+
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'2px'}},isSolo?'Edit Movement':'Edit Truckload'));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'4px'}},isSolo?legDesc(legs[0]):legs.length+' legs · '+fmtDate(rep.date)));
+  if(!isSolo){
+    const legsList=h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'14px',lineHeight:'1.7'}});
+    legs.forEach(m=>legsList.appendChild(h('div',{},'· '+legDesc(m))));
+    box.appendChild(legsList);
+  } else {
+    box.style.marginBottom='14px';
+  }
+
+  const vals={date:rep.date||'',driver:rep.driver||'',vehicle:rep.vehicle||'',crop:rep.crop||''};
+
+  const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'16px'}});
+  [{l:'Date',k:'date',type:'date'},{l:'Driver',k:'driver',type:'text'},{l:'Vehicle',k:'vehicle',type:'text'},{l:'Crop',k:'crop',type:'text'}].forEach(f=>{
+    const wrap=h('div');
+    wrap.appendChild(h('label',{style:{fontSize:'10px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'3px'}},f.l));
+    const inp=h('input',{type:f.k==='date'?'date':'text',value:vals[f.k],style:{width:'100%',padding:'8px',border:'.5px solid #ccc',borderRadius:'6px',fontSize:'14px',background:'#fafafa',boxSizing:'border-box'}});
+    inp.addEventListener('input',e=>vals[f.k]=e.target.value);
+    wrap.appendChild(inp);
+    grid.appendChild(wrap);
+  });
+  box.appendChild(grid);
+
+  if(!isSolo){
+    box.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb',marginBottom:'14px',lineHeight:'1.5'}},'Changes apply to all '+legs.length+' legs. To edit hive counts, use Individual view.'));
+  }
+
+  const btnRow=h('div',{style:{display:'flex',gap:'10px'}});
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
+    onClick:async()=>{
+      const allMov=await getMergedRemoteMovements();
+      const ids=new Set(legs.map(m=>m.id));
+      const now=new Date().toISOString();
+      const newDate=vals.date||rep.date;
+      const dateChanged=newDate!==rep.date;
+      const updated=allMov.map(x=>{
+        if(!ids.has(x.id)) return x;
+        return {...x,date:newDate,driver:vals.driver,vehicle:vals.vehicle,crop:vals.crop,recorded_at:now};
+      });
+      saveMovements(updated);
+      await pushToSupabase('hive_movements',updated);
+
+      // Update diary entry dates if date changed
+      if(dateChanged){
+        async function updateDiaryDate(op,site,m){
+          if(!op||!site) return;
+          const oldDate=rep.date;
+          const k=eKey(op,site,roundForDate(oldDate)||'spring');
+          const ents=STATE.entries[k]||[];
+          const tid=m.truckload_id;
+          // Find the diary entry for this leg
+          const idx=ents.findIndex(e=>e._movement&&(tid?e.truckload_id===tid:e.date===oldDate&&e.comments&&(
+            e.comments.includes(m.to_orchard||'')||e.comments.includes(m.from_orchard||'')||
+            e.comments.includes(m.to_site||'')||e.comments.includes(m.from_site||'')
+          )));
+          if(idx===-1) return;
+          const updList=[...ents];
+          updList[idx]={...updList[idx],date:newDate,saved_at:now};
+          const upd={...STATE.entries,[k]:updList};
+          saveLocal(upd);
+          await pushToSupabase(k,updList);
+          STATE.entries=upd;
+        }
+        for(const m of legs){
+          const isOut=m.direction==='to_orchard';
+          const isYY=m.direction==='yard_yard';
+          if(isOut) await updateDiaryDate(m.from_op,m.from_site,m);
+          else if(isYY){await updateDiaryDate(m.from_op,m.from_site,m);await updateDiaryDate(m.to_op,m.to_site,m);}
+          else await updateDiaryDate(m.to_op,m.to_site,m);
+        }
+      }
+
+      overlay.remove();
+      showToast(isSolo?'Movement updated':'Truckload updated');
+      setState({tab:'history'});
+    }
+  },'Save changes'));
+  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+    onClick:()=>overlay.remove()
+  },'Cancel'));
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function showEditMovementModal(m){
   const existing=document.getElementById('edit-mov-modal');
   if(existing) existing.remove();
@@ -11181,8 +11280,12 @@ function renderMovementsScreen(){
             legsDiv.appendChild(legRow);
           });
           card.appendChild(legsDiv);
-          // Delete all button
-          const btnBar=h('div',{style:{display:'flex',justifyContent:'flex-end',marginTop:'8px'}});
+          // Edit + Delete all buttons
+          const btnBar=h('div',{style:{display:'flex',justifyContent:'flex-end',gap:'8px',marginTop:'8px'}});
+          const editTLBtn=h('button',{style:{padding:'4px 10px',background:'none',border:'.5px solid #bbb',borderRadius:'20px',fontSize:'11px',color:'#555',cursor:'pointer',fontWeight:'600'},
+            onClick:()=>showEditTruckloadModal(legs)
+          },isSolo?'Edit':'Edit all');
+          btnBar.appendChild(editTLBtn);
           const delAllBtn=h('button',{style:{padding:'4px 10px',background:'none',border:'.5px solid #f4a0a0',borderRadius:'20px',fontSize:'11px',color:'#c0392b',cursor:'pointer',fontWeight:'600'},
             onClick:()=>{
               const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
