@@ -575,8 +575,8 @@ async function addMovement(mov){
       };
       const updated = {...STATE.entries, [k]: [mergedEntry, ...existing.slice(1)]};
       saveLocal(updated);
+      STATE.entries = updated; // set before await so realtime events can't roll back this merge
       await pushToSupabase(k, updated[k]);
-      STATE.entries = updated;
       return;
     }
     // Previous accumulated movement entry at this destination — used to carry forward
@@ -652,8 +652,8 @@ async function addMovement(mov){
     };
     const updated = {...STATE.entries, [k]: [movEntry, ...existing]};
     saveLocal(updated);
+    STATE.entries = updated; // set before await so realtime events can't roll back this entry
     await pushToSupabase(k, updated[k]);
-    STATE.entries = updated;
   }
 
   if(mov.direction==='to_orchard'){
@@ -1152,10 +1152,19 @@ function subscribeRealtime(){
       saveFlags(flags);
       return;
     }
-    // Regular diary entries
+    // Regular diary entries — only apply the incoming version if it's at least as recent as
+    // what we already have. A multi-pickup save pushes the same entry key several times in
+    // quick succession (once per merge); Supabase realtime can deliver those events out of
+    // order, so a delayed event for push #1 could otherwise arrive after push #3 and roll
+    // STATE.entries back to the un-merged version, breaking every merge that came after it.
     if(data){
-      STATE.entries[entry_key]=data;
-      saveLocal(STATE.entries);
+      const curr=STATE.entries[entry_key];
+      const currSaved=Array.isArray(curr)&&curr.length?curr[0]?.saved_at||'':'';
+      const newSaved=Array.isArray(data)&&data.length?data[0]?.saved_at||'':'';
+      if(newSaved>=currSaved){
+        STATE.entries[entry_key]=data;
+        saveLocal(STATE.entries);
+      }
     }
   }).subscribe();
 }
