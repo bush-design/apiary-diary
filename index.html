@@ -8287,6 +8287,31 @@ function renderForm(){
           grid.appendChild(row);
         });
         fw.appendChild(grid);
+        // ── Live scored-hive counter ──
+        const siteHives=parseInt(getSiteHiveState(op,site).hives)||0;
+        const scoreCounter=h('div',{style:{marginTop:'10px',padding:'8px 10px',borderRadius:'8px',display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:'13px',fontWeight:'700',transition:'background .2s,color .2s'}});
+        const updateScoreCounter=()=>{
+          const total=[0,1,2,3,4,5,6,7,8,9,10].reduce((s,n)=>s+(parseInt(STATE.formVals.score_breakdown?.[n])||0),0);
+          const match=siteHives>0&&total===siteHives;
+          const over=total>siteHives&&siteHives>0;
+          scoreCounter.style.background=match?'#e6f2eb':over?'#fde8e8':'#f5f5f3';
+          scoreCounter.style.color=match?'#2a6b3f':over?'#c0392b':'#555';
+          scoreCounter.textContent='';
+          const leftSpan=document.createElement('span');
+          leftSpan.textContent='Scored: '+total+' hive'+(total===1?'':'s');
+          const rightSpan=document.createElement('span');
+          rightSpan.style.opacity='0.65';
+          rightSpan.style.fontWeight='600';
+          rightSpan.textContent=siteHives>0?(match?'✓ All '+siteHives+' accounted for':over?'⚠ '+siteHives+' expected':'of '+siteHives+' expected'):'';
+          scoreCounter.appendChild(leftSpan);
+          if(siteHives>0) scoreCounter.appendChild(rightSpan);
+        };
+        updateScoreCounter();
+        // Re-run counter on every score input change — wire into the ni inputs already created
+        grid.querySelectorAll('input[type=number]').forEach(inp2=>{
+          inp2.addEventListener('input',updateScoreCounter);
+        });
+        fw.appendChild(scoreCounter);
       } else if(f.type==='disease_checks'){
         const DISEASES=['Varroa','AFB','Sacbrood','Chalkbrood','HMS','Nosema'];
         const existing=(vals.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
