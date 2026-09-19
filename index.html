@@ -8279,6 +8279,7 @@ function renderForm(){
               ni.value=String(next);
               if(!STATE.formVals.score_breakdown)STATE.formVals.score_breakdown={};
               STATE.formVals.score_breakdown[n]=String(next);
+              ni.dispatchEvent(new Event('input'));
             }
           },label);
           row.appendChild(stepBtn(-1,'−'));
