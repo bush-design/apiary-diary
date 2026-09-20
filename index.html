@@ -396,6 +396,32 @@ async function addMovement(mov){
     if(!siteKey||!opName) return;
     const rk = roundForDate(mov.date) || STATE.round || 'spring';
     const k = eKey(opName, siteKey, rk);
+
+    // For destination yards, fetch fresh remote state for ALL rounds of this site before
+    // computing hive totals or writing — multiple devices can concurrently log movements into
+    // the same yard and each reads the same stale local baseline, so last-write-wins silently
+    // loses every other device's hive count. This is the same fix applied to the movements
+    // list via getMergedRemoteMovements(); here we apply it to diary entry keys too.
+    if(!isDeduction && navigator.onLine && window._sb){
+      try{
+        const allRoundKeys=Object.keys(ROUNDS).map(r2=>eKey(opName,siteKey,r2));
+        const {data:remoteRows}=await window._sb.from('entries').select('entry_key,data').in('entry_key',allRoundKeys);
+        if(remoteRows&&remoteRows.length){
+          remoteRows.forEach(row=>{
+            if(row.data&&Array.isArray(row.data)){
+              // Merge: remote wins for shared entries; preserve any local-only entries not yet synced
+              const remote=row.data;
+              const local=STATE.entries[row.entry_key]||[];
+              const remoteIds=new Set(remote.map(e=>e.id));
+              const localOnly=local.filter(e=>!remoteIds.has(e.id));
+              STATE.entries={...STATE.entries,[row.entry_key]:[...remote,...localOnly]};
+            }
+          });
+          saveLocal(STATE.entries);
+        }
+      }catch(e){/* offline or Supabase error — proceed with local cache rather than blocking */}
+    }
+
     const existing = STATE.entries[k]||[];
 
     // If this is a delivery (not a pickup) and it's part of a truckload with other pickups
@@ -1051,7 +1077,16 @@ async function pullFromSupabase(skipRender){
             delete mergedFlags[row.entry_key];
           }
         } else {
-          merged[row.entry_key]=row.data;
+          // Only apply the remote version if it's at least as recent as what's already in memory.
+          // The 30-second poll and visibilitychange handler can read Supabase BEFORE a pending
+          // push from this same device has landed there, and blindly overwriting merged/STATE
+          // would roll the local state back to the pre-push baseline — exactly the same corruption
+          // the realtime handler's saved_at guard (line ~1198) was added to prevent. Apply the
+          // same guard here so pullFromSupabase can't clobber a freshly-written movement entry.
+          const curr=merged[row.entry_key];
+          const currSaved=Array.isArray(curr)&&curr.length?curr[0]?.saved_at||'':'';
+          const newSaved=Array.isArray(row.data)&&row.data.length?row.data[0]?.saved_at||'':'';
+          if(newSaved>=currSaved) merged[row.entry_key]=row.data;
         }
       });
       saveLocal(merged);
