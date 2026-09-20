@@ -388,7 +388,7 @@ async function addMovement(mov){
   // either confirms them (whole move) or edits them down (partial move) themselves. Whatever
   // ends up in the fields is exactly what gets used.
   const totalOnLoad=(parseInt(mov.alive_hives)||0)+(parseInt(mov.dead_hives)||0);
-  const aliveChange = totalOnLoad>0 ? (parseInt(mov.alive_hives)||0) : mov.hives ? parseInt(mov.hives)||0 : (parseInt(mov.pallets)||0)*4+(mov.half_pallet?2:0)+Math.max(parseInt(mov.singles)||0,(parseInt(mov.pol_singles_count)||0)+(parseInt(mov.pol_doubles_count)||0))+Math.max(parseInt(mov.singles_boxes)||0,parseInt(mov.pol_singles_count)||0);
+  const aliveChange = totalOnLoad>0 ? (parseInt(mov.alive_hives)||0) : mov.hives ? parseInt(mov.hives)||0 : (parseInt(mov.pallets)||0)*4+(mov.half_pallet?2:0)+Math.max(parseInt(mov.singles)||0,(parseInt(mov.doubles)||0)+(parseInt(mov.singles_boxes)||0),(parseInt(mov.pol_singles_count)||0)+(parseInt(mov.pol_doubles_count)||0));
   const deadChange = parseInt(mov.dead_hives)||0;
   const hiveChange = totalOnLoad>0 ? totalOnLoad : aliveChange; // gross total moved, for the "N hives moved" display label only
 
@@ -9882,11 +9882,13 @@ function renderMovementsScreen(){
       const alive=parseInt(p.alive_hives)||0;
       const dead=parseInt(p.dead_hives)||0;
       if(alive+dead>0) return alive+dead;
-      // POL individuals/singles are a subset of their regular counterparts — take the max so
-      // entering only the POL tile (all movers are POL quality) still gives the right count
-      const indv=Math.max(parseInt(p.singles)||0,(parseInt(p.pol_singles_count)||0)+(parseInt(p.pol_doubles_count)||0));
-      const sings=Math.max(parseInt(p.singles_boxes)||0,parseInt(p.pol_singles_count)||0);
-      return (parseInt(p.pallets)||0)*4+(p.half_pallet?2:0)+indv+sings;
+      // Individuals (sinInp) covers the whole hive count when set; Doubles+Singles (BC) covers
+      // box-level entry; POL total covers pol-only entry. Take the max across all three paths so
+      // entering any one of them gives the right count without double-counting.
+      const boxSum=(parseInt(p.doubles)||0)+(parseInt(p.singles_boxes)||0);
+      const polTotal=(parseInt(p.pol_singles_count)||0)+(parseInt(p.pol_doubles_count)||0);
+      const indv=Math.max(parseInt(p.singles)||0,boxSum,polTotal);
+      return (parseInt(p.pallets)||0)*4+(p.half_pallet?2:0)+indv;
     }
     function remaining(p){
       const used=(p.splits||[]).reduce((a,s)=>(a+(parseInt(s.hives)||0)),0);
@@ -10717,9 +10719,9 @@ function renderMovementsScreen(){
       const hiveInputs={};  // declared here so updateHiveTotal can reference it safely before the inputs are appended
       function updateHiveTotal(){
         const polIndv=(parseInt(polSingInp.value)||0)+(parseInt(polDblInp.value)||0);
-        const indv=Math.max(parseInt(sinInp.value)||0, polIndv);
-        const sings=Math.max(parseInt(singBoxInp.value)||0, parseInt(polSingInp.value)||0);
-        const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+indv+sings;
+        const boxSum=(parseInt(dblInp.value)||0)+(parseInt(singBoxInp.value)||0);
+        const indv=Math.max(parseInt(sinInp.value)||0, boxSum, polIndv);
+        const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+indv;
         hiveTotal.textContent=p>0?'= '+p+' hive'+(p!==1?'s':''):'';
         if(!aliveTouched&&hiveInputs&&hiveInputs.alive_hives){
           hiveInputs.alive_hives.value=p>0?String(p):'';
