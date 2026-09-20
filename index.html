@@ -469,6 +469,16 @@ async function addMovement(mov){
     if(!movDoubles&&!movSingles&&!movLight){
       movDoubles=(parseInt(mov.pallets)||0)+(mov.half_pallet?0.5:0);
       movSingles=Math.max(parseInt(mov.singles)||0, (parseInt(mov.pol_singles_count)||0)+(parseInt(mov.pol_doubles_count)||0));
+      // When no explicit box breakdown was entered (only Individuals or pallets), split the
+      // total proportionally across the source yard's actual doubles/singles ratio so the yard
+      // doesn't retain ghost doubles after a move. Only apply at deduction side — for the
+      // destination we genuinely don't know the composition without the breakdown fields.
+      if(isDeduction && (lastDoubles+lastSingles)>0){
+        const knownTotal=lastDoubles+lastSingles;
+        const taking=movSingles; // movSingles holds the full individual count here
+        movDoubles=Math.min(lastDoubles, Math.round(taking*lastDoubles/knownTotal));
+        movSingles=Math.min(lastSingles, taking-movDoubles);
+      }
     }
 
     let newDoubles,newSingles,newLight;
@@ -477,6 +487,9 @@ async function addMovement(mov){
       newDoubles=Math.max(0,lastDoubles-movDoubles);
       newSingles=Math.max(0,lastSingles-movSingles);
       newLight=Math.max(0,lastLight-movLight);
+      // If the whole yard is gone, clear the composition breakdown completely — prevents ghost
+      // doubles/singles showing on a yard whose hive count has been zeroed by a movement
+      if(newHives<=0){ newDoubles=0; newSingles=0; newLight=0; }
     } else {
       // Destination yard: add what was actually moved
       newDoubles=lastDoubles+movDoubles;
