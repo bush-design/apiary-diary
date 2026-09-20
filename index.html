@@ -10815,12 +10815,9 @@ function renderMovementsScreen(){
         const truckCapacity=(parseInt(pickupData.pallets)||0)*4+(pickupData.half_pallet?2:0)+(parseInt(pickupData.singles)||0);
         const isWholeMove=yardTotal>0&&truckCapacity>=yardTotal;
         let sDoubles,sSingles,sLight,sAlive,sDead;
-        if(isWholeMove || truckCapacity===0){
-          // Whole-yard move confirmed, OR nothing entered yet — fill with the yard's actual
-          // composition immediately so the user sees the total without having to type anything.
-          // When truckCapacity=0 this is the initial default; user can edit down for a partial move.
+        if(isWholeMove){
           sDoubles=yardState.doubles||'';sSingles=yardState.singles||'';sLight=yardState.light||'';
-          sAlive=yardTotal>0?String(yardTotal):'';sDead=yardState.dead||'';
+          sAlive=yardState.hives||'';sDead=yardState.dead||'';
         } else if(truckCapacity>0){
           sDoubles=truckCapacity;sSingles='';sLight='';
           sAlive=truckCapacity;sDead='';
