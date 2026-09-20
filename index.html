@@ -10624,8 +10624,8 @@ function renderMovementsScreen(){
       polPalTile.appendChild(polPalVal);
       polPalTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Pallets'));
 
-      // ── Individuals tile (grey, left) ──
-      const indvTile=h('div',{style:{background:'rgba(0,0,0,0.05)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
+      // ── Individuals tile (grey, full-width centre row) ──
+      const indvTile=h('div',{style:{background:'rgba(0,0,0,0.05)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center',gridColumn:'1 / -1'}});
       const sinInp=mkTInp('rgba(0,0,0,0.55)');
       if(pickupData.singles) sinInp.value=pickupData.singles;
       sinInp.addEventListener('input',e=>{pickupData.singles=e.target.value;updateHiveTotal();});
@@ -10648,6 +10648,14 @@ function renderMovementsScreen(){
       polSingTile.appendChild(polSingInp);
       polSingTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Singles (BC)'));
 
+      // ── Doubles tile (grey, left) ──
+      const dblTile=h('div',{style:{background:'rgba(0,0,0,0.05)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
+      const dblInp=mkTInp('rgba(0,0,0,0.55)');
+      if(pickupData.doubles) dblInp.value=pickupData.doubles;
+      dblInp.addEventListener('input',e=>{pickupData.doubles=e.target.value;compositionTouched=true;updateHiveTotal();});
+      dblTile.appendChild(dblInp);
+      dblTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(0,0,0,0.3)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'Doubles (BC)'));
+
       // ── POL Doubles tile (purple, right) ──
       const polDblTile=h('div',{style:{background:'rgba(155,89,182,0.08)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
       const polDblInp=mkTInp('rgba(130,60,180,0.65)');
@@ -10656,9 +10664,13 @@ function renderMovementsScreen(){
       polDblTile.appendChild(polDblInp);
       polDblTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Doubles (BC)'));
 
-      // Assemble 3×2 grid: left=totals, right=POL breakdown by box type
+      // Grid layout:
+      //   Pallets        | POL Pallets
+      //        Individuals (full width)
+      //   Doubles (BC)   | POL Doubles (BC)
+      //   Singles (BC)   | POL Singles (BC)
       const tileGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'4px',marginBottom:'6px'}});
-      [palTile,polPalTile,indvTile,polSingTile,singTile,polDblTile].forEach(t=>tileGrid.appendChild(t));
+      [palTile,polPalTile,indvTile,dblTile,polDblTile,singTile,polSingTile].forEach(t=>tileGrid.appendChild(t));
       truckRow.appendChild(tileGrid);
 
       // Updates tile placeholders + POL Pallets ref value from the selected yard's data
@@ -10678,6 +10690,8 @@ function renderMovementsScreen(){
           const mrhEntry=allYardEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
           const singStat=mrhEntry?(parseInt(mrhEntry.singles)||0):0;
           singBoxInp.placeholder=singStat>0?String(singStat):'0';
+          const dblStat=mrhEntry?(parseInt(mrhEntry.doubles)||0):0;
+          dblInp.placeholder=dblStat>0?String(dblStat):'0';
           let polBcStat=0;
           for(const e of allYardEntries){const v=parseInt(e.pol_bc);if(!isNaN(v)&&v>0){polBcStat=v;break;}}
           polSingInp.placeholder=polBcStat>0?String(polBcStat):'0';
@@ -10690,6 +10704,7 @@ function renderMovementsScreen(){
           singBoxInp.placeholder='0';
           polSingInp.placeholder='0';
           polDblInp.placeholder='0';
+          dblInp.placeholder='0';
           polPalVal.textContent='–';
         }
       }
@@ -10760,6 +10775,7 @@ function renderMovementsScreen(){
         pickupData.light=String(yardState.light||0);
         pickupData.alive_hives=String(yardState.hives||0);
         pickupData.dead_hives=String(yardState.dead||0);
+        dblInp.value=pickupData.doubles;
         singBoxInp.value=pickupData.singles_boxes;
         hiveInputs.alive_hives.value=pickupData.alive_hives;
         hiveInputs.dead_hives.value=pickupData.dead_hives;
@@ -10793,7 +10809,7 @@ function renderMovementsScreen(){
         } else {
           sDoubles='';sSingles='';sLight='';sAlive='';sDead='';
         }
-        pickupData.doubles=sDoubles;
+        pickupData.doubles=sDoubles;dblInp.value=String(sDoubles||'');
         pickupData.singles_boxes=sSingles;singBoxInp.value=String(sSingles||'');
         pickupData.light=sLight;
         hiveInputs.alive_hives.value=sAlive;pickupData.alive_hives=sAlive;
