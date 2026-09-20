@@ -1283,7 +1283,7 @@ function buildFullReport(opName){
           batchLines.push('  '+site+' — '+rd.label+' — '+fmtDate(e.date)+(e.logged_by?' ('+e.logged_by+')':''));
           const fields=['hives','singles','doubles','light','dead','check','pol_pallet','part_pallet','pol_singles','qr','virgin','cell_needed','tops','splits','carrot','fd_harv','harv_34','on_34','fd_on','honeycomb_fd','honeycomb_hd'];
           fields.forEach(k=>{if(e[k]!==undefined&&e[k]!=='')batchLines.push('    '+k.replace(/_/g,' ')+': '+e[k]);});
-          if(e.score_breakdown){const bd=e.score_breakdown;const parts=[0,1,2,3,4,5,6].filter(n=>bd[n]&&bd[n]!=='').map(n=>n+':'+bd[n]);if(parts.length)batchLines.push('    Spring scores: '+parts.join(', '));}
+          if(e.score_breakdown){const bd=e.score_breakdown;const parts=[0,1,2,3,4,5,6,7,8,9,10].filter(n=>bd[n]&&bd[n]!=='').map(n=>(n===10?'10+':n)+':'+bd[n]);if(parts.length)batchLines.push('    Spring scores: '+parts.join(', '));}
           if(e.carrot_score){const cbd=e.carrot_score;const cparts=[0,1,2,3,4,5,6,7,8,9,10].filter(n=>cbd[n]&&cbd[n]!=='').map(n=>n+':'+cbd[n]);if(cparts.length)batchLines.push('    Carrot scores: '+cparts.join(', '));}
           if(e.treatment) batchLines.push('    Treatment: '+e.treatment);
           if(e.comments) batchLines.push('    Notes: '+e.comments);
@@ -7625,7 +7625,7 @@ function renderEntriesList(){
         body.appendChild(row);
       }
     }
-    if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
+    if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'9px':'12px'}},n===10?'10+':String(n)),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
     // Carrot score breakdown
     const cbd=entry.carrot_score||{};
     const hasCarrotScores=Object.values(cbd).some(v=>v!==''&&v!==undefined&&v!==null);
@@ -8996,7 +8996,7 @@ function renderEntriesList(){
         body.appendChild(row);
       }
     }
-    if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'9px':'12px'}},n===6?'6+':n),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
+    if(hasScores){body.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em',margin:'10px 0 6px'}},'Spring Score'));const sr=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap'}});[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=bd[n];if(!v&&v!==0)return;sr.appendChild(h('div',{style:{textAlign:'center',minWidth:'32px'}},h('div',{style:{width:'26px',height:'26px',borderRadius:'50%',margin:'0 auto 3px',background:scoreColor(n),display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'9px':'12px'}},n===10?'10+':String(n)),h('div',{style:{fontSize:'13px',fontWeight:'600',textAlign:'center'}},v)));});body.appendChild(sr);}
     // Carrot score breakdown
     const cbd=entry.carrot_score||{};
     const hasCarrotScores=Object.values(cbd).some(v=>v!==''&&v!==undefined&&v!==null);
