@@ -672,10 +672,12 @@ async function addMovement(mov){
         freshExtra.pol_bc=String(Math.max(0,sitePolBc-polSingsMov));
         freshExtra.pol_doubles=String(Math.max(0,sitePolDoubles-polDblsMov));
       } else {
-        // Destination yard gains POL stock — add to whatever is already there
-        // (use pol_singles_count + pol_doubles_count from the movement form rather than collated
-        //  source pol_singles to avoid double-counting when a partial move doesn't take all POL hives)
-        freshExtra.pol_singles=String(sitePolSingles+polIndvMov);
+        // Destination yard gains POL stock — add to whatever is already there.
+        // pol_singles tracks actual single-box POL hives only (NOT pol_doubles_count).
+        // pol_doubles tracks double-box POL hives separately.
+        // Using polSingsMov (not polIndvMov) prevents a destination yard from showing
+        // "POL Indiv." just because it received hives that were doubles at the source.
+        freshExtra.pol_singles=String(sitePolSingles+polSingsMov);
         freshExtra.pol_bc=String(sitePolBc+polSingsMov);
         freshExtra.pol_doubles=String(sitePolDoubles+polDblsMov);
       }
@@ -829,7 +831,36 @@ function showToast(msg, duration=2500){
 }
 
 // ── Storage (localStorage + Supabase) ─────────────────────────────────────────
-function loadLocal(){try{return JSON.parse(localStorage.getItem('apiary_entries')||'{}');}catch(e){return{};}}
+function loadLocal(){
+  try{
+    const raw=JSON.parse(localStorage.getItem('apiary_entries')||'{}');
+    // One-time migration: fix entries where pol_singles was incorrectly inflated
+    // by pol_doubles_count at destination yards (bug where polIndvMov was used
+    // instead of polSingsMov). The bug fingerprint is: _movement entry where
+    // pol_singles === pol_doubles > 0 and pol_bc is absent/zero — this only occurs
+    // when polSingsMov=0 and polDblsMov>0 (pure-doubles POL movement destination).
+    const MIGRATION_KEY='pol_singles_dbl_fix_v1';
+    if(!localStorage.getItem(MIGRATION_KEY)){
+      let changed=false;
+      for(const key of Object.keys(raw)){
+        raw[key]=(raw[key]||[]).map(e=>{
+          if(!e._movement) return e;
+          const ps=parseInt(e.pol_singles)||0;
+          const pd=parseInt(e.pol_doubles)||0;
+          const pb=parseInt(e.pol_bc)||0;
+          if(ps>0 && ps===pd && pb===0){
+            changed=true;
+            return {...e,pol_singles:'0'};
+          }
+          return e;
+        });
+      }
+      if(changed){localStorage.setItem('apiary_entries',JSON.stringify(raw));}
+      localStorage.setItem(MIGRATION_KEY,'1');
+    }
+    return raw;
+  }catch(e){return{};}
+}
 function loadCustomYards(){try{return JSON.parse(localStorage.getItem('apiary_custom_yards')||'{}');}catch(e){return{};}}
 function saveCustomYards(y){try{localStorage.setItem('apiary_custom_yards',JSON.stringify(y));}catch(e){}}
 // Built-in yards are a fixed list — renaming one doesn't mutate that list in place, it records
@@ -10643,7 +10674,7 @@ function renderMovementsScreen(){
       const indvTile=h('div',{style:{background:'rgba(0,0,0,0.05)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center',gridColumn:'1 / -1'}});
       const sinInp=mkTInp('rgba(0,0,0,0.55)');
       if(pickupData.singles) sinInp.value=pickupData.singles;
-      sinInp.addEventListener('input',e=>{pickupData.singles=e.target.value;updateHiveTotal();});
+      sinInp.addEventListener('input',e=>{pickupData.singles=e.target.value;individualsTouched=true;updateHiveTotal();});
       indvTile.appendChild(sinInp);
       indvTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(0,0,0,0.3)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'Individuals'));
 
@@ -10729,10 +10760,19 @@ function renderMovementsScreen(){
       const hiveTotal=h('div',{style:{textAlign:'center',fontSize:'12px',color:movColor,fontWeight:'600',marginBottom:'4px'}});
       let compositionTouched=false;
       let aliveTouched=false;
+      let individualsTouched=false; // set when user manually types in the Individuals tile
       const hiveInputs={};  // declared here so updateHiveTotal can reference it safely before the inputs are appended
       function updateHiveTotal(){
         const polIndv=(parseInt(polSingInp.value)||0)+(parseInt(polDblInp.value)||0);
         const boxSum=(parseInt(dblInp.value)||0)+(parseInt(singBoxInp.value)||0);
+        // Auto-fill Individuals from POL fields when user hasn't manually typed there.
+        // POL singles + POL doubles = total POL individuals; they are not on pallets so they
+        // count directly as Individuals in the hive total.
+        if(!individualsTouched){
+          const polTotal=polIndv>0?String(polIndv):'';
+          sinInp.value=polTotal;
+          pickupData.singles=polTotal;
+        }
         const indv=Math.max(parseInt(sinInp.value)||0, boxSum, polIndv);
         const p=(parseInt(palInp.value)||0)*4+(pickupData.half_pallet?2:0)+indv;
         hiveTotal.textContent=p>0?'= '+p+' hive'+(p!==1?'s':''):'';
@@ -10796,6 +10836,7 @@ function renderMovementsScreen(){
         hiveInputs.dead_hives.value=pickupData.dead_hives;
         compositionTouched=true; // lock these in — stop the auto-suggest from overwriting them
         aliveTouched=true; // "Move entire yard" sets explicit alive+dead counts, don't auto-fill over them
+        individualsTouched=true; // "Move entire yard" sets Individuals explicitly — don't override with polIndv
         updateHiveTotal();
         showToast('Loaded '+(yardState.hives||0)+' alive, '+(yardState.dead||0)+' dead from the yard');
       });
