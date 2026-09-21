@@ -7543,7 +7543,29 @@ function renderEntriesList(){
     // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
     const extras=[
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
-      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0&&(!palSplit||palSplit.pallets>0)},
+      // Compute current POL pallets: last diary value minus pol_pallet recorded on outbound
+      // movements since that entry. Only show if the result is > 0.
+      {l:'POL pallet',v:(()=>{
+        const polEntry=allSiteEntriesWithMov.find(e=>!e._movement&&e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
+        if(!polEntry) return 0;
+        const base=parseInt(polEntry.pol_pallet)||0;
+        const cutoff=(polEntry.date||'').slice(0,10);
+        const movedOut=loadMovements().filter(m=>
+          m.from_site===site&&(!op||!m.from_op||m.from_op===op)&&
+          (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
+        ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
+        return Math.max(0,base-movedOut);
+      })(),show:(()=>{
+        const polEntry=allSiteEntriesWithMov.find(e=>!e._movement&&e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
+        if(!polEntry) return false;
+        const base=parseInt(polEntry.pol_pallet)||0;
+        const cutoff=(polEntry.date||'').slice(0,10);
+        const movedOut=loadMovements().filter(m=>
+          m.from_site===site&&(!op||!m.from_op||m.from_op===op)&&
+          (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
+        ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
+        return Math.max(0,base-movedOut)>0;
+      })()},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
       {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
@@ -8914,7 +8936,29 @@ function renderEntriesList(){
     // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
     const extras=[
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
-      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0&&(!palSplit||palSplit.pallets>0)},
+      // Compute current POL pallets: last diary value minus pol_pallet recorded on outbound
+      // movements since that entry. Only show if the result is > 0.
+      {l:'POL pallet',v:(()=>{
+        const polEntry=allSiteEntriesWithMov.find(e=>!e._movement&&e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
+        if(!polEntry) return 0;
+        const base=parseInt(polEntry.pol_pallet)||0;
+        const cutoff=(polEntry.date||'').slice(0,10);
+        const movedOut=loadMovements().filter(m=>
+          m.from_site===site&&(!op||!m.from_op||m.from_op===op)&&
+          (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
+        ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
+        return Math.max(0,base-movedOut);
+      })(),show:(()=>{
+        const polEntry=allSiteEntriesWithMov.find(e=>!e._movement&&e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
+        if(!polEntry) return false;
+        const base=parseInt(polEntry.pol_pallet)||0;
+        const cutoff=(polEntry.date||'').slice(0,10);
+        const movedOut=loadMovements().filter(m=>
+          m.from_site===site&&(!op||!m.from_op||m.from_op===op)&&
+          (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
+        ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
+        return Math.max(0,base-movedOut)>0;
+      })()},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
       {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
@@ -10678,9 +10722,11 @@ function renderMovementsScreen(){
       palTile.appendChild(halfBtn);
       palTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(0,0,0,0.3)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'1px'}},'Pallets'));
 
-      // ── POL Pallets tile (purple, readonly reference) ──
+      // ── POL Pallets tile (purple, editable — records how many of the moved pallets are POL) ──
       const polPalTile=h('div',{style:{background:'rgba(155,89,182,0.08)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
-      const polPalVal=h('div',{style:{fontSize:'17px',fontWeight:'700',color:'rgba(130,60,180,0.6)',lineHeight:'1.1',marginBottom:'3px'}},'–');
+      const polPalVal=mkTInp('rgba(130,60,180,0.75)');
+      if(pickupData.pol_pallet) polPalVal.value=pickupData.pol_pallet;
+      polPalVal.addEventListener('input',e=>{pickupData.pol_pallet=e.target.value;});
       polPalTile.appendChild(polPalVal);
       polPalTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Pallets'));
 
@@ -10740,14 +10786,27 @@ function renderMovementsScreen(){
           const siteEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(pickupData.op,pickupData.site,r2)]||[]))
             .filter(e=>!e._movement)
             .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-          // pol_pallet from diary is stale once pallets move — movements don't track POL vs non-POL,
-          // so we can't keep the POL pallet count up to date. Always use movement-adjusted split for
-          // the PALLETS placeholder, and show '–' for POL PALLETS.
           palInp.placeholder=split?String(split.pallets):'0';
           sinInp.placeholder=split?String(split.singles):'0';
           const allYardEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(pickupData.op,pickupData.site,r2)]||[]))
             .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-          polPalVal.textContent='–';
+          // Compute current POL pallets: last diary pol_pallet minus any pol_pallet recorded on
+          // outbound movements since that diary entry.
+          {
+            const polDiaryEntry=siteEntries.find(e=>e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
+            if(polDiaryEntry){
+              const base=parseInt(polDiaryEntry.pol_pallet)||0;
+              const cutoff=(polDiaryEntry.date||'').slice(0,10);
+              const movedOut=loadMovements().filter(m=>
+                m.from_site===pickupData.site&&(!pickupData.op||!m.from_op||m.from_op===pickupData.op)&&
+                (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
+              ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
+              const remaining=Math.max(0,base-movedOut);
+              if(!pickupData.pol_pallet) polPalVal.placeholder=remaining>0?String(remaining):'0';
+            } else {
+              polPalVal.placeholder='0';
+            }
+          }
           const mrhEntry=allYardEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
           const singStat=mrhEntry?(parseInt(mrhEntry.singles)||0):0;
           singBoxInp.placeholder=singStat>0?String(singStat):'0';
