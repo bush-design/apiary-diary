@@ -983,13 +983,15 @@ function getCurrentPalletSplit(op,site){
   const cutoff=(base.setAt||'').slice(0,10);
   let pallets=base.pallets,singles=base.singles;
   loadMovements().forEach(m=>{
+    if(m.deleted) return;
     if(cutoff&&m.date<cutoff) return;
     const mPallets=(parseInt(m.pallets)||0)+(m.half_pallet?0.5:0);
     const mSingles=parseInt(m.singles)||0;
-    if(m.direction==='to_orchard'&&m.from_site===site){pallets-=mPallets;singles-=mSingles;}
-    else if(m.direction==='from_orchard'&&m.to_site===site){pallets+=mPallets;singles+=mSingles;}
-    else if(m.direction==='yard_yard'&&m.from_site===site){pallets-=mPallets;singles-=mSingles;}
-    else if(m.direction==='yard_yard'&&m.to_site===site){pallets+=mPallets;singles+=mSingles;}
+    // Filter by op so movements from a same-named site in a different operation don't interfere
+    if(m.direction==='to_orchard'&&m.from_site===site&&(!op||!m.from_op||m.from_op===op)){pallets-=mPallets;singles-=mSingles;}
+    else if(m.direction==='from_orchard'&&m.to_site===site&&(!op||!m.to_op||m.to_op===op)){pallets+=mPallets;singles+=mSingles;}
+    else if(m.direction==='yard_yard'&&m.from_site===site&&(!op||!m.from_op||m.from_op===op)){pallets-=mPallets;singles-=mSingles;}
+    else if(m.direction==='yard_yard'&&m.to_site===site&&(!op||!m.to_op||m.to_op===op)){pallets+=mPallets;singles+=mSingles;}
   });
   return {pallets:Math.max(0,pallets),singles:Math.max(0,Math.round(singles))};
 }
@@ -7473,13 +7475,17 @@ function renderEntriesList(){
   // Last visited
   summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'2px'}},
     latestReal?'Last visit: '+fmtDate(latestReal.date)+(days!==null?' · '+days+'d ago':''):(currentHives>0?'No diary entries yet':'Not yet visited')));
-  // Pallet/individual split — same source of truth as before (baseline + movements since),
-  // just displayed here now instead of as its own separate tappable pill. Editing happens via
-  // the entry form (Pallets/Individual fields), the same way the hive count is edited.
-  {
-    const palSplit=getCurrentPalletSplit(op,site);
+  // Pallet split — hoisted so palSplit.pallets shows as a tile in the hive counts row below.
+  // Individuals-only still shown as the transport subtitle line here.
+  const palSplit=getCurrentPalletSplit(op,site);
+  if(palSplit&&palSplit.singles>0){
     summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},
-      palSplit?palSplit.pallets+'p · '+palSplit.singles+'indv (transport)':'Pallets/individual not set yet'));
+      palSplit.singles+' indv (transport)'));
+  } else if(!palSplit){
+    summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.3)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},
+      'Transport config not set'));
+  } else {
+    summaryPanel.appendChild(h('div',{style:{marginBottom:'10px'}}));
   }
 
   // AFB Under Inquiry banner in summary card
@@ -7491,10 +7497,12 @@ function renderEntriesList(){
   }
 
   if(latestReal||currentHives>0){
-    // Hive counts row — use movement-adjusted count for hives
+    // Hive counts row — use movement-adjusted count for hives and pallets
     const deadVal=lv('dead_hives')||lv('dead');
+    const palletCount=palSplit?palSplit.pallets:0;
     const hiveCounts=[
-      {l:'Hives',v:currentHives,show:currentHives>0,bright:hasMovement},
+      {l:'Pallets',v:palletCount+'p',show:palletCount>0,bright:hasMovement},
+      {l:'Hives',v:currentHives,show:currentHives>0},
       {l:'Alive',v:lv('alive_hives'),show:lv('alive_hives')>0,green:true},
       {l:'Dead',v:deadVal,show:currentHives>0||deadVal>0,red:deadVal>0},  // always show Dead if hives present
       {l:'Singles',v:lv('singles'),show:lv('singles')>0},
@@ -10180,7 +10188,13 @@ function renderMovementsScreen(){
         const pct=totalHives>0?Math.round((assignedHives/totalHives)*100):0;
 
         const truckBar=h('div',{style:{background:'#2a1f3d',borderRadius:'10px',padding:'10px 14px',marginBottom:'10px'}});
-        truckBar.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'6px'}},'On truck · '+pickups.length+' pickup'+(pickups.length!==1?'s':'')));
+        const barHeader=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}});
+        barHeader.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.07em'}},'On truck · '+pickups.length+' pickup'+(pickups.length!==1?'s':'')));
+        const clearBtn=h('button',{style:{background:'none',border:'.5px solid rgba(255,255,255,0.25)',borderRadius:'10px',color:'rgba(255,255,255,0.5)',fontSize:'10px',cursor:'pointer',padding:'2px 8px',lineHeight:'1.5'},
+          onClick:()=>confirmAction('Clear the truck? This removes all pickups from the current load.',()=>{pickups.length=0;rebuildAll();})
+        },'Clear');
+        barHeader.appendChild(clearBtn);
+        truckBar.appendChild(barHeader);
         const spaceRow=h('div',{style:{display:'flex',gap:'8px',alignItems:'baseline',flexWrap:'wrap',marginBottom:(totalAlive>0||totalDead>0)?'6px':'4px'}});
         spaceRow.appendChild(h('span',{style:{fontSize:'22px',fontWeight:'800',color:'#fff',lineHeight:'1'}},totalPallets+(totalHalfPallets?'½':'')+'p'));
         if(totalSingles>0) spaceRow.appendChild(h('span',{style:{fontSize:'20px',fontWeight:'700',color:'rgba(255,255,255,0.7)',lineHeight:'1'}},totalSingles+' indiv'));
@@ -11428,11 +11442,76 @@ function renderMovementsScreen(){
           });
           card.appendChild(legsDiv);
           // Edit + Delete all buttons
-          const btnBar=h('div',{style:{display:'flex',justifyContent:'flex-end',gap:'8px',marginTop:'8px'}});
+          const btnBar=h('div',{style:{display:'flex',justifyContent:'flex-end',gap:'8px',marginTop:'8px',flexWrap:'wrap'}});
           const editTLBtn=h('button',{style:{padding:'4px 10px',background:'none',border:'.5px solid #bbb',borderRadius:'20px',fontSize:'11px',color:'#555',cursor:'pointer',fontWeight:'600'},
             onClick:()=>showEditTruckloadModal(legs)
           },isSolo?'Edit':'Edit all');
           btnBar.appendChild(editTLBtn);
+          if(!isSolo){
+            // Unlink button for multi-leg truckloads — splits all legs back to solos
+            const unlinkBtn=h('button',{style:{padding:'4px 10px',background:'none',border:'.5px solid #6ab0e0',borderRadius:'20px',fontSize:'11px',color:'#3a7fb5',cursor:'pointer',fontWeight:'600'},
+              onClick:()=>confirmAction('Unlink these '+legs.length+' movements? Each will become a solo movement again.',async()=>{
+                const allMov2=await getMergedRemoteMovements();
+                const ids=new Set(legs.map(m=>m.id));
+                const updated2=allMov2.map(x=>ids.has(x.id)?{...x,truckload_id:null}:x);
+                saveMovements(updated2);
+                await pushToSupabase('hive_movements',updated2);
+                showToast('Movements unlinked');
+                setState({tab:'history'});
+              })
+            },'Unlink');
+            btnBar.appendChild(unlinkBtn);
+          }
+          if(isSolo){
+            const linkBtn=h('button',{style:{padding:'4px 10px',background:'none',border:'.5px solid #6ab0e0',borderRadius:'20px',fontSize:'11px',color:'#3a7fb5',cursor:'pointer',fontWeight:'600'},
+              onClick:async()=>{
+                // Show modal to pick another solo movement to link with this one
+                const allMov2=await getMergedRemoteMovements();
+                const otherSolos=allMov2.filter(x=>!x.deleted&&!x.truckload_id&&x.id!==legs[0].id);
+                const overlay2=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
+                const box2=h('div',{style:{background:'#fff',borderRadius:'14px',padding:'22px',width:'100%',maxWidth:'340px',maxHeight:'80vh',display:'flex',flexDirection:'column'}});
+                box2.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Link to another movement'));
+                box2.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'14px'}},'Pick the solo movement on the same truck — they\'ll be grouped as a single truckload.'));
+                if(!otherSolos.length){
+                  box2.appendChild(h('div',{style:{fontSize:'13px',color:'#999',marginBottom:'16px'}},'No other solo movements to link.'));
+                } else {
+                  const listWrap=h('div',{style:{overflowY:'auto',flex:'1',marginBottom:'14px',display:'flex',flexDirection:'column',gap:'6px'}});
+                  otherSolos.forEach(m2=>{
+                    const c2=movDirColor(m2);
+                    const t2=movTitle(m2);
+                    const item=h('div',{style:{padding:'10px 12px',border:'.5px solid #ddd',borderLeft:'3px solid '+c2,borderRadius:'8px',cursor:'pointer'},
+                      onClick:async()=>{
+                        overlay2.remove();
+                        // Generate new shared truckload_id
+                        const newTlId=Date.now()+'_'+Math.random().toString(36).slice(2,7);
+                        const allMov3=await getMergedRemoteMovements();
+                        const updated2=allMov3.map(x=>{
+                          if(x.id===legs[0].id||x.id===m2.id) return {...x,truckload_id:newTlId};
+                          return x;
+                        });
+                        saveMovements(updated2);
+                        await pushToSupabase('hive_movements',updated2);
+                        showToast('Movements linked as one truckload');
+                        setState({tab:'history'});
+                      }
+                    });
+                    item.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px',color:'#333'}},t2));
+                    item.appendChild(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'2px'}},(Number(m2.pallets)||0)+'p · '+(Number(m2.singles)||0)+' indiv · '+fmtDate(m2.date)));
+                    listWrap.appendChild(item);
+                  });
+                  box2.appendChild(listWrap);
+                }
+                const cancelBtn2=h('button',{style:{width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},
+                  onClick:()=>overlay2.remove()
+                },'Cancel');
+                box2.appendChild(cancelBtn2);
+                overlay2.appendChild(box2);
+                overlay2.addEventListener('click',e=>{if(e.target===overlay2)overlay2.remove();});
+                document.body.appendChild(overlay2);
+              }
+            },'Link');
+            btnBar.appendChild(linkBtn);
+          }
           const delAllBtn=h('button',{style:{padding:'4px 10px',background:'none',border:'.5px solid #f4a0a0',borderRadius:'20px',fontSize:'11px',color:'#c0392b',cursor:'pointer',fontWeight:'600'},
             onClick:()=>{
               const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
