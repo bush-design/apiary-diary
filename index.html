@@ -7543,7 +7543,7 @@ function renderEntriesList(){
     // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
     const extras=[
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
-      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
+      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0&&(!palSplit||palSplit.pallets>0)},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
       {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
@@ -8914,7 +8914,7 @@ function renderEntriesList(){
     // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
     const extras=[
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
-      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
+      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0&&(!palSplit||palSplit.pallets>0)},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
       {l:'POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
       {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
