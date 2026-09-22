@@ -7442,6 +7442,18 @@ function renderEntriesList(){
     }
     return 0;
   };
+  // Respect-zero lookup for POL box-type fields (pol_singles, pol_bc, pol_doubles).
+  // Unlike lv(), this returns the value from the most recent entry that explicitly set the
+  // field — including 0 — so a visit that records "0 POL individuals" clears the stale value
+  // from an older entry rather than carrying it forward. Returns null if never recorded.
+  const lvPol=k=>{
+    for(const e of allSiteEntriesWithMov){
+      const raw=e[k];
+      if(raw===undefined||raw===null||raw==='') continue;
+      return parseInt(raw)||0;
+    }
+    return null;
+  };
   const latestReal=allSiteEntries[0]||null;
   const days=latestReal?daysBetween(latestReal.date):null;
 
@@ -7569,9 +7581,9 @@ function renderEntriesList(){
         return Math.max(0,base-movedOut)>0;
       })()},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
-      {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
-      {l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
+      {l:'POL Indiv.',v:lvPol('pol_singles')||0,show:(lvPol('pol_singles')||0)>0},
+      {l:'POL Singles (BC)',v:lvPol('pol_bc')||0,show:(lvPol('pol_bc')||0)>0},
+      {l:'POL Doubles (BC)',v:lvPol('pol_doubles')||0,show:(lvPol('pol_doubles')||0)>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
       {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
@@ -8841,6 +8853,18 @@ function renderEntriesList(){
     for(const e of allSiteEntriesWithMov){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v)&&v>0)return v;}
     return 0;
   };
+  // Respect-zero lookup for POL box-type fields (pol_singles, pol_bc, pol_doubles).
+  // Unlike lv(), this returns the value from the most recent entry that explicitly set the
+  // field — including 0 — so a visit that records "0 POL individuals" clears the stale value
+  // from an older entry rather than carrying it forward. Returns null if never recorded.
+  const lvPol=k=>{
+    for(const e of allSiteEntriesWithMov){
+      const raw=e[k];
+      if(raw===undefined||raw===null||raw==='') continue;
+      return parseInt(raw)||0;
+    }
+    return null;
+  };
   const latestReal=allSiteEntries[0]||null;
   const days=latestReal?daysBetween(latestReal.date):null;
 
@@ -8962,9 +8986,9 @@ function renderEntriesList(){
         return Math.max(0,base-movedOut)>0;
       })()},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
-      {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
-      {l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
+      {l:'POL Indiv.',v:lvPol('pol_singles')||0,show:(lvPol('pol_singles')||0)>0},
+      {l:'POL Singles (BC)',v:lvPol('pol_bc')||0,show:(lvPol('pol_bc')||0)>0},
+      {l:'POL Doubles (BC)',v:lvPol('pol_doubles')||0,show:(lvPol('pol_doubles')||0)>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
       {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
