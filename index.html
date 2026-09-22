@@ -11207,9 +11207,9 @@ function renderMovementsScreen(){
     if(!activeOrchards.length){
       screen.appendChild(h('div',{className:'empty-msg'},'No hives currently in orchards'));
     } else {
-      screen.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'12px',lineHeight:'1.5'}},'Enter how many pallets you are taking from each yard today. Leave blank to skip.'));
+      screen.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'12px',lineHeight:'1.5'}},'Enter pallets and/or individual hives you are taking from each yard today. Leave blank to skip.'));
 
-      // Track taking amounts: {orchard__site: pallets}
+      // Track taking amounts per key: {pallets, singles}
       const taking={};
 
       // Live truck total
@@ -11221,25 +11221,31 @@ function renderMovementsScreen(){
       screen.appendChild(truckTile);
 
       function updateTruckTotal(){
-        const totalPal=Object.values(taking).reduce((a,v)=>a+(parseInt(v)||0),0);
-        const totalHives=totalPal*4;
-        truckNum.textContent=totalPal+'p = '+totalHives+' hives';
-        truckSub.textContent=totalPal>0?'Tap "Build load" to pre-fill the movement form':'Enter pallets below';
+        const totalPal=Object.values(taking).reduce((a,v)=>a+(parseInt(v.pallets)||0),0);
+        const totalSing=Object.values(taking).reduce((a,v)=>a+(parseInt(v.singles)||0),0);
+        const totalHives=totalPal*4+totalSing;
+        const parts=[];
+        if(totalPal>0) parts.push(totalPal+'p');
+        if(totalSing>0) parts.push(totalSing+' indiv');
+        truckNum.textContent=(parts.length?parts.join(' + ')+' = ':'')+totalHives+' hives';
+        truckSub.textContent=totalHives>0?'Tap "Build load" to pre-fill the movement form':'Enter hives below';
       }
       updateTruckTotal();
 
-      // Build load button (sticky at bottom)
+      // Build load button
       const buildBtn=h('button',{style:{width:'100%',padding:'13px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'10px',fontSize:'15px',fontWeight:'700',cursor:'pointer',marginBottom:'12px',opacity:'0.4',pointerEvents:'none'},
         onClick:()=>{
           const plan=[];
-          Object.entries(taking).forEach(([key,pallets])=>{
-            if(!parseInt(pallets)) return;
+          Object.entries(taking).forEach(([key,amounts])=>{
+            const pal=parseInt(amounts.pallets)||0;
+            const sing=parseInt(amounts.singles)||0;
+            if(!pal&&!sing) return;
             const [orchard,...siteParts]=key.split('__');
             const site=siteParts.join('__');
             const op=(orchardSites[orchard]||{})[site]?.op||'';
-            plan.push({orchard,site,pallets:String(pallets),singles:'0',op});
+            plan.push({orchard,site,pallets:String(pal),singles:String(sing),op});
           });
-          if(!plan.length){showToast('Enter pallets to take for at least one yard');return;}
+          if(!plan.length){showToast('Enter hives to take for at least one yard');return;}
           STATE._returnPlan=plan;
           setState({tab:'movements',_returnMode:true});
         }
@@ -11247,7 +11253,7 @@ function renderMovementsScreen(){
       screen.appendChild(buildBtn);
 
       function updateBuildBtn(){
-        const hasSome=Object.values(taking).some(v=>parseInt(v)>0);
+        const hasSome=Object.values(taking).some(v=>(parseInt(v.pallets)||0)>0||(parseInt(v.singles)||0)>0);
         buildBtn.style.opacity=hasSome?'1':'0.4';
         buildBtn.style.pointerEvents=hasSome?'auto':'none';
         updateTruckTotal();
@@ -11256,45 +11262,61 @@ function renderMovementsScreen(){
       // Orchard cards
       activeOrchards.forEach(([orchard,sites])=>{
         const activeSites=Object.entries(sites).filter(([,s])=>s.pallets>0||s.singles>0);
-        const orchTotal=activeSites.reduce((a,[,s])=>a+s.pallets,0);
+        const orchTotalPal=activeSites.reduce((a,[,s])=>a+s.pallets,0);
+        const orchTotalSing=activeSites.reduce((a,[,s])=>a+s.singles,0);
 
         const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid #ddd'}});
 
         // Orchard header
         const hdr=h('div',{style:{padding:'11px 14px',background:'#f8f8f6',borderBottom:'.5px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'center'}});
         hdr.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},orchard));
-        hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},orchTotal+'p in orchard'));
+        const orchSub=orchTotalPal>0&&orchTotalSing>0?orchTotalPal+'p · '+orchTotalSing+' indiv in orchard':orchTotalPal>0?orchTotalPal+'p in orchard':orchTotalSing+' indiv in orchard';
+        hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},orchSub));
         card.appendChild(hdr);
 
         // Per-yard rows
-        activeSites.sort((a,b)=>b[1].pallets-a[1].pallets).forEach(([site,data])=>{
+        activeSites.sort((a,b)=>(b[1].pallets*4+b[1].singles)-(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
           const key=orchard+'__'+site;
-          const row=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3'}});
+          if(!taking[key]) taking[key]={pallets:'',singles:''};
+          const row=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3'}});
 
-          // Site name + pallets in orchard
-          const left=h('div',{style:{flex:'1'}});
-          left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site));
-          left.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},data.pallets+'p in orchard'));
+          // Site name + what's in orchard
+          const left=h('div',{style:{flex:'1',minWidth:'0'}});
+          left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},site));
+          const siteSub=data.pallets>0&&data.singles>0?data.pallets+'p · '+data.singles+' indiv in orchard':data.pallets>0?data.pallets+'p in orchard':data.singles+' indiv in orchard';
+          left.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},siteSub));
           row.appendChild(left);
 
-          // Input: pallets taking today
-          const inp=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.pallets),placeholder:'0',style:{width:'60px',padding:'7px 8px',border:'1.5px solid #ddd',borderRadius:'8px',fontSize:'16px',fontWeight:'700',textAlign:'center',background:'#fafafa',boxSizing:'border-box'}});
-          inp.addEventListener('input',e=>{
-            const v=Math.min(parseInt(e.target.value)||0,data.pallets);
-            if(v>0){
-              inp.value=String(v);
-              taking[key]=String(v);
-              inp.style.border='1.5px solid #9b59b6';
-              inp.style.color='#9b59b6';
-            } else {
-              delete taking[key];
-              inp.style.border='1.5px solid #ddd';
-              inp.style.color='#333';
-            }
+          // Inputs column
+          const inputs=h('div',{style:{display:'flex',gap:'6px',alignItems:'center',flexShrink:'0'}});
+
+          // Pallets input (only show if pallets in orchard)
+          if(data.pallets>0){
+            const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.pallets),placeholder:'0',style:{width:'52px',padding:'6px 4px',border:'1.5px solid #ddd',borderRadius:'8px',fontSize:'15px',fontWeight:'700',textAlign:'center',background:'#fafafa',boxSizing:'border-box'}});
+            palInp.addEventListener('input',e=>{
+              const v=Math.min(parseInt(e.target.value)||0,data.pallets);
+              if(v>0){palInp.value=String(v);palInp.style.border='1.5px solid #9b59b6';palInp.style.color='#9b59b6';}
+              else{palInp.style.border='1.5px solid #ddd';palInp.style.color='#333';}
+              taking[key].pallets=v>0?String(v):'';
+              updateBuildBtn();
+            });
+            inputs.appendChild(palInp);
+            inputs.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa',marginRight:'4px'}},'pal'));
+          }
+
+          // Individuals input (always show — individuals may be in orchard even when pallets=0)
+          const singInp=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.singles||999),placeholder:'0',style:{width:'52px',padding:'6px 4px',border:'1.5px solid #ddd',borderRadius:'8px',fontSize:'15px',fontWeight:'700',textAlign:'center',background:'#fafafa',boxSizing:'border-box'}});
+          singInp.addEventListener('input',e=>{
+            const v=Math.min(parseInt(e.target.value)||0,data.singles||999);
+            if(v>0){singInp.value=String(v);singInp.style.border='1.5px solid #9b59b6';singInp.style.color='#9b59b6';}
+            else{singInp.style.border='1.5px solid #ddd';singInp.style.color='#333';}
+            taking[key].singles=v>0?String(v):'';
             updateBuildBtn();
           });
-          row.appendChild(inp);
-          row.appendChild(h('span',{style:{fontSize:'13px',color:'#aaa',flexShrink:'0'}},'pallets'));
+          inputs.appendChild(singInp);
+          inputs.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa'}},'indiv'));
+
+          row.appendChild(inputs);
           card.appendChild(row);
         });
 
