@@ -730,7 +730,9 @@ function getOrchardTotals(){
     // Scale pallets/singles proportionally when a split hive count is provided
     const scaleFactor=(rawHives>0&&hives!==rawHives)?(hives/rawHives):1;
     const effPallets=Math.round(pallets*scaleFactor);
-    const effSingles=Math.round(singles*scaleFactor);
+    // When a movement records hives but no pallets/singles breakdown (rawHives=0),
+    // treat all of those hives as individual hives so they appear correctly in the breakdown.
+    const effSingles=rawHives===0&&hives>0?hives:Math.round(singles*scaleFactor);
     if(m.direction==='to_orchard'){
       const o=m.to_orchard;
       if(!totals[o])totals[o]={pallets:0,singles:0,hives:0};
@@ -11076,7 +11078,7 @@ function renderMovementsScreen(){
           const hdr=h('div',{style:{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'.5px solid #f0f0ee'}});
           const hdrLeft=h('div',null);
           hdrLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},site));
-          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},netPal+'p'+(netSing?' · '+netSing+' indiv':'')+(hasReturns?' remaining':' in orchard')));
+          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},(netPal>0||netSing>0)?(netPal+'p'+(netSing?' · '+netSing+' indiv':'')+(hasReturns?' remaining':' in orchard')):(netHives+' hive'+(netHives!==1?'s':'')+(hasReturns?' remaining':' in orchard'))));
           hdr.appendChild(hdrLeft);
           hdr.appendChild(h('div',{style:{textAlign:'center',flexShrink:'0',marginLeft:'12px'}},
             h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#2a1f3d',lineHeight:'1'}},netHives),
@@ -11138,7 +11140,7 @@ function renderMovementsScreen(){
             onClick:()=>setState({selectedOrchard:o})});
           card.appendChild(h('div',null,
             h('div',{style:{fontWeight:'600',fontSize:'15px'}},o),
-            h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} individual`)
+            (t.pallets>0||t.singles>0)?h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} individual`):null
           ));
           const right=h('div',{style:{display:'flex',alignItems:'center',gap:'10px'}});
           right.appendChild(h('div',{style:{textAlign:'center'}},
