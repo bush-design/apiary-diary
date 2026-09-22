@@ -10079,12 +10079,48 @@ function renderMovementsScreen(){
         // Existing splits
         if((p.splits||[]).length>0){
           p.splits.forEach((s,si)=>{
-            const splitRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0faf3',borderRadius:'6px',padding:'5px 8px',marginBottom:'4px'}});
-            splitRow.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},`→ ${s.dest} — ${s.desc||((s.hives||0)+' hive'+((s.hives||0)!==1?'s':''))}`));
-            splitRow.appendChild(h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'14px',cursor:'pointer',padding:'0'},
+            const splitWrap=h('div',{style:{marginBottom:'4px'}});
+
+            // Destination tag row
+            const splitRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0faf3',border:'1px solid #c8e6c9',borderRadius:'6px',padding:'5px 8px'}});
+            const splitLabel=h('span',{style:{fontSize:'13px',color:'#333',flex:'1'}},`→ ${s.dest} — ${s.desc||((s.hives||0)+' hive'+((s.hives||0)!==1?'s':''))}`);
+            splitRow.appendChild(splitLabel);
+            const splitBtns=h('div',{style:{display:'flex',gap:'6px',alignItems:'center',flexShrink:'0',marginLeft:'6px'}});
+            // Change destination button
+            const changeDestBtn=h('button',{style:{background:'none',border:'.5px solid #3d7a4f',borderRadius:'5px',color:'#3d7a4f',fontSize:'11px',cursor:'pointer',padding:'2px 7px',fontWeight:'600'}},
+              'Change');
+            splitBtns.appendChild(changeDestBtn);
+            splitBtns.appendChild(h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'16px',cursor:'pointer',padding:'0',lineHeight:'1'},
               onClick:()=>confirmAction('Remove this split?',()=>{p.splits.splice(si,1);renderPickups();})
             },'×'));
-            card.appendChild(splitRow);
+            splitRow.appendChild(splitBtns);
+            splitWrap.appendChild(splitRow);
+
+            // Inline yard search (hidden until "Change" is clicked)
+            const changeArea=h('div',{style:{display:'none',marginTop:'4px',background:'#f8f8f6',border:'1px solid #ddd',borderRadius:'6px',padding:'8px'}});
+            changeArea.appendChild(h('div',{style:{fontSize:'11px',color:'#888',marginBottom:'6px',textTransform:'uppercase',letterSpacing:'.04em'}},'Change destination to…'));
+            const changeSearch=h('div',null);
+            makeYardSearch(changeSearch,(newSite,newOp)=>{
+              s.dest=newSite;
+              s.dest_op=newOp||'';
+              // Update desc to keep it consistent (preserve hive count, update names)
+              const palPart=(parseInt(s.pallets)||0)>0?(parseInt(s.pallets))+'p':'';
+              const singPart=(parseInt(s.singles)||0)>0?(parseInt(s.singles))+' indiv':'';
+              if(!palPart&&!singPart) s.desc=(s.hives||0)+' hive'+((s.hives||0)!==1?'s':'');
+              changeArea.style.display='none';
+              renderPickups();
+            }, null);
+            changeArea.appendChild(changeSearch);
+            changeArea.appendChild(h('button',{style:{fontSize:'11px',color:'#aaa',background:'none',border:'none',cursor:'pointer',marginTop:'4px',padding:'0'},
+              onClick:()=>{changeArea.style.display='none';}
+            },'Cancel'));
+            splitWrap.appendChild(changeArea);
+
+            changeDestBtn.addEventListener('click',()=>{
+              changeArea.style.display=changeArea.style.display==='none'?'block':'none';
+            });
+
+            card.appendChild(splitWrap);
           });
         }
 
