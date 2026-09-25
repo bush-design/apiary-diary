@@ -7234,7 +7234,10 @@ function renderSitesList(){
         const raw=e[k];
         if(raw===undefined||raw===null||raw==='') continue;
         const v=parseInt(raw);
-        if(!isNaN(v)&&v>0) return v;
+        if(!isNaN(v)){
+          if(v>0) return v;
+          if(k==='pol_singles') return 0; // explicit 0 = cleared — stop, don't reach back to stale value
+        }
       }
       return 0;
     };
@@ -8823,7 +8826,7 @@ function renderEntriesList(){
     }
     // Includes movement entries — a "MOVED IN" entry can carry collated pollination/requeening
     // data from its source yard(s), and that's just as current as a real hive check.
-    for(const e of allSiteEntriesWithMov){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v)&&v>0)return v;}
+    for(const e of allSiteEntriesWithMov){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v)){if(v>0)return v;if(k==='pol_singles')return 0;}}
     return 0;
   };
   const latestReal=allSiteEntries[0]||null;
