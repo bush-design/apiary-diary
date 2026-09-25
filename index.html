@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -730,9 +731,7 @@ function getOrchardTotals(){
     // Scale pallets/singles proportionally when a split hive count is provided
     const scaleFactor=(rawHives>0&&hives!==rawHives)?(hives/rawHives):1;
     const effPallets=Math.round(pallets*scaleFactor);
-    // When a movement records hives but no pallets/singles breakdown (rawHives=0),
-    // treat all of those hives as individual hives so they appear correctly in the breakdown.
-    const effSingles=rawHives===0&&hives>0?hives:Math.round(singles*scaleFactor);
+    const effSingles=Math.round(singles*scaleFactor);
     if(m.direction==='to_orchard'){
       const o=m.to_orchard;
       if(!totals[o])totals[o]={pallets:0,singles:0,hives:0};
@@ -2046,87 +2045,27 @@ function getSiteScoreEntryAnyRound(op, site){
 // every screen that needs "how many hives are at this site right now" uses this literal same
 // code path — no separate reimplementation that could quietly drift out of sync.
 function computeCurrentHivesForSite(op, site){
-  // IMPORTANT: we do NOT trust the "hives" snapshot stamped onto movement diary entries.
-  // Those snapshots are computed at write time, which means if a person logs movements
-  // out of chronological order (e.g. enters today's move before yesterday's), the earlier
-  // movement didn't exist when the later one was written, so the snapshot is stale.
-  // Example: logging "24/09 → 4 out" before "22/09 → 20 out" stamps 27-4=23 on the 24/09
-  // entry; when the 22/09 entry is later added it correctly shows 7, but 24/09 still says 23
-  // and since it's more recent by date, computeCurrentHivesForSite returned 23 instead of 3.
-  //
-  // The fix: find the most recent REAL (non-movement) diary baseline, then replay the raw
-  // movement records from loadMovements() in strict chronological order. Raw records are the
-  // source of truth; diary movement entries are just display copies that can be stale.
+  // Every entry — a real hive check OR an auto-generated movement entry — already stores its
+  // own correct resulting hive count at the moment it was created (logToSite computes
+  // "whatever was there before + this movement's change" once, when the movement happens).
+  // So the current count is simply whichever entry is most recent; there's no need to re-do
+  // that addition every time this gets read. Re-adding movements at read time is exactly what
+  // kept going wrong — it requires correctly figuring out same-day ordering, timezones, and
+  // what's already been reflected, every single time, instead of once at write time.
   const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]));
-
-  // Find the most recent real (non-movement) entry that has a hive count.
-  const realWithHives=allEntries
-    .filter(e=>!e._movement&&e.hives!==undefined&&e.hives!==null&&e.hives!=='')
-    .sort((a,b)=>{
-      const dc=(b.date||'').localeCompare(a.date||'');
-      if(dc!==0) return dc;
-      const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
-      const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
-      return tsB.localeCompare(tsA);
-    });
-
-  const baseEntry=realWithHives[0]||null;
-
-  if(!baseEntry){
-    // No real diary entry — this yard has only received movements (never had a standalone
-    // inspection). Fall back to trusting the most recent movement diary entry snapshot since
-    // there is no better baseline to compute from.
-    if(!allEntries.length) return 0;
-    const sorted=[...allEntries].sort((a,b)=>{
-      const dc=(b.date||'').localeCompare(a.date||'');
-      if(dc!==0) return dc;
-      const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
-      const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
-      return tsB.localeCompare(tsA);
-    });
-    const mostRecent=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
-    return mostRecent?Math.max(0,parseInt(mostRecent.hives)||0):0;
-  }
-
-  // Baseline established — now replay raw movements from loadMovements() that occurred
-  // strictly after the baseline diary entry (by date+timestamp). Using raw movement records
-  // instead of diary movement entry snapshots means out-of-order entry can't corrupt the result.
-  const baseDate=baseEntry.date;
-  const baseTs=baseEntry.saved_at||baseEntry.logged_at||baseEntry.recorded_at||(baseDate+'T12:00:00');
-  let hives=Math.max(0,parseInt(baseEntry.hives)||0);
-
-  loadMovements()
-    .filter(m=>{
-      if(m.deleted) return false;
-      if(!m.date) return false;
-      if(m.date>baseDate) return true;
-      if(m.date===baseDate){
-        // Same calendar day as baseline: only include this movement if it was recorded AFTER
-        // the diary entry was saved (i.e. the entry does not already reflect this movement).
-        const movTs=m.recorded_at||(m.date+'T23:59:59');
-        return movTs>baseTs;
-      }
-      return false;
-    })
-    .sort((a,b)=>{
-      // Apply in strict chronological order so a 22/09 deduction always precedes a 24/09 one.
-      if(a.date!==b.date) return a.date.localeCompare(b.date);
-      return (a.recorded_at||a.date+'T12:00:00').localeCompare(b.recorded_at||b.date+'T12:00:00');
-    })
-    .forEach(m=>{
-      // Mirror addMovement's aliveChange calculation: alive_hives when set, otherwise derive
-      // from pallets/singles so that movements logged without alive_hives still apply correctly.
-      const totalOnLoad=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0);
-      const aliveChange=totalOnLoad>0?(parseInt(m.alive_hives)||0):
-        m.hives?parseInt(m.hives)||0:
-        (parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
-      const isOut=(m.from_site===site&&(m.from_op||op)===op);
-      const isIn=(m.to_site===site&&(m.to_op||op)===op);
-      if(isOut) hives=Math.max(0,hives-aliveChange);
-      if(isIn) hives+=aliveChange;
-    });
-
-  return Math.max(0,hives);
+  if(!allEntries.length) return 0;
+  const sorted=[...allEntries].sort((a,b)=>{
+    // Date is the PRIMARY sort key — an old entry that was recently edited (updating its
+    // saved_at) must not outrank a genuinely more recent visit just because it was touched
+    // more recently. saved_at/logged_at/recorded_at only break ties between same-day entries.
+    const dc=(b.date||'').localeCompare(a.date||'');
+    if(dc!==0) return dc;
+    const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
+    const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
+    return tsB.localeCompare(tsA);
+  });
+  const mostRecentWithHives=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
+  return mostRecentWithHives?Math.max(0,parseInt(mostRecentWithHives.hives)||0):0;
 }
 
 // ── Shared: effective last-visit date, following the hive chain when a site is empty ──
@@ -5753,22 +5692,15 @@ function renderReportsScreen(){
         return;
       }
 
-      // Aggregate totals — dead is a running total per site, not an increment per visit.
-      // Use only the latest entry per site so we don't double-count.
-      const latestPerSite={};
-      deadEntries.forEach(e=>{
-        const k=e.op+'__'+e.site;
-        if(!latestPerSite[k]||e.date>latestPerSite[k].date) latestPerSite[k]=e;
-      });
-      const latestEntries=Object.values(latestPerSite);
-      const totalDead=latestEntries.reduce((a,e)=>a+e.dead,0);
+      // Aggregate totals
+      const totalDead=deadEntries.reduce((a,e)=>a+e.dead,0);
       const allCauses={};
-      latestEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{allCauses[c]=(allCauses[c]||0)+(parseInt(n)||0);});});
+      deadEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{allCauses[c]=(allCauses[c]||0)+(parseInt(n)||0);});});
 
       // Summary header
       const sumRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}});
       sumRow.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'800',color:'#c0392b'}},totalDead+' dead'));
-      sumRow.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},latestEntries.length+' site'+(latestEntries.length!==1?'s':'')+' across '+new Set(latestEntries.map(e=>e.op)).size+' operation'+(new Set(latestEntries.map(e=>e.op)).size!==1?'s':'')));
+      sumRow.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},deadEntries.length+' entr'+(deadEntries.length!==1?'ies':'y')+' across '+new Set(deadEntries.map(e=>e.op+'__'+e.site)).size+' yards'));
       deathsArea.appendChild(sumRow);
 
       // Cause pill row (overall)
@@ -5785,13 +5717,9 @@ function renderReportsScreen(){
       const ops=[...new Set(deadEntries.map(e=>e.op))];
       ops.forEach(opName=>{
         const opEntries=deadEntries.filter(e=>e.op===opName);
-        // Use latest entry per site within this op for totals
-        const opLatest={};
-        opEntries.forEach(e=>{if(!opLatest[e.site]||e.date>opLatest[e.site].date) opLatest[e.site]=e;});
-        const opLatestEntries=Object.values(opLatest);
-        const opDead=opLatestEntries.reduce((a,e)=>a+e.dead,0);
+        const opDead=opEntries.reduce((a,e)=>a+e.dead,0);
         const opCauses={};
-        opLatestEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{opCauses[c]=(opCauses[c]||0)+(parseInt(n)||0);});});
+        opEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{opCauses[c]=(opCauses[c]||0)+(parseInt(n)||0);});});
         const opColor=OPERATIONS[opName]?.accent||'#888';
 
         const opCard=h('div',{style:{marginBottom:'10px',border:'.5px solid #f0eeec',borderRadius:'10px',overflow:'hidden'}});
@@ -5821,13 +5749,9 @@ function renderReportsScreen(){
         const siteGroups={};
         opEntries.forEach(e=>{
           const k=e.site+'__'+e.batch;
-          if(!siteGroups[k]) siteGroups[k]={site:e.site,batch:e.batch,dead:0,causes:{},dates:[],latestDate:null};
-          // dead is a running total per site — only keep the latest entry's values
-          if(!siteGroups[k].latestDate||e.date>siteGroups[k].latestDate){
-            siteGroups[k].latestDate=e.date;
-            siteGroups[k].dead=e.dead;
-            siteGroups[k].causes=Object.fromEntries(Object.entries(e.cause).map(([c,n])=>[c,parseInt(n)||0]));
-          }
+          if(!siteGroups[k]) siteGroups[k]={site:e.site,batch:e.batch,dead:0,causes:{},dates:[]};
+          siteGroups[k].dead+=e.dead;
+          Object.entries(e.cause).forEach(([c,n])=>{siteGroups[k].causes[c]=(siteGroups[k].causes[c]||0)+(parseInt(n)||0);});
           if(e.date) siteGroups[k].dates.push(e.date);
         });
 
@@ -6309,7 +6233,7 @@ function renderSummaryPanel(opName){
   {
     const polPills=[
       {sites:s.polPalletSites, label:'POL Pallet',     color:'#ef9f27', bg:'rgba(239,159,39,0.12)'},
-      {sites:s.polSinglesSites,label:'POL Indiv.',     color:'#ef9f27', bg:'rgba(239,159,39,0.12)'},
+      {sites:s.polSinglesSites,label:'⚠ POL Indiv.',   color:'#ef9f27', bg:'rgba(239,159,39,0.12)'},
       {sites:s.polBcSites,     label:'POL Singles (BC)', color:'#e67e22', bg:'rgba(230,126,34,0.10)'},
       {sites:s.polDoublesSites,label:'POL Doubles (BC)', color:'#c0392b', bg:'rgba(192,57,43,0.10)'},
       {sites:s.partPalletSites,label:'Part Pallet',    color:'#b8860b', bg:'rgba(184,134,11,0.10)'},
@@ -7171,7 +7095,7 @@ function renderBatchList(){
     const batchScoreBd={};
     data.sites.forEach(site=>{
       const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
-      [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0)batchScoreBd[n]=(batchScoreBd[n]||0)+v;});
+      [0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0)batchScoreBd[n]=(batchScoreBd[n]||0)+v;});
     });
     const hasBatchScores=Object.keys(batchScoreBd).length>0;
 
@@ -7191,12 +7115,12 @@ function renderBatchList(){
     // Spring score breakdown graph — coloured circles with count, tap to see which sites
     if(hasBatchScores){
       const scoreRow=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap',marginBottom:s.hives>0?'8px':'0'}});
-      [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{
+      [0,1,2,3,4,5,6].forEach(n=>{
         const cnt=batchScoreBd[n];
         if(!cnt) return;
         const col=scoreColor(n);
         const pill=h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',gap:'2px',cursor:'pointer'}},
-          h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:col,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'8px':'11px'}},n===10?'10+':String(n)),
+          h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:col,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'8px':'11px'}},n===6?'6+':String(n)),
           h('div',{style:{fontSize:'11px',fontWeight:'600',color:'#555',textAlign:'center'}},String(cnt))
         );
         pill.addEventListener('click',e=>{
@@ -7212,7 +7136,7 @@ function renderBatchList(){
           // Show modal
           const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.55)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:'200',padding:'0'}});
           const box=h('div',{style:{background:'#fff',borderRadius:'16px 16px 0 0',padding:'20px 18px 32px',width:'100%',maxWidth:'430px',maxHeight:'70vh',overflowY:'auto'}});
-          const label=n===10?'10+':String(n);
+          const label=n===6?'6+':String(n);
           box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},
             'Score '+label+' — '+batch));
           box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'16px',textTransform:'uppercase',letterSpacing:'.05em'}},
@@ -7225,7 +7149,7 @@ function renderBatchList(){
                 h('span',{style:{fontWeight:'600',fontSize:'15px',color:'#1a1a1a'}},site),
                 h('div',{style:{display:'flex',alignItems:'center',gap:'8px'}},
                   h('span',{style:{fontSize:'13px',color:'#777'}},count+' hive'+(count!==1?'s':'')),
-                  h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:col,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===10?'8px':'11px'}},label)
+                  h('div',{style:{width:'22px',height:'22px',borderRadius:'50%',background:col,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:'700',fontSize:n===6?'8px':'11px'}},label)
                 )
               );
               row.addEventListener('click',()=>{overlay.remove();setState({run:batch,site,diaryView:'entries'});});
@@ -7517,18 +7441,6 @@ function renderEntriesList(){
     }
     return 0;
   };
-  // Respect-zero lookup for POL box-type fields (pol_singles, pol_bc, pol_doubles).
-  // Unlike lv(), this returns the value from the most recent entry that explicitly set the
-  // field — including 0 — so a visit that records "0 POL individuals" clears the stale value
-  // from an older entry rather than carrying it forward. Returns null if never recorded.
-  const lvPol=k=>{
-    for(const e of allSiteEntriesWithMov){
-      const raw=e[k];
-      if(raw===undefined||raw===null||raw==='') continue;
-      return parseInt(raw)||0;
-    }
-    return null;
-  };
   const latestReal=allSiteEntries[0]||null;
   const days=latestReal?daysBetween(latestReal.date):null;
 
@@ -7632,33 +7544,11 @@ function renderEntriesList(){
     // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
     const extras=[
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
-      // Compute current POL pallets: last diary value minus pol_pallet recorded on outbound
-      // movements since that entry. Only show if the result is > 0.
-      {l:'POL pallet',v:(()=>{
-        const polEntry=allSiteEntriesWithMov.find(e=>!e._movement&&e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
-        if(!polEntry) return 0;
-        const base=parseInt(polEntry.pol_pallet)||0;
-        const cutoff=(polEntry.date||'').slice(0,10);
-        const movedOut=loadMovements().filter(m=>
-          m.from_site===site&&(!op||!m.from_op||m.from_op===op)&&
-          (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
-        ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
-        return Math.max(0,base-movedOut);
-      })(),show:(()=>{
-        const polEntry=allSiteEntriesWithMov.find(e=>!e._movement&&e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
-        if(!polEntry) return false;
-        const base=parseInt(polEntry.pol_pallet)||0;
-        const cutoff=(polEntry.date||'').slice(0,10);
-        const movedOut=loadMovements().filter(m=>
-          m.from_site===site&&(!op||!m.from_op||m.from_op===op)&&
-          (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
-        ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
-        return Math.max(0,base-movedOut)>0;
-      })()},
+      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'POL Indiv.',v:lvPol('pol_singles')||0,show:(lvPol('pol_singles')||0)>0},
-      {l:'POL Singles (BC)',v:lvPol('pol_bc')||0,show:(lvPol('pol_bc')||0)>0},
-      {l:'POL Doubles (BC)',v:lvPol('pol_doubles')||0,show:(lvPol('pol_doubles')||0)>0},
+      {l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
+      {l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
       {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
@@ -7700,6 +7590,14 @@ function renderEntriesList(){
     if(diseasesFound) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#e24b4a',marginTop:'4px',fontWeight:'600'}},'⚠ '+diseasesFound));
   }
   wrap.appendChild(summaryPanel);
+
+  // POL Individual "needs review" banner
+  if(lv('pol_singles')>0){
+    const polReviewBanner=h('div',{style:{background:'#fff8e6',border:'1.5px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',fontSize:'12px',color:'#b07800',fontWeight:'700'}},
+      '⚠ POL Indiv. data needs review — '+lv('pol_singles')+" hive(s) recorded as POL Individual. Please re-enter as POL Double (BC) or POL Single (BC) in a new entry."
+    );
+    wrap.appendChild(polReviewBanner);
+  }
 
   // Flag if present (urgent — amber)
   const flag=getFlag(op,site);
@@ -7786,7 +7684,7 @@ function renderEntriesList(){
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
-      {key:'pol_singles',label:'POL Indiv.'},{key:'pol_bc',label:'POL Singles (BC)'},{key:'pol_doubles',label:'POL Doubles (BC)'},
+      {key:'pol_singles',label:'⚠ POL Indiv. (needs review)'},{key:'pol_bc',label:'POL Singles (BC)'},{key:'pol_doubles',label:'POL Doubles (BC)'},
       // Feed
       {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
@@ -8380,7 +8278,7 @@ function renderForm(){
     ]},
     {key:'pollination',label:'Pollination',color:'#b07800',fields:[
       {key:'pol_pallet',label:'POL Pallets',type:'number'},{key:'part_pallet',label:'Part Pallets',type:'number'},
-      {key:'pol_singles',label:'POL Indiv.',type:'number'},{key:'pol_bc',label:'POL Singles (BC)',type:'number'},{key:'pol_doubles',label:'POL Doubles (BC)',type:'number'},
+      {key:'pol_bc',label:'POL Singles (BC)',type:'number'},{key:'pol_doubles',label:'POL Doubles (BC)',type:'number'},
     ]},
     {key:'feed',label:'Feed',color:'#3d7a4f',fields:[
       {key:'_sugar_label',label:'Sugar Feed',type:'subtitle'},
@@ -8928,18 +8826,6 @@ function renderEntriesList(){
     for(const e of allSiteEntriesWithMov){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v)&&v>0)return v;}
     return 0;
   };
-  // Respect-zero lookup for POL box-type fields (pol_singles, pol_bc, pol_doubles).
-  // Unlike lv(), this returns the value from the most recent entry that explicitly set the
-  // field — including 0 — so a visit that records "0 POL individuals" clears the stale value
-  // from an older entry rather than carrying it forward. Returns null if never recorded.
-  const lvPol=k=>{
-    for(const e of allSiteEntriesWithMov){
-      const raw=e[k];
-      if(raw===undefined||raw===null||raw==='') continue;
-      return parseInt(raw)||0;
-    }
-    return null;
-  };
   const latestReal=allSiteEntries[0]||null;
   const days=latestReal?daysBetween(latestReal.date):null;
 
@@ -9037,33 +8923,11 @@ function renderEntriesList(){
     // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
     const extras=[
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
-      // Compute current POL pallets: last diary value minus pol_pallet recorded on outbound
-      // movements since that entry. Only show if the result is > 0.
-      {l:'POL pallet',v:(()=>{
-        const polEntry=allSiteEntriesWithMov.find(e=>!e._movement&&e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
-        if(!polEntry) return 0;
-        const base=parseInt(polEntry.pol_pallet)||0;
-        const cutoff=(polEntry.date||'').slice(0,10);
-        const movedOut=loadMovements().filter(m=>
-          m.from_site===site&&(!op||!m.from_op||m.from_op===op)&&
-          (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
-        ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
-        return Math.max(0,base-movedOut);
-      })(),show:(()=>{
-        const polEntry=allSiteEntriesWithMov.find(e=>!e._movement&&e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
-        if(!polEntry) return false;
-        const base=parseInt(polEntry.pol_pallet)||0;
-        const cutoff=(polEntry.date||'').slice(0,10);
-        const movedOut=loadMovements().filter(m=>
-          m.from_site===site&&(!op||!m.from_op||m.from_op===op)&&
-          (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
-        ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
-        return Math.max(0,base-movedOut)>0;
-      })()},
+      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'POL Indiv.',v:lvPol('pol_singles')||0,show:(lvPol('pol_singles')||0)>0},
-      {l:'POL Singles (BC)',v:lvPol('pol_bc')||0,show:(lvPol('pol_bc')||0)>0},
-      {l:'POL Doubles (BC)',v:lvPol('pol_doubles')||0,show:(lvPol('pol_doubles')||0)>0},
+      {l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
+      {l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
       {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {l:'QR',v:lv('qr'),show:lv('qr')>0},
@@ -9106,6 +8970,14 @@ function renderEntriesList(){
     if(diseasesFound) summaryPanel.appendChild(h('div',{style:{fontSize:'12px',color:'#e24b4a',marginTop:'4px',fontWeight:'600'}},'⚠ '+diseasesFound));
   }
   wrap.appendChild(summaryPanel);
+
+  // POL Individual "needs review" banner
+  if(lv('pol_singles')>0){
+    const polReviewBanner=h('div',{style:{background:'#fff8e6',border:'1.5px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',fontSize:'12px',color:'#b07800',fontWeight:'700'}},
+      '⚠ POL Indiv. data needs review — '+lv('pol_singles')+" hive(s) recorded as POL Individual. Please re-enter as POL Double (BC) or POL Single (BC) in a new entry."
+    );
+    wrap.appendChild(polReviewBanner);
+  }
 
   // Flag if present (urgent — amber)
   const flag=getFlag(op,site);
@@ -9192,7 +9064,7 @@ function renderEntriesList(){
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
-      {key:'pol_singles',label:'POL Indiv.'},{key:'pol_bc',label:'POL Singles (BC)'},{key:'pol_doubles',label:'POL Doubles (BC)'},
+      {key:'pol_singles',label:'⚠ POL Indiv. (needs review)'},{key:'pol_bc',label:'POL Singles (BC)'},{key:'pol_doubles',label:'POL Doubles (BC)'},
       // Feed
       {key:'hives_fed',label:'Hives Fed'},{key:'litres_fed',label:'Litres Fed'},
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
@@ -10154,48 +10026,12 @@ function renderMovementsScreen(){
         // Existing splits
         if((p.splits||[]).length>0){
           p.splits.forEach((s,si)=>{
-            const splitWrap=h('div',{style:{marginBottom:'4px'}});
-
-            // Destination tag row
-            const splitRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0faf3',border:'1px solid #c8e6c9',borderRadius:'6px',padding:'5px 8px'}});
-            const splitLabel=h('span',{style:{fontSize:'13px',color:'#333',flex:'1'}},`→ ${s.dest} — ${s.desc||((s.hives||0)+' hive'+((s.hives||0)!==1?'s':''))}`);
-            splitRow.appendChild(splitLabel);
-            const splitBtns=h('div',{style:{display:'flex',gap:'6px',alignItems:'center',flexShrink:'0',marginLeft:'6px'}});
-            // Change destination button
-            const changeDestBtn=h('button',{style:{background:'none',border:'.5px solid #3d7a4f',borderRadius:'5px',color:'#3d7a4f',fontSize:'11px',cursor:'pointer',padding:'2px 7px',fontWeight:'600'}},
-              'Change');
-            splitBtns.appendChild(changeDestBtn);
-            splitBtns.appendChild(h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'16px',cursor:'pointer',padding:'0',lineHeight:'1'},
+            const splitRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',background:'#f0faf3',borderRadius:'6px',padding:'5px 8px',marginBottom:'4px'}});
+            splitRow.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},`→ ${s.dest} — ${s.desc||((s.hives||0)+' hive'+((s.hives||0)!==1?'s':''))}`));
+            splitRow.appendChild(h('button',{style:{background:'none',border:'none',color:'#aaa',fontSize:'14px',cursor:'pointer',padding:'0'},
               onClick:()=>confirmAction('Remove this split?',()=>{p.splits.splice(si,1);renderPickups();})
             },'×'));
-            splitRow.appendChild(splitBtns);
-            splitWrap.appendChild(splitRow);
-
-            // Inline yard search (hidden until "Change" is clicked)
-            const changeArea=h('div',{style:{display:'none',marginTop:'4px',background:'#f8f8f6',border:'1px solid #ddd',borderRadius:'6px',padding:'8px'}});
-            changeArea.appendChild(h('div',{style:{fontSize:'11px',color:'#888',marginBottom:'6px',textTransform:'uppercase',letterSpacing:'.04em'}},'Change destination to…'));
-            const changeSearch=h('div',null);
-            makeYardSearch(changeSearch,(newSite,newOp)=>{
-              s.dest=newSite;
-              s.dest_op=newOp||'';
-              // Update desc to keep it consistent (preserve hive count, update names)
-              const palPart=(parseInt(s.pallets)||0)>0?(parseInt(s.pallets))+'p':'';
-              const singPart=(parseInt(s.singles)||0)>0?(parseInt(s.singles))+' indiv':'';
-              if(!palPart&&!singPart) s.desc=(s.hives||0)+' hive'+((s.hives||0)!==1?'s':'');
-              changeArea.style.display='none';
-              renderPickups();
-            }, null);
-            changeArea.appendChild(changeSearch);
-            changeArea.appendChild(h('button',{style:{fontSize:'11px',color:'#aaa',background:'none',border:'none',cursor:'pointer',marginTop:'4px',padding:'0'},
-              onClick:()=>{changeArea.style.display='none';}
-            },'Cancel'));
-            splitWrap.appendChild(changeArea);
-
-            changeDestBtn.addEventListener('click',()=>{
-              changeArea.style.display=changeArea.style.display==='none'?'block':'none';
-            });
-
-            card.appendChild(splitWrap);
+            card.appendChild(splitRow);
           });
         }
 
@@ -10859,11 +10695,9 @@ function renderMovementsScreen(){
       palTile.appendChild(halfBtn);
       palTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(0,0,0,0.3)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'1px'}},'Pallets'));
 
-      // ── POL Pallets tile (purple, editable — records how many of the moved pallets are POL) ──
+      // ── POL Pallets tile (purple, readonly reference) ──
       const polPalTile=h('div',{style:{background:'rgba(155,89,182,0.08)',borderRadius:'8px',padding:'8px 4px 6px',textAlign:'center'}});
-      const polPalVal=mkTInp('rgba(130,60,180,0.75)');
-      if(pickupData.pol_pallet) polPalVal.value=pickupData.pol_pallet;
-      polPalVal.addEventListener('input',e=>{pickupData.pol_pallet=e.target.value;});
+      const polPalVal=h('div',{style:{fontSize:'17px',fontWeight:'700',color:'rgba(130,60,180,0.6)',lineHeight:'1.1',marginBottom:'3px'}},'–');
       polPalTile.appendChild(polPalVal);
       polPalTile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(130,60,180,0.45)',textTransform:'uppercase',letterSpacing:'.04em',marginTop:'2px'}},'POL Pallets'));
 
@@ -10923,27 +10757,13 @@ function renderMovementsScreen(){
           const siteEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(pickupData.op,pickupData.site,r2)]||[]))
             .filter(e=>!e._movement)
             .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-          palInp.placeholder=split?String(split.pallets):'0';
+          const polEntry=siteEntries.find(e=>e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
+          palInp.placeholder=polEntry?String(polEntry.pol_pallet):split?String(split.pallets):'0';
           sinInp.placeholder=split?String(split.singles):'0';
           const allYardEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(pickupData.op,pickupData.site,r2)]||[]))
             .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-          // Compute current POL pallets: last diary pol_pallet minus any pol_pallet recorded on
-          // outbound movements since that diary entry.
-          {
-            const polDiaryEntry=siteEntries.find(e=>e.pol_pallet!==undefined&&e.pol_pallet!==null&&e.pol_pallet!=='');
-            if(polDiaryEntry){
-              const base=parseInt(polDiaryEntry.pol_pallet)||0;
-              const cutoff=(polDiaryEntry.date||'').slice(0,10);
-              const movedOut=loadMovements().filter(m=>
-                m.from_site===pickupData.site&&(!pickupData.op||!m.from_op||m.from_op===pickupData.op)&&
-                (m.date||'').slice(0,10)>=cutoff&&(parseInt(m.pol_pallet)||0)>0
-              ).reduce((s,m)=>s+(parseInt(m.pol_pallet)||0),0);
-              const remaining=Math.max(0,base-movedOut);
-              if(!pickupData.pol_pallet) polPalVal.placeholder=remaining>0?String(remaining):'0';
-            } else {
-              polPalVal.placeholder='0';
-            }
-          }
+          const polPalN=polEntry?(parseInt(polEntry.pol_pallet)||0):0;
+          polPalVal.textContent=polPalN>0?String(polPalN):'–';
           const mrhEntry=allYardEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
           const singStat=mrhEntry?(parseInt(mrhEntry.singles)||0):0;
           singBoxInp.placeholder=singStat>0?String(singStat):'0';
@@ -11213,7 +11033,7 @@ function renderMovementsScreen(){
           const hdr=h('div',{style:{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'.5px solid #f0f0ee'}});
           const hdrLeft=h('div',null);
           hdrLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},site));
-          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},(netPal>0||netSing>0)?(netPal+'p'+(netSing?' · '+netSing+' indiv':'')+(hasReturns?' remaining':' in orchard')):(netHives+' hive'+(netHives!==1?'s':'')+(hasReturns?' remaining':' in orchard'))));
+          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},netPal+'p'+(netSing?' · '+netSing+' indiv':'')+(hasReturns?' remaining':' in orchard')));
           hdr.appendChild(hdrLeft);
           hdr.appendChild(h('div',{style:{textAlign:'center',flexShrink:'0',marginLeft:'12px'}},
             h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#2a1f3d',lineHeight:'1'}},netHives),
@@ -11275,7 +11095,7 @@ function renderMovementsScreen(){
             onClick:()=>setState({selectedOrchard:o})});
           card.appendChild(h('div',null,
             h('div',{style:{fontWeight:'600',fontSize:'15px'}},o),
-            (t.pallets>0||t.singles>0)?h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} individual`):null
+            h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},`${t.pallets} pallet${t.pallets!==1?'s':''} · ${t.singles} individual`)
           ));
           const right=h('div',{style:{display:'flex',alignItems:'center',gap:'10px'}});
           right.appendChild(h('div',{style:{textAlign:'center'}},
@@ -11318,9 +11138,9 @@ function renderMovementsScreen(){
     if(!activeOrchards.length){
       screen.appendChild(h('div',{className:'empty-msg'},'No hives currently in orchards'));
     } else {
-      screen.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'12px',lineHeight:'1.5'}},'Enter pallets and/or individual hives you are taking from each yard today. Leave blank to skip.'));
+      screen.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'12px',lineHeight:'1.5'}},'Enter how many pallets you are taking from each yard today. Leave blank to skip.'));
 
-      // Track taking amounts per key: {pallets, singles}
+      // Track taking amounts: {orchard__site: pallets}
       const taking={};
 
       // Live truck total
@@ -11332,31 +11152,25 @@ function renderMovementsScreen(){
       screen.appendChild(truckTile);
 
       function updateTruckTotal(){
-        const totalPal=Object.values(taking).reduce((a,v)=>a+(parseInt(v.pallets)||0),0);
-        const totalSing=Object.values(taking).reduce((a,v)=>a+(parseInt(v.singles)||0),0);
-        const totalHives=totalPal*4+totalSing;
-        const parts=[];
-        if(totalPal>0) parts.push(totalPal+'p');
-        if(totalSing>0) parts.push(totalSing+' indiv');
-        truckNum.textContent=(parts.length?parts.join(' + ')+' = ':'')+totalHives+' hives';
-        truckSub.textContent=totalHives>0?'Tap "Build load" to pre-fill the movement form':'Enter hives below';
+        const totalPal=Object.values(taking).reduce((a,v)=>a+(parseInt(v)||0),0);
+        const totalHives=totalPal*4;
+        truckNum.textContent=totalPal+'p = '+totalHives+' hives';
+        truckSub.textContent=totalPal>0?'Tap "Build load" to pre-fill the movement form':'Enter pallets below';
       }
       updateTruckTotal();
 
-      // Build load button
+      // Build load button (sticky at bottom)
       const buildBtn=h('button',{style:{width:'100%',padding:'13px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'10px',fontSize:'15px',fontWeight:'700',cursor:'pointer',marginBottom:'12px',opacity:'0.4',pointerEvents:'none'},
         onClick:()=>{
           const plan=[];
-          Object.entries(taking).forEach(([key,amounts])=>{
-            const pal=parseInt(amounts.pallets)||0;
-            const sing=parseInt(amounts.singles)||0;
-            if(!pal&&!sing) return;
+          Object.entries(taking).forEach(([key,pallets])=>{
+            if(!parseInt(pallets)) return;
             const [orchard,...siteParts]=key.split('__');
             const site=siteParts.join('__');
             const op=(orchardSites[orchard]||{})[site]?.op||'';
-            plan.push({orchard,site,pallets:String(pal),singles:String(sing),op});
+            plan.push({orchard,site,pallets:String(pallets),singles:'0',op});
           });
-          if(!plan.length){showToast('Enter hives to take for at least one yard');return;}
+          if(!plan.length){showToast('Enter pallets to take for at least one yard');return;}
           STATE._returnPlan=plan;
           setState({tab:'movements',_returnMode:true});
         }
@@ -11364,7 +11178,7 @@ function renderMovementsScreen(){
       screen.appendChild(buildBtn);
 
       function updateBuildBtn(){
-        const hasSome=Object.values(taking).some(v=>(parseInt(v.pallets)||0)>0||(parseInt(v.singles)||0)>0);
+        const hasSome=Object.values(taking).some(v=>parseInt(v)>0);
         buildBtn.style.opacity=hasSome?'1':'0.4';
         buildBtn.style.pointerEvents=hasSome?'auto':'none';
         updateTruckTotal();
@@ -11373,61 +11187,45 @@ function renderMovementsScreen(){
       // Orchard cards
       activeOrchards.forEach(([orchard,sites])=>{
         const activeSites=Object.entries(sites).filter(([,s])=>s.pallets>0||s.singles>0);
-        const orchTotalPal=activeSites.reduce((a,[,s])=>a+s.pallets,0);
-        const orchTotalSing=activeSites.reduce((a,[,s])=>a+s.singles,0);
+        const orchTotal=activeSites.reduce((a,[,s])=>a+s.pallets,0);
 
         const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid #ddd'}});
 
         // Orchard header
         const hdr=h('div',{style:{padding:'11px 14px',background:'#f8f8f6',borderBottom:'.5px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'center'}});
         hdr.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},orchard));
-        const orchSub=orchTotalPal>0&&orchTotalSing>0?orchTotalPal+'p · '+orchTotalSing+' indiv in orchard':orchTotalPal>0?orchTotalPal+'p in orchard':orchTotalSing+' indiv in orchard';
-        hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},orchSub));
+        hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},orchTotal+'p in orchard'));
         card.appendChild(hdr);
 
         // Per-yard rows
-        activeSites.sort((a,b)=>(b[1].pallets*4+b[1].singles)-(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
+        activeSites.sort((a,b)=>b[1].pallets-a[1].pallets).forEach(([site,data])=>{
           const key=orchard+'__'+site;
-          if(!taking[key]) taking[key]={pallets:'',singles:''};
-          const row=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3'}});
+          const row=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3'}});
 
-          // Site name + what's in orchard
-          const left=h('div',{style:{flex:'1',minWidth:'0'}});
-          left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},site));
-          const siteSub=data.pallets>0&&data.singles>0?data.pallets+'p · '+data.singles+' indiv in orchard':data.pallets>0?data.pallets+'p in orchard':data.singles+' indiv in orchard';
-          left.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},siteSub));
+          // Site name + pallets in orchard
+          const left=h('div',{style:{flex:'1'}});
+          left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site));
+          left.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},data.pallets+'p in orchard'));
           row.appendChild(left);
 
-          // Inputs column
-          const inputs=h('div',{style:{display:'flex',gap:'6px',alignItems:'center',flexShrink:'0'}});
-
-          // Pallets input (only show if pallets in orchard)
-          if(data.pallets>0){
-            const palInp=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.pallets),placeholder:'0',style:{width:'52px',padding:'6px 4px',border:'1.5px solid #ddd',borderRadius:'8px',fontSize:'15px',fontWeight:'700',textAlign:'center',background:'#fafafa',boxSizing:'border-box'}});
-            palInp.addEventListener('input',e=>{
-              const v=Math.min(parseInt(e.target.value)||0,data.pallets);
-              if(v>0){palInp.value=String(v);palInp.style.border='1.5px solid #9b59b6';palInp.style.color='#9b59b6';}
-              else{palInp.style.border='1.5px solid #ddd';palInp.style.color='#333';}
-              taking[key].pallets=v>0?String(v):'';
-              updateBuildBtn();
-            });
-            inputs.appendChild(palInp);
-            inputs.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa',marginRight:'4px'}},'pal'));
-          }
-
-          // Individuals input (always show — individuals may be in orchard even when pallets=0)
-          const singInp=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.singles||999),placeholder:'0',style:{width:'52px',padding:'6px 4px',border:'1.5px solid #ddd',borderRadius:'8px',fontSize:'15px',fontWeight:'700',textAlign:'center',background:'#fafafa',boxSizing:'border-box'}});
-          singInp.addEventListener('input',e=>{
-            const v=Math.min(parseInt(e.target.value)||0,data.singles||999);
-            if(v>0){singInp.value=String(v);singInp.style.border='1.5px solid #9b59b6';singInp.style.color='#9b59b6';}
-            else{singInp.style.border='1.5px solid #ddd';singInp.style.color='#333';}
-            taking[key].singles=v>0?String(v):'';
+          // Input: pallets taking today
+          const inp=h('input',{type:'number',inputmode:'numeric',min:'0',max:String(data.pallets),placeholder:'0',style:{width:'60px',padding:'7px 8px',border:'1.5px solid #ddd',borderRadius:'8px',fontSize:'16px',fontWeight:'700',textAlign:'center',background:'#fafafa',boxSizing:'border-box'}});
+          inp.addEventListener('input',e=>{
+            const v=Math.min(parseInt(e.target.value)||0,data.pallets);
+            if(v>0){
+              inp.value=String(v);
+              taking[key]=String(v);
+              inp.style.border='1.5px solid #9b59b6';
+              inp.style.color='#9b59b6';
+            } else {
+              delete taking[key];
+              inp.style.border='1.5px solid #ddd';
+              inp.style.color='#333';
+            }
             updateBuildBtn();
           });
-          inputs.appendChild(singInp);
-          inputs.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa'}},'indiv'));
-
-          row.appendChild(inputs);
+          row.appendChild(inp);
+          row.appendChild(h('span',{style:{fontSize:'13px',color:'#aaa',flexShrink:'0'}},'pallets'));
           card.appendChild(row);
         });
 
