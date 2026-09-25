@@ -1945,7 +1945,7 @@ function calcSummary(opName){
     const swabN=parseInt(getSiteFieldAnyRound(opName,site,'to_swab'))||0;
     const swabWhole=!!(getSiteFieldAnyRound(opName,site,'swab_whole_yard'));
     if(swabN>0||swabWhole) swabSites.push({site,count:swabN,whole:swabWhole});
-    const psi=lastVal('pol_singles'); if(psi>0) polSinglesSites.push({site,count:psi});
+    const psi=lastVal('pol_singles'); if(psi>0&&!isPolIndivDismissed(opName,site)) polSinglesSites.push({site,count:psi});
     const pbc=lastVal('pol_bc'); if(pbc>0) polBcSites.push({site,count:pbc});
     const pdb=lastVal('pol_doubles'); if(pdb>0) polDoublesSites.push({site,count:pdb});
     const ppal=lastVal('pol_pallet'); if(ppal>0) polPalletSites.push({site,count:ppal});
