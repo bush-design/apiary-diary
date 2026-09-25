@@ -7555,7 +7555,7 @@ function renderEntriesList(){
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
       {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0&&!isPolIndivDismissed(op,site)},
       {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
       {l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
@@ -7578,14 +7578,12 @@ function renderEntriesList(){
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
       extras.forEach(f=>{
-        if(f.l==='⚠ POL Indiv.'&&!isPolIndivDismissed(op,site)){
-          // Clickable — tapping dismisses the pill (no data change)
-          const btn=h('button',{type:'button',style:{fontSize:'12px',fontWeight:'700',color:'#b07800',background:'rgba(239,159,39,0.18)',border:'1.5px solid #b07800',borderRadius:'6px',padding:'3px 8px',cursor:'pointer'}},f.v+' '+f.l+' ✕');
-          btn.addEventListener('click',e=>{
-            e.stopPropagation();
-            dismissPolIndiv(op,site);
-            setState({});
-          });
+        if(f.l==='⚠ POL Indiv.'){
+          // Tappable pill — dismisses warning (no data change)
+          const btn=h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#b07800',background:'rgba(239,159,39,0.18)',border:'1.5px solid #b07800',borderRadius:'6px',padding:'6px 10px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},f.v+' '+f.l,' ✕');
+          const doDismiss=e=>{e.preventDefault();e.stopPropagation();dismissPolIndiv(op,site);showToast('POL Individual dismissed for '+site);setState({});};
+          btn.addEventListener('touchend',doDismiss,{passive:false});
+          btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
         } else {
           eRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l));
@@ -7615,12 +7613,10 @@ function renderEntriesList(){
   if(lv('pol_singles')>0&&!isPolIndivDismissed(op,site)){
     const polReviewBanner=h('div',{style:{background:'#fff8e6',border:'1.5px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',fontSize:'12px',color:'#b07800',fontWeight:'700',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}});
     polReviewBanner.appendChild(h('span',null,'⚠ POL Indiv. data needs review — '+lv('pol_singles')+' hive(s) recorded as POL Individual. Please re-enter as POL Double (BC) or POL Single (BC) in a new entry.'));
-    const clearBtn=h('button',{type:'button',style:{flexShrink:'0',fontSize:'11px',fontWeight:'700',color:'#b07800',background:'#ffe9a0',border:'1.5px solid #b07800',borderRadius:'6px',padding:'3px 8px',cursor:'pointer',whiteSpace:'nowrap'}},'Dismiss ✕');
-    clearBtn.addEventListener('click',e=>{
-      e.stopPropagation();
-      dismissPolIndiv(op,site);
-      setState({});
-    });
+    const clearBtn=h('span',{style:{flexShrink:'0',fontSize:'11px',fontWeight:'700',color:'#b07800',background:'#ffe9a0',border:'1.5px solid #b07800',borderRadius:'6px',padding:'6px 10px',cursor:'pointer',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},'Dismiss ✕');
+    const doBannerDismiss=e=>{e.preventDefault();e.stopPropagation();dismissPolIndiv(op,site);showToast('POL Individual dismissed for '+site);setState({});};
+    clearBtn.addEventListener('touchend',doBannerDismiss,{passive:false});
+    clearBtn.addEventListener('click',doBannerDismiss);
     polReviewBanner.appendChild(clearBtn);
     wrap.appendChild(polReviewBanner);
   }
@@ -8951,7 +8947,7 @@ function renderEntriesList(){
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
       {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0},
+      {l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0&&!isPolIndivDismissed(op,site)},
       {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
       {l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
       {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
@@ -8975,14 +8971,12 @@ function renderEntriesList(){
     if(extras.length){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
       extras.forEach(f=>{
-        if(f.l==='⚠ POL Indiv.'&&!isPolIndivDismissed(op,site)){
-          // Clickable — tapping dismisses the pill (no data change)
-          const btn=h('button',{type:'button',style:{fontSize:'12px',fontWeight:'700',color:'#b07800',background:'rgba(239,159,39,0.18)',border:'1.5px solid #b07800',borderRadius:'6px',padding:'3px 8px',cursor:'pointer'}},f.v+' '+f.l+' ✕');
-          btn.addEventListener('click',e=>{
-            e.stopPropagation();
-            dismissPolIndiv(op,site);
-            setState({});
-          });
+        if(f.l==='⚠ POL Indiv.'){
+          // Tappable pill — dismisses warning (no data change)
+          const btn=h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#b07800',background:'rgba(239,159,39,0.18)',border:'1.5px solid #b07800',borderRadius:'6px',padding:'6px 10px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},f.v+' '+f.l,' ✕');
+          const doDismiss=e=>{e.preventDefault();e.stopPropagation();dismissPolIndiv(op,site);showToast('POL Individual dismissed for '+site);setState({});};
+          btn.addEventListener('touchend',doDismiss,{passive:false});
+          btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
         } else {
           eRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l));
@@ -9012,12 +9006,10 @@ function renderEntriesList(){
   if(lv('pol_singles')>0&&!isPolIndivDismissed(op,site)){
     const polReviewBanner=h('div',{style:{background:'#fff8e6',border:'1.5px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',fontSize:'12px',color:'#b07800',fontWeight:'700',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}});
     polReviewBanner.appendChild(h('span',null,'⚠ POL Indiv. data needs review — '+lv('pol_singles')+' hive(s) recorded as POL Individual. Please re-enter as POL Double (BC) or POL Single (BC) in a new entry.'));
-    const clearBtn=h('button',{type:'button',style:{flexShrink:'0',fontSize:'11px',fontWeight:'700',color:'#b07800',background:'#ffe9a0',border:'1.5px solid #b07800',borderRadius:'6px',padding:'3px 8px',cursor:'pointer',whiteSpace:'nowrap'}},'Dismiss ✕');
-    clearBtn.addEventListener('click',e=>{
-      e.stopPropagation();
-      dismissPolIndiv(op,site);
-      setState({});
-    });
+    const clearBtn=h('span',{style:{flexShrink:'0',fontSize:'11px',fontWeight:'700',color:'#b07800',background:'#ffe9a0',border:'1.5px solid #b07800',borderRadius:'6px',padding:'6px 10px',cursor:'pointer',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},'Dismiss ✕');
+    const doBannerDismiss=e=>{e.preventDefault();e.stopPropagation();dismissPolIndiv(op,site);showToast('POL Individual dismissed for '+site);setState({});};
+    clearBtn.addEventListener('touchend',doBannerDismiss,{passive:false});
+    clearBtn.addEventListener('click',doBannerDismiss);
     polReviewBanner.appendChild(clearBtn);
     wrap.appendChild(polReviewBanner);
   }
