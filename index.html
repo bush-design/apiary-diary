@@ -5693,15 +5693,22 @@ function renderReportsScreen(){
         return;
       }
 
-      // Aggregate totals
-      const totalDead=deadEntries.reduce((a,e)=>a+e.dead,0);
+      // Aggregate totals — dead is a running total per site, not an increment per visit.
+      // Use only the latest entry per site so we don't double-count.
+      const latestPerSite={};
+      deadEntries.forEach(e=>{
+        const k=e.op+'__'+e.site;
+        if(!latestPerSite[k]||e.date>latestPerSite[k].date) latestPerSite[k]=e;
+      });
+      const latestEntries=Object.values(latestPerSite);
+      const totalDead=latestEntries.reduce((a,e)=>a+e.dead,0);
       const allCauses={};
-      deadEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{allCauses[c]=(allCauses[c]||0)+(parseInt(n)||0);});});
+      latestEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{allCauses[c]=(allCauses[c]||0)+(parseInt(n)||0);});});
 
       // Summary header
       const sumRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}});
       sumRow.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'800',color:'#c0392b'}},totalDead+' dead'));
-      sumRow.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},deadEntries.length+' entr'+(deadEntries.length!==1?'ies':'y')+' across '+new Set(deadEntries.map(e=>e.op+'__'+e.site)).size+' yards'));
+      sumRow.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},latestEntries.length+' site'+(latestEntries.length!==1?'s':'')+' across '+new Set(latestEntries.map(e=>e.op)).size+' operation'+(new Set(latestEntries.map(e=>e.op)).size!==1?'s':'')));
       deathsArea.appendChild(sumRow);
 
       // Cause pill row (overall)
@@ -5718,9 +5725,13 @@ function renderReportsScreen(){
       const ops=[...new Set(deadEntries.map(e=>e.op))];
       ops.forEach(opName=>{
         const opEntries=deadEntries.filter(e=>e.op===opName);
-        const opDead=opEntries.reduce((a,e)=>a+e.dead,0);
+        // Use latest entry per site within this op for totals
+        const opLatest={};
+        opEntries.forEach(e=>{if(!opLatest[e.site]||e.date>opLatest[e.site].date) opLatest[e.site]=e;});
+        const opLatestEntries=Object.values(opLatest);
+        const opDead=opLatestEntries.reduce((a,e)=>a+e.dead,0);
         const opCauses={};
-        opEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{opCauses[c]=(opCauses[c]||0)+(parseInt(n)||0);});});
+        opLatestEntries.forEach(e=>{Object.entries(e.cause).forEach(([c,n])=>{opCauses[c]=(opCauses[c]||0)+(parseInt(n)||0);});});
         const opColor=OPERATIONS[opName]?.accent||'#888';
 
         const opCard=h('div',{style:{marginBottom:'10px',border:'.5px solid #f0eeec',borderRadius:'10px',overflow:'hidden'}});
@@ -5750,9 +5761,13 @@ function renderReportsScreen(){
         const siteGroups={};
         opEntries.forEach(e=>{
           const k=e.site+'__'+e.batch;
-          if(!siteGroups[k]) siteGroups[k]={site:e.site,batch:e.batch,dead:0,causes:{},dates:[]};
-          siteGroups[k].dead+=e.dead;
-          Object.entries(e.cause).forEach(([c,n])=>{siteGroups[k].causes[c]=(siteGroups[k].causes[c]||0)+(parseInt(n)||0);});
+          if(!siteGroups[k]) siteGroups[k]={site:e.site,batch:e.batch,dead:0,causes:{},dates:[],latestDate:null};
+          // dead is a running total per site — only keep the latest entry's values
+          if(!siteGroups[k].latestDate||e.date>siteGroups[k].latestDate){
+            siteGroups[k].latestDate=e.date;
+            siteGroups[k].dead=e.dead;
+            siteGroups[k].causes=Object.fromEntries(Object.entries(e.cause).map(([c,n])=>[c,parseInt(n)||0]));
+          }
           if(e.date) siteGroups[k].dates.push(e.date);
         });
 
