@@ -2046,27 +2046,87 @@ function getSiteScoreEntryAnyRound(op, site){
 // every screen that needs "how many hives are at this site right now" uses this literal same
 // code path — no separate reimplementation that could quietly drift out of sync.
 function computeCurrentHivesForSite(op, site){
-  // Every entry — a real hive check OR an auto-generated movement entry — already stores its
-  // own correct resulting hive count at the moment it was created (logToSite computes
-  // "whatever was there before + this movement's change" once, when the movement happens).
-  // So the current count is simply whichever entry is most recent; there's no need to re-do
-  // that addition every time this gets read. Re-adding movements at read time is exactly what
-  // kept going wrong — it requires correctly figuring out same-day ordering, timezones, and
-  // what's already been reflected, every single time, instead of once at write time.
+  // IMPORTANT: we do NOT trust the "hives" snapshot stamped onto movement diary entries.
+  // Those snapshots are computed at write time, which means if a person logs movements
+  // out of chronological order (e.g. enters today's move before yesterday's), the earlier
+  // movement didn't exist when the later one was written, so the snapshot is stale.
+  // Example: logging "24/09 → 4 out" before "22/09 → 20 out" stamps 27-4=23 on the 24/09
+  // entry; when the 22/09 entry is later added it correctly shows 7, but 24/09 still says 23
+  // and since it's more recent by date, computeCurrentHivesForSite returned 23 instead of 3.
+  //
+  // The fix: find the most recent REAL (non-movement) diary baseline, then replay the raw
+  // movement records from loadMovements() in strict chronological order. Raw records are the
+  // source of truth; diary movement entries are just display copies that can be stale.
   const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]));
-  if(!allEntries.length) return 0;
-  const sorted=[...allEntries].sort((a,b)=>{
-    // Date is the PRIMARY sort key — an old entry that was recently edited (updating its
-    // saved_at) must not outrank a genuinely more recent visit just because it was touched
-    // more recently. saved_at/logged_at/recorded_at only break ties between same-day entries.
-    const dc=(b.date||'').localeCompare(a.date||'');
-    if(dc!==0) return dc;
-    const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
-    const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
-    return tsB.localeCompare(tsA);
-  });
-  const mostRecentWithHives=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
-  return mostRecentWithHives?Math.max(0,parseInt(mostRecentWithHives.hives)||0):0;
+
+  // Find the most recent real (non-movement) entry that has a hive count.
+  const realWithHives=allEntries
+    .filter(e=>!e._movement&&e.hives!==undefined&&e.hives!==null&&e.hives!=='')
+    .sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||'');
+      if(dc!==0) return dc;
+      const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
+      const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
+      return tsB.localeCompare(tsA);
+    });
+
+  const baseEntry=realWithHives[0]||null;
+
+  if(!baseEntry){
+    // No real diary entry — this yard has only received movements (never had a standalone
+    // inspection). Fall back to trusting the most recent movement diary entry snapshot since
+    // there is no better baseline to compute from.
+    if(!allEntries.length) return 0;
+    const sorted=[...allEntries].sort((a,b)=>{
+      const dc=(b.date||'').localeCompare(a.date||'');
+      if(dc!==0) return dc;
+      const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
+      const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
+      return tsB.localeCompare(tsA);
+    });
+    const mostRecent=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
+    return mostRecent?Math.max(0,parseInt(mostRecent.hives)||0):0;
+  }
+
+  // Baseline established — now replay raw movements from loadMovements() that occurred
+  // strictly after the baseline diary entry (by date+timestamp). Using raw movement records
+  // instead of diary movement entry snapshots means out-of-order entry can't corrupt the result.
+  const baseDate=baseEntry.date;
+  const baseTs=baseEntry.saved_at||baseEntry.logged_at||baseEntry.recorded_at||(baseDate+'T12:00:00');
+  let hives=Math.max(0,parseInt(baseEntry.hives)||0);
+
+  loadMovements()
+    .filter(m=>{
+      if(m.deleted) return false;
+      if(!m.date) return false;
+      if(m.date>baseDate) return true;
+      if(m.date===baseDate){
+        // Same calendar day as baseline: only include this movement if it was recorded AFTER
+        // the diary entry was saved (i.e. the entry does not already reflect this movement).
+        const movTs=m.recorded_at||(m.date+'T23:59:59');
+        return movTs>baseTs;
+      }
+      return false;
+    })
+    .sort((a,b)=>{
+      // Apply in strict chronological order so a 22/09 deduction always precedes a 24/09 one.
+      if(a.date!==b.date) return a.date.localeCompare(b.date);
+      return (a.recorded_at||a.date+'T12:00:00').localeCompare(b.recorded_at||b.date+'T12:00:00');
+    })
+    .forEach(m=>{
+      // Mirror addMovement's aliveChange calculation: alive_hives when set, otherwise derive
+      // from pallets/singles so that movements logged without alive_hives still apply correctly.
+      const totalOnLoad=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0);
+      const aliveChange=totalOnLoad>0?(parseInt(m.alive_hives)||0):
+        m.hives?parseInt(m.hives)||0:
+        (parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+      const isOut=(m.from_site===site&&(m.from_op||op)===op);
+      const isIn=(m.to_site===site&&(m.to_op||op)===op);
+      if(isOut) hives=Math.max(0,hives-aliveChange);
+      if(isIn) hives+=aliveChange;
+    });
+
+  return Math.max(0,hives);
 }
 
 // ── Shared: effective last-visit date, following the hive chain when a site is empty ──
