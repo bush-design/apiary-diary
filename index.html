@@ -1870,7 +1870,7 @@ async function exportSinceLastExport(){
 }
 
 // ── Summary calc ──────────────────────────────────────────────────────────────
-function calcSummary(opName){
+function calcSummary(opName, cutoffDate){
   const sites=allSitesFor(opName);
   // include custom yards
   let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0;
@@ -1883,7 +1883,7 @@ function calcSummary(opName){
     let best=null, bestRk=null;
     Object.keys(ROUNDS).forEach(rk=>{
       const list=STATE.entries[eKey(opName,site,rk)]||[];
-      list.forEach(e=>{if(!best||e.date>best.date){best=e;bestRk=rk;}});
+      list.forEach(e=>{if((!cutoffDate||e.date<=cutoffDate)&&(!best||e.date>best.date)){best=e;bestRk=rk;}});
     });
     // Overdue check — if site is empty, follow the hive chain to the destination yard
     const effectiveVisitDate=getEffectiveLastVisitDate(opName,site);
@@ -1892,7 +1892,7 @@ function calcSummary(opName){
     logged++;
     // For each field, use the most recent entry that actually has a value for it
     // This prevents empty fields in a new entry zeroing out previous counts
-    const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!cutoffDate||e.date<=cutoffDate)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
     const HIVE_FIELDS_LV=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
     // Only lids_floors wants "most recent non-zero" (a maintenance item genuinely may not have
     // been checked this visit). singles/doubles/light/weak respect an explicit 0 — a hive count
@@ -1944,11 +1944,11 @@ function calcSummary(opName){
     hcHdOn+=lastVal('honeycomb_hd');
     // Breeders — most recent entry in ANY round, not just Spring, so a breeder logged in
     // Summer (or any other season) still counts toward the fleet total.
-    const breederCount=getSiteBreederCount(opName,site);
+    const breederCount=getSiteBreederCount(opName,site,cutoffDate);
     if(breederCount>0) breederSites.push({site,count:breederCount});
-    if(parseInt(getSiteFieldAnyRound(opName,site,'finishers'))>0) finisherSites.push({site,count:parseInt(getSiteFieldAnyRound(opName,site,'finishers'))});
-    const swabN=parseInt(getSiteFieldAnyRound(opName,site,'to_swab'))||0;
-    const swabWhole=!!(getSiteFieldAnyRound(opName,site,'swab_whole_yard'));
+    if(parseInt(getSiteFieldAnyRound(opName,site,'finishers',cutoffDate))>0) finisherSites.push({site,count:parseInt(getSiteFieldAnyRound(opName,site,'finishers',cutoffDate))});
+    const swabN=parseInt(getSiteFieldAnyRound(opName,site,'to_swab',cutoffDate))||0;
+    const swabWhole=!!(getSiteFieldAnyRound(opName,site,'swab_whole_yard',cutoffDate));
     if(swabN>0||swabWhole) swabSites.push({site,count:swabN,whole:swabWhole});
     const psi=lastVal('pol_singles'); if(psi>0&&!isPolIndivDismissed(opName,site)) polSinglesSites.push({site,count:psi});
     const pbc=lastVal('pol_bc'); if(pbc>0) polBcSites.push({site,count:pbc});
@@ -1960,7 +1960,7 @@ function calcSummary(opName){
     // Hive Strength/score section can be filled in on an entry logged under any season. Using
     // latestEntry(...,'spring') here missed scores entered on entries filed under a different
     // round, which is exactly what made a freshly-entered score not show up in this summary.
-    const springE=getSiteScoreEntryAnyRound(opName,site);
+    const springE=getSiteScoreEntryAnyRound(opName,site,cutoffDate);
     const bd=springE?.score_breakdown||{};
     [0,1,2,3,4,5,6].forEach(s=>{const v=parseInt(bd[s]);if(!isNaN(v)&&v>0){st+=s*v;sc+=v;}});
     siteScoreEntries[site]=springE;
@@ -1973,9 +1973,9 @@ function calcSummary(opName){
 // ── Shared: current breeder count for a site — most recent entry (any round) that actually
 // has a 'breeders' value logged, even if that value is explicitly 0 (a real "no breeders left
 // now" reading should stick, not be skipped in favor of an older non-zero count).
-function getSiteBreederCount(op, site){
+function getSiteBreederCount(op, site, cutoffDate){
   const allEntries=Object.keys(ROUNDS)
-    .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement))
+    .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement&&(!cutoffDate||e.date<=cutoffDate)))
     .sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||'');
       return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');
@@ -1997,9 +1997,9 @@ function getSiteBreederCount(op, site){
 // exactly what caused a freshly-entered Spring Score to not show up anywhere despite saving
 // correctly. Route any future "most recent X regardless of round" lookup through here instead
 // of a new hand-rolled version, so this can't quietly drift out of sync again.
-function getSiteFieldAnyRound(op, site, fieldKey){
+function getSiteFieldAnyRound(op, site, fieldKey, cutoffDate){
   const allEntries=Object.keys(ROUNDS)
-    .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement))
+    .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement&&(!cutoffDate||e.date<=cutoffDate)))
     .sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||''); // date is primary — an edited old entry shouldn't outrank a genuinely newer one
       if(dc!==0) return dc;
@@ -5828,11 +5828,11 @@ function renderReportsScreen(){
   }
 }
 
-function showStatModal(opName, fieldKey, label, color){
+function showStatModal(opName, fieldKey, label, color, cutoffDate){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!cutoffDate||e.date<=cutoffDate)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
     // hives/dead/singles/doubles/light/alive/dead_hives must all come from the SAME most recent
     // entry, together — searching independently per field (as this used to) lets them drift
     // apart when a visit fills in one field but leaves another blank, silently mixing today's
@@ -5864,7 +5864,7 @@ function showStatModal(opName, fieldKey, label, color){
 
   const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'20px'}});
   const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px',maxHeight:'80vh',display:'flex',flexDirection:'column'}});
-  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},label+' — '+opName));
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},label+' — '+opName+(cutoffDate?' (as of '+fmtDate(cutoffDate)+')':'')));
   box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},total+' total across '+results.length+' site'+(results.length!==1?'s':'')));
   const list=h('div',{style:{overflowY:'auto',flex:'1'}});
   if(!results.length){
@@ -5899,7 +5899,7 @@ function showLidsFloorsModal(opName){ showStatModal(opName,'lids_floors','Lids &
 // Spring Score drill-down — every site with a recorded score, its hives/doubles/singles, and
 // its own average, reusing the same "most recent entry with score data, any round" lookup the
 // fleet-wide summary itself uses, so this list always matches what the summary chart shows.
-function showPollinationDetailModal(opName){
+function showPollinationDetailModal(opName, cutoffDate){
   const opSites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   // Build per-orchard, per-site breakdown from all movements for this operation.
   // to_orchard  → hives leave a site and go to an orchard  (positive)
@@ -5908,7 +5908,7 @@ function showPollinationDetailModal(opName){
   // Returns are subtracted at the orchard level (we can't know which source site
   // the returned hives originally came from, so returns reduce the orchard total).
   const byOrchard={}; // { orchardName: { net, sites: { siteName: hives } } }
-  loadMovements().forEach(m=>{
+  loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
     const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0))+Math.max(parseInt(m.singles_boxes)||0,parseInt(m.pol_singles_count)||0));
     if(!mh) return;
     if(m.direction==='to_orchard'&&opSites.includes(m.from_site)){
@@ -5932,7 +5932,7 @@ function showPollinationDetailModal(opName){
 
   // Header
   box.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}},
-    h('div',{style:{fontWeight:'800',fontSize:'17px',color:'#222'}},'Hives in Pollination'),
+    h('div',{style:{fontWeight:'800',fontSize:'17px',color:'#222'}},'Hives in Pollination'+(cutoffDate?' · '+fmtDate(cutoffDate):'')),
     h('button',{style:{background:'none',border:'none',fontSize:'22px',color:'#999',cursor:'pointer',padding:'0 4px'},onClick:()=>overlay.remove()},'×')
   ));
 
@@ -5977,18 +5977,18 @@ function showPollinationDetailModal(opName){
   document.body.appendChild(overlay);
 }
 
-function showScoreModal(opName){
+function showScoreModal(opName, cutoffDate){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
   sites.forEach(site=>{
-    const scoreEntry=getSiteScoreEntryAnyRound(opName,site);
+    const scoreEntry=getSiteScoreEntryAnyRound(opName,site,cutoffDate);
     if(!scoreEntry) return;
     const bd=scoreEntry.score_breakdown||{};
     let total=0,weighted=0;
     [0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){total+=v;weighted+=n*v;}});
     if(total===0) return;
     const avg=weighted/total;
-    const state=getSiteHiveState(opName,site,null);
+    const state=getSiteHiveState(opName,site,cutoffDate);
     results.push({site,hives:state.hives||0,doubles:state.doubles||0,singles:state.singles||0,scoredHives:total,avg,date:scoreEntry.date});
   });
   results.sort((a,b)=>a.avg-b.avg); // worst-scoring yards first — the ones that need attention
@@ -5998,10 +5998,10 @@ function showScoreModal(opName){
   // should only appear for sites that genuinely never had a score entered yet.
   const unscoredSites=sites
     .map(site=>{
-      const state=getSiteHiveState(opName,site,null);
+      const state=getSiteHiveState(opName,site,cutoffDate);
       const hives=state.hives||0;
       if(hives===0) return null; // empty sites aren't a gap — correct to omit them
-      const hasScore=!!getSiteScoreEntryAnyRound(opName,site);
+      const hasScore=!!getSiteScoreEntryAnyRound(opName,site,cutoffDate);
       if(hasScore) return null;
       return {site,hives};
     })
@@ -6053,11 +6053,11 @@ function showScoreModal(opName){
   document.body.appendChild(overlay);
 }
 
-function showFormicModal(opName){
+function showFormicModal(opName, cutoffDate){
   const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
   const results=[];
   sites.forEach(site=>{
-    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
+    const allE=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!cutoffDate||e.date<=cutoffDate)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movements — hive/composition fields need them; other fields naturally skip them since movements lack those fields
     // Only counts if the site's MOST RECENT entry mentions Formic Pro — same fix as the fleet
     // summary total, so this drill-down list matches it exactly.
     const fe=allE[0]||null;
@@ -6187,11 +6187,32 @@ function showDeadHivesModal(opName){
   document.body.appendChild(overlay);
 }
 
-function renderSummaryPanel(opName){
-  const s=calcSummary(opName);
-  const panel=h('div',{style:{background:'#1a2e1a',borderRadius:'12px',padding:'13px 14px 14px',marginBottom:'18px'}},
-    h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:'10px'}},`Fleet summary · ${s.logged}/${s.total} sites logged`)
-  );
+function renderSummaryPanel(opName, cutoffDate){
+  const s=calcSummary(opName, cutoffDate);
+  const panel=h('div',{style:{background:'#1a2e1a',borderRadius:'12px',padding:'13px 14px 14px',marginBottom:'18px'}});
+  // Date picker row — inside the dark panel
+  {
+    const dpRow=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',marginBottom:'10px',paddingBottom:'10px',borderBottom:'1px solid rgba(255,255,255,0.1)'}});
+    dpRow.appendChild(h('span',{style:{fontSize:'11px',color:'rgba(255,255,255,0.5)',flexShrink:'0',whiteSpace:'nowrap'}},'📅 View date:'));
+    const dateInput=document.createElement('input');
+    dateInput.type='date';
+    dateInput.style.cssText='font-size:12px;border:1px solid rgba(255,255,255,0.2);border-radius:6px;padding:4px 8px;flex:1;color:#fff;background:rgba(255,255,255,0.08);min-width:0;';
+    if(cutoffDate) dateInput.value=cutoffDate;
+    dateInput.addEventListener('change',e=>{setState({snapshotDate:e.target.value||null});});
+    dpRow.appendChild(dateInput);
+    if(cutoffDate){
+      const clrBtn=h('span',{style:{fontSize:'11px',color:'rgba(255,255,255,0.7)',cursor:'pointer',padding:'4px 9px',border:'1px solid rgba(255,255,255,0.3)',borderRadius:'6px',flexShrink:'0',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},'✕ Live');
+      const doLive=()=>setState({snapshotDate:null});
+      clrBtn.addEventListener('click',doLive);
+      clrBtn.addEventListener('touchend',e=>{e.preventDefault();doLive();},{passive:false});
+      dpRow.appendChild(clrBtn);
+    }
+    panel.appendChild(dpRow);
+    if(cutoffDate){
+      panel.appendChild(h('div',{style:{fontSize:'11px',color:'#f0c04a',fontWeight:'600',marginBottom:'8px',paddingBottom:'8px',borderBottom:'1px solid rgba(255,255,255,0.08)'}},'📅 Snapshot as of '+fmtDate(cutoffDate)));
+    }
+  }
+  panel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:'10px'}},`Fleet summary · ${s.logged}/${s.total} sites logged`));
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
   const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
   [{l:'Alive hives',v:s.hives,key:'hives',color:'#1a2e1a'},{l:'Dead',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
@@ -6199,7 +6220,7 @@ function renderSummaryPanel(opName){
     const box2=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}33`}:{}});
     box2.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v));
     box2.appendChild(h('div',{className:'stat-lbl'},st.l+(clickable?' ↗':'')));
-    if(clickable) box2.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color));
+    if(clickable) box2.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color,cutoffDate));
     g2.appendChild(box2);
   });
   panel.appendChild(g2);
@@ -6210,7 +6231,7 @@ function renderSummaryPanel(opName){
       const boxAD=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}44`}:{}});
       boxAD.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.color,lineHeight:'1.1'}},st.v));
       boxAD.appendChild(h('div',{className:'stat-lbl'},st.l+(clickable?' ↗':'')));
-      if(clickable) boxAD.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color));
+      if(clickable) boxAD.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color,cutoffDate));
       galiveDead.appendChild(boxAD);
     });
     panel.appendChild(galiveDead);
@@ -6221,7 +6242,7 @@ function renderSummaryPanel(opName){
     const box3=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}44`}:{}});
     box3.appendChild(h('div',{className:'stat-val'},st.v));
     box3.appendChild(h('div',{className:'stat-lbl'},st.l+(clickable?' ↗':'')));
-    if(clickable) box3.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color));
+    if(clickable) box3.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color,cutoffDate));
     g3.appendChild(box3);
   });
   panel.appendChild(g3);
@@ -6231,14 +6252,14 @@ function renderSummaryPanel(opName){
       const lfBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #1a6fb044'}});
       lfBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#1a6fb0',lineHeight:'1.1'}},s.lidsFloors));
       lfBox.appendChild(h('div',{className:'stat-lbl'},'Lids & Floors ↗'));
-      lfBox.addEventListener('click',()=>showLidsFloorsModal(opName));
+      lfBox.addEventListener('click',()=>showStatModal(opName,'lids_floors','Lids & Floors','#1a6fb0',cutoffDate));
       lfRow.appendChild(lfBox);
     }
     if(s.formicTotal>0){
       const fBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #e0a06a44'}});
       fBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#b05a1a',lineHeight:'1.1'}},s.formicTotal));
       fBox.appendChild(h('div',{className:'stat-lbl'},'Formic Pro ↗'));
-      fBox.addEventListener('click',()=>showFormicModal(opName));
+      fBox.addEventListener('click',()=>showFormicModal(opName,cutoffDate));
       lfRow.appendChild(fBox);
     }
     panel.appendChild(lfRow);
@@ -6382,7 +6403,7 @@ function renderSummaryPanel(opName){
   // Only count movements from THIS operation's sites
   const opSitesPan=Object.values(getYards(opName)).flatMap(y=>y.sites);
   let opHivesOut=0;
-  loadMovements().forEach(m=>{
+  loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
     const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0))+Math.max(parseInt(m.singles_boxes)||0,parseInt(m.pol_singles_count)||0));
     if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) opHivesOut+=mh;
     else if(m.direction==='from_orchard'&&opSitesPan.includes(m.to_site)) opHivesOut-=mh;
@@ -6392,12 +6413,12 @@ function renderSummaryPanel(opName){
     const hivesInYards=Math.max(0,s.hives-opHivesOut);
     const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
     orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},hivesInYards),h('div',{className:'stat-lbl'},'Hives in yards')));
-    orchDiv.appendChild(h('div',{className:'stat-box',style:{cursor:'pointer'},onClick:()=>showPollinationDetailModal(opName)},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut),h('div',{className:'stat-lbl'},'In pollination ↗')));
+    orchDiv.appendChild(h('div',{className:'stat-box',style:{cursor:'pointer'},onClick:()=>showPollinationDetailModal(opName,cutoffDate)},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut),h('div',{className:'stat-lbl'},'In pollination ↗')));
     panel.appendChild(orchDiv);
   }
   if(s.avgScore){
     const sw=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',cursor:'pointer'},
-      onClick:()=>showScoreModal(opName)
+      onClick:()=>showScoreModal(opName,cutoffDate)
     },h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'12px'}},`Spring score — avg across ${s.scoreHives} hives ↗`));
     const sr=h('div',{style:{display:'flex',alignItems:'center',gap:'12px'}});
     sr.appendChild(scoreCircle(Math.round(parseFloat(s.avgScore)),44,18));
@@ -6444,30 +6465,8 @@ function renderSummaryPanel(opName){
 function renderOverviewTab(){
   const op=STATE.op,yards=getYards(op);
   const screen=h('div',{className:'screen'});
-  screen.appendChild(renderSummaryPanel(op));
   const snapshotDate=STATE.snapshotDate||null;
-
-  // ── Date snapshot picker ──
-  const dpRow=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',marginBottom:'12px',paddingBottom:'12px',borderBottom:'1px solid rgba(0,0,0,0.07)'}});
-  dpRow.appendChild(h('span',{style:{fontSize:'12px',color:'#888',flexShrink:'0',whiteSpace:'nowrap'}},'📅 View date:'));
-  const dateInput=document.createElement('input');
-  dateInput.type='date';
-  dateInput.style.cssText='font-size:13px;border:1.5px solid #ddd;border-radius:6px;padding:4px 8px;flex:1;color:#333;background:#fff;min-width:0;';
-  if(snapshotDate) dateInput.value=snapshotDate;
-  dateInput.addEventListener('change',e=>{setState({snapshotDate:e.target.value||null});});
-  dpRow.appendChild(dateInput);
-  if(snapshotDate){
-    const clrBtn=h('span',{style:{fontSize:'12px',color:'#555',cursor:'pointer',padding:'4px 10px',border:'1px solid #bbb',borderRadius:'6px',flexShrink:'0',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},'✕ Live');
-    const doLive=()=>setState({snapshotDate:null});
-    clrBtn.addEventListener('click',doLive);
-    clrBtn.addEventListener('touchend',e=>{e.preventDefault();doLive();},{passive:false});
-    dpRow.appendChild(clrBtn);
-  }
-  screen.appendChild(dpRow);
-  if(snapshotDate){
-    screen.appendChild(h('div',{style:{background:'#fff8e6',border:'1px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'12px',fontSize:'12px',color:'#b07800',fontWeight:'600'}},
-      '📅 Snapshot — showing yard state as of '+fmtDate(snapshotDate)));
-  }
+  screen.appendChild(renderSummaryPanel(op, snapshotDate));
 
   // ── Search bar ──
   const searchWrap=h('div',{style:{position:'relative',marginBottom:'14px'}});
