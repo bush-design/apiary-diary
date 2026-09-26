@@ -6214,8 +6214,18 @@ function renderSummaryPanel(opName, cutoffDate){
   }
   panel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:'10px'}},`Fleet summary · ${s.logged}/${s.total} sites logged`));
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
+  // Compute orchard hives first so "Alive hives" can show the true fleet total (yards + orchards)
+  const opSitesPan=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  let opHivesOut=0;
+  loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
+    const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0))+Math.max(parseInt(m.singles_boxes)||0,parseInt(m.pol_singles_count)||0));
+    if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) opHivesOut+=mh;
+    else if(m.direction==='from_orchard'&&opSitesPan.includes(m.to_site)) opHivesOut-=mh;
+  });
+  opHivesOut=Math.max(0,opHivesOut);
+  const trueFleetTotal=s.hives+opHivesOut;
   const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-  [{l:'Alive hives',v:s.hives,key:'hives',color:'#1a2e1a'},{l:'Dead',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
+  [{l:'Alive hives',v:trueFleetTotal,key:'hives',color:'#1a2e1a'},{l:'Dead',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
     const clickable=st.v>0;
     const box2=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}33`}:{}});
     box2.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v));
@@ -6399,18 +6409,9 @@ function renderSummaryPanel(opName, cutoffDate){
     }
     panel.appendChild(qyRow);
   }
-  // Hives in orchards from movements
-  // Only count movements from THIS operation's sites
-  const opSitesPan=Object.values(getYards(opName)).flatMap(y=>y.sites);
-  let opHivesOut=0;
-  loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
-    const mh=parseInt(m.hives)||((parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0))+Math.max(parseInt(m.singles_boxes)||0,parseInt(m.pol_singles_count)||0));
-    if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) opHivesOut+=mh;
-    else if(m.direction==='from_orchard'&&opSitesPan.includes(m.to_site)) opHivesOut-=mh;
-  });
-  opHivesOut=Math.max(0,opHivesOut);
+  // Hives in orchards — already computed above as opHivesOut
   if(opHivesOut>0){
-    const hivesInYards=Math.max(0,s.hives-opHivesOut);
+    const hivesInYards=s.hives; // s.hives is already just in-yard count (diary entries are reduced when hives move out)
     const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
     orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},hivesInYards),h('div',{className:'stat-lbl'},'Hives in yards')));
     orchDiv.appendChild(h('div',{className:'stat-box',style:{cursor:'pointer'},onClick:()=>showPollinationDetailModal(opName,cutoffDate)},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut),h('div',{className:'stat-lbl'},'In pollination ↗')));
