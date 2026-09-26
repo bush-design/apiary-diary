@@ -449,9 +449,13 @@ async function addMovement(mov){
     const lastReal=allSiteEntries.find(e=>!e._movement)||null;
     const lastHives = parseInt(lastWithHives?.hives)||0;
     const lastDead = parseInt((mergeTarget||lastWithHives)?.dead)||0;
-    const lastDoubles=parseInt((mergeTarget||lastReal||lastWithHives)?.doubles)||0;
-    const lastSingles=parseInt((mergeTarget||lastReal||lastWithHives)?.singles)||0;
-    const lastLight=parseInt((mergeTarget||lastReal||lastWithHives)?.light)||0;
+    // Composition (doubles/singles/light) must chain across consecutive movements: use the most
+    // recent entry of ANY type, since a movement entry carries the updated counts forward. Using
+    // only lastReal would skip the previous movement and deduct from a stale pre-move value.
+    const lastAny=allSiteEntries[0]||null;
+    const lastDoubles=parseInt((mergeTarget||lastAny)?.doubles)||0;
+    const lastSingles=parseInt((mergeTarget||lastAny)?.singles)||0;
+    const lastLight=parseInt((mergeTarget||lastAny)?.light)||0;
     const newHives = isDeduction ? Math.max(0,lastHives-aliveChange) : lastHives+aliveChange;
     const newDead = isDeduction ? Math.max(0,lastDead-deadChange) : lastDead+deadChange;
 
@@ -7575,7 +7579,7 @@ function renderEntriesList(){
       {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
       {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
     ].filter(x=>x.show);
-    if(extras.length){
+    if(extras.length&&!wholeYardMovedOut){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
       extras.forEach(f=>{
         if(f.l==='⚠ POL Indiv.'){
@@ -7610,7 +7614,7 @@ function renderEntriesList(){
   wrap.appendChild(summaryPanel);
 
   // POL Individual "needs review" banner
-  if(lv('pol_singles')>0&&!isPolIndivDismissed(op,site)){
+  if(lv('pol_singles')>0&&!isPolIndivDismissed(op,site)&&!wholeYardMovedOut){
     const polReviewBanner=h('div',{style:{background:'#fff8e6',border:'1.5px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',fontSize:'12px',color:'#b07800',fontWeight:'700',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}});
     polReviewBanner.appendChild(h('span',null,'⚠ POL Indiv. data needs review — '+lv('pol_singles')+' hive(s) recorded as POL Individual. Please re-enter as POL Double (BC) or POL Single (BC) in a new entry.'));
     const clearBtn=h('span',{style:{flexShrink:'0',fontSize:'11px',fontWeight:'700',color:'#b07800',background:'#ffe9a0',border:'1.5px solid #b07800',borderRadius:'6px',padding:'6px 10px',cursor:'pointer',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},'Dismiss ✕');
@@ -8968,7 +8972,7 @@ function renderEntriesList(){
       {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
       {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
     ].filter(x=>x.show);
-    if(extras.length){
+    if(extras.length&&!wholeYardOut2){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
       extras.forEach(f=>{
         if(f.l==='⚠ POL Indiv.'){
@@ -9003,7 +9007,7 @@ function renderEntriesList(){
   wrap.appendChild(summaryPanel);
 
   // POL Individual "needs review" banner
-  if(lv('pol_singles')>0&&!isPolIndivDismissed(op,site)){
+  if(lv('pol_singles')>0&&!isPolIndivDismissed(op,site)&&!wholeYardOut2){
     const polReviewBanner=h('div',{style:{background:'#fff8e6',border:'1.5px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',fontSize:'12px',color:'#b07800',fontWeight:'700',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px'}});
     polReviewBanner.appendChild(h('span',null,'⚠ POL Indiv. data needs review — '+lv('pol_singles')+' hive(s) recorded as POL Individual. Please re-enter as POL Double (BC) or POL Single (BC) in a new entry.'));
     const clearBtn=h('span',{style:{flexShrink:'0',fontSize:'11px',fontWeight:'700',color:'#b07800',background:'#ffe9a0',border:'1.5px solid #b07800',borderRadius:'6px',padding:'6px 10px',cursor:'pointer',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},'Dismiss ✕');
