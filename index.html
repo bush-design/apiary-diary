@@ -1017,7 +1017,8 @@ let STATE={
   syncStatus:'online', // online|syncing|offline|error
   userName: localStorage.getItem('apiary_user')||null,
   pendingSync: loadPending(),
-  todayEntries: {} // track entries made today for email report
+  todayEntries: {}, // track entries made today for email report
+  snapshotDate: null, // when set, fleet view shows state as of this date (YYYY-MM-DD)
 };
 
 function setState(patch){Object.assign(STATE,patch);render();}
@@ -2013,7 +2014,7 @@ function getSiteFieldAnyRound(op, site, fieldKey){
   }
   return undefined;
 }
-function getSiteScoreEntryAnyRound(op, site){
+function getSiteScoreEntryAnyRound(op, site, cutoffDate){
   // Primary rule: don't count a yard whose hives have all moved away. Find the most-recent
   // entry with a hives value; if it records 0 (or the yard has no entries), stop here — an old
   // score on an empty yard must not keep contributing to the fleet total.
@@ -2027,6 +2028,7 @@ function getSiteScoreEntryAnyRound(op, site){
   // already ensures we won't resurface old scores from a now-empty site.
   const allEntries=Object.keys(ROUNDS)
     .flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]))
+    .filter(e=>!cutoffDate||e.date<=cutoffDate)
     .sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||''); // date is primary — an edited old entry shouldn't outrank a genuinely newer one
       if(dc!==0) return dc;
@@ -7213,10 +7215,33 @@ function renderSitesList(){
   const data=getYards(op)[batch];
   const opData=OPERATIONS[op];
   const wrap=h('div',null);
+  const snapshotDate=STATE.snapshotDate||null;
+
+  // ── Date snapshot picker ──
+  const dpRow=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',marginBottom:'10px',paddingBottom:'10px',borderBottom:'1px solid rgba(0,0,0,0.07)'}});
+  dpRow.appendChild(h('span',{style:{fontSize:'12px',color:'#888',flexShrink:'0',whiteSpace:'nowrap'}},'📅 View date:'));
+  const dateInput=document.createElement('input');
+  dateInput.type='date';
+  dateInput.style.cssText='font-size:13px;border:1.5px solid #ddd;border-radius:6px;padding:4px 8px;flex:1;color:#333;background:#fff;min-width:0;';
+  if(snapshotDate) dateInput.value=snapshotDate;
+  dateInput.addEventListener('change',e=>{setState({snapshotDate:e.target.value||null});});
+  dpRow.appendChild(dateInput);
+  if(snapshotDate){
+    const clrBtn=h('span',{style:{fontSize:'12px',color:'#555',cursor:'pointer',padding:'4px 10px',border:'1px solid #bbb',borderRadius:'6px',flexShrink:'0',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},'✕ Live');
+    const doLive=()=>setState({snapshotDate:null});
+    clrBtn.addEventListener('click',doLive);
+    clrBtn.addEventListener('touchend',e=>{e.preventDefault();doLive();},{passive:false});
+    dpRow.appendChild(clrBtn);
+  }
+  wrap.appendChild(dpRow);
+  if(snapshotDate){
+    wrap.appendChild(h('div',{style:{background:'#fff8e6',border:'1px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'10px',fontSize:'12px',color:'#b07800',fontWeight:'600'}},
+      '📅 Snapshot — showing yard state as of '+fmtDate(snapshotDate)));
+  }
 
   data.sites.forEach(site=>{
-    // Gather all real entries across rounds, newest first
-    const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement).map(e=>({...e,_rk:rk}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
+    // Gather all real entries across rounds, newest first — filtered to snapshotDate when set
+    const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement&&(!snapshotDate||e.date<=snapshotDate)).map(e=>({...e,_rk:rk}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
     const latest=allReal[0]||null;
     const days=latest?daysBetween(latest.date):null;
     const effectiveVisit=getEffectiveLastVisitDate(op,site);
@@ -7228,7 +7253,7 @@ function renderSitesList(){
     // fills in doubles but leaves singles blank, mixing today's doubles with an old singles
     // value. This is the same class of bug already fixed for the fleet-wide summary.
     const HIVE_FIELDS2=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
-    const allWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
+    const allWithMov=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).filter(e=>!snapshotDate||e.date<=snapshotDate).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
     // If most recent entry has 0 hives (whole yard moved out), boxes should also be 0
     const mostRecentAny=allWithMov[0]||null;
     const wholeYardMovedOut=mostRecentAny&&mostRecentAny._movement&&(parseInt(mostRecentAny.hives)||0)===0;
@@ -7255,14 +7280,14 @@ function renderSitesList(){
     // Spring score — most recent entry in ANY round with score data, not just the "spring"
     // bucket, since the Hive Strength section can be filled in on an entry logged under any
     // season (same fix already applied to the fleet-wide summary).
-    const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
+    const bd=getSiteScoreEntryAnyRound(op,site,snapshotDate)?.score_breakdown||{};
     let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
     const avg=ac>0?Math.round(at/ac):null;
 
     // Current hive count — use the same shared carry-forward logic as everywhere else in the
     // app (dashboard, snapshot reports, treatment coverage), instead of a separate hand-rolled
     // calculation that could drift out of sync with it.
-    const currentHives=getSiteHiveState(op,site,null).hives;
+    const currentHives=getSiteHiveState(op,site,snapshotDate).hives;
 
     const flag=getFlag(op,site);
     const chk=getCheck(op,site);
