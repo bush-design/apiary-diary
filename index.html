@@ -5653,6 +5653,8 @@ function renderReportsScreen(){
       deathsYrSel.appendChild(h('option',{value:'year_'+yr.startYear},yr.name||yr.startYear+'-'+(yr.startYear+1)+' (full year)'));
       Object.entries(ranges).forEach(([rk,sr])=>deathsYrSel.appendChild(h('option',{value:sr.start+'|'+sr.end},sr.label)));
     });
+    // Default to the current season instead of All time
+    {const todayStr=new Date().toISOString().slice(0,10);let curVal=null;years.forEach(yr=>{Object.values(getSeasonRanges(yr)).forEach(sr=>{if(todayStr>=sr.start&&todayStr<=sr.end)curVal=sr.start+'|'+sr.end;});});if(curVal)deathsYrSel.value=curVal;}
     deathsSec.appendChild(deathsYrSel);
     const deathsArea=h('div',null);
     deathsSec.appendChild(deathsArea);
@@ -6443,6 +6445,29 @@ function renderOverviewTab(){
   const op=STATE.op,yards=getYards(op);
   const screen=h('div',{className:'screen'});
   screen.appendChild(renderSummaryPanel(op));
+  const snapshotDate=STATE.snapshotDate||null;
+
+  // ── Date snapshot picker ──
+  const dpRow=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',marginBottom:'12px',paddingBottom:'12px',borderBottom:'1px solid rgba(0,0,0,0.07)'}});
+  dpRow.appendChild(h('span',{style:{fontSize:'12px',color:'#888',flexShrink:'0',whiteSpace:'nowrap'}},'📅 View date:'));
+  const dateInput=document.createElement('input');
+  dateInput.type='date';
+  dateInput.style.cssText='font-size:13px;border:1.5px solid #ddd;border-radius:6px;padding:4px 8px;flex:1;color:#333;background:#fff;min-width:0;';
+  if(snapshotDate) dateInput.value=snapshotDate;
+  dateInput.addEventListener('change',e=>{setState({snapshotDate:e.target.value||null});});
+  dpRow.appendChild(dateInput);
+  if(snapshotDate){
+    const clrBtn=h('span',{style:{fontSize:'12px',color:'#555',cursor:'pointer',padding:'4px 10px',border:'1px solid #bbb',borderRadius:'6px',flexShrink:'0',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},'✕ Live');
+    const doLive=()=>setState({snapshotDate:null});
+    clrBtn.addEventListener('click',doLive);
+    clrBtn.addEventListener('touchend',e=>{e.preventDefault();doLive();},{passive:false});
+    dpRow.appendChild(clrBtn);
+  }
+  screen.appendChild(dpRow);
+  if(snapshotDate){
+    screen.appendChild(h('div',{style:{background:'#fff8e6',border:'1px solid #b07800',borderRadius:'8px',padding:'8px 12px',marginBottom:'12px',fontSize:'12px',color:'#b07800',fontWeight:'600'}},
+      '📅 Snapshot — showing yard state as of '+fmtDate(snapshotDate)));
+  }
 
   // ── Search bar ──
   const searchWrap=h('div',{style:{position:'relative',marginBottom:'14px'}});
@@ -6478,7 +6503,7 @@ function renderOverviewTab(){
     const allSitesFlat=[];
     Object.entries(yards).forEach(([batchName,batchData])=>{
       batchData.sites.forEach(site=>{
-        const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement));
+        const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement&&(!snapshotDate||e.date<=snapshotDate)));
         const latestEntry=allEntries.sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return entryEffectiveSortKey(b).localeCompare(entryEffectiveSortKey(a));})[0];
         const latestDate=latestEntry?.date||'';
         const latestSortKey=latestEntry?entryEffectiveSortKey(latestEntry):'';
@@ -6506,7 +6531,7 @@ function renderOverviewTab(){
     // Render flat sorted by most recent visit — batch label shown on each card
     filtered.forEach(({batchName,site})=>{
       const allE=Object.entries(ROUNDS).map(([rk,r])=>{
-        const list=(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement);
+        const list=(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement&&(!snapshotDate||e.date<=snapshotDate));
         if(!list.length) return null;
         const best=list.slice().sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);})[0];
         return{roundDef:r,entry:best};
@@ -6514,8 +6539,9 @@ function renderOverviewTab(){
       const latest=allE.sort((a,b)=>b.entry.date.localeCompare(a.entry.date))[0]||null;
       const days=latest?daysBetween(latest.entry.date):null;
       const effectiveVisit=getEffectiveLastVisitDate(op,site);
-      const overdue=!effectiveVisit||daysBetween(effectiveVisit)>21;
-      const bd=getSiteScoreEntryAnyRound(op,site)?.score_breakdown||{};
+      // In snapshot mode, don't flag overdue — the date context makes it meaningless
+      const overdue=!snapshotDate&&(!effectiveVisit||daysBetween(effectiveVisit)>21);
+      const bd=getSiteScoreEntryAnyRound(op,site,snapshotDate)?.score_breakdown||{};
       let at=0,ac=0;[0,1,2,3,4,5,6,7,8,9,10].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){at+=n*v;ac+=v;}});
       const avg=ac>0?Math.round(at/ac):null;
       const afbInq2=getAFBInquiry(op,site);
@@ -6526,7 +6552,7 @@ function renderOverviewTab(){
       left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',marginBottom:'1px'}},site));
       left.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginBottom:'2px'}},batchName));
       if(overdue)left.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#fff',background:'#e24b4a',borderRadius:'10px',padding:'2px 7px',display:'inline-block',marginBottom:'2px'}},!latest?'NOT VISITED':`${days}d ago`));
-      if(latest){left.appendChild(h('div',{style:{fontSize:'12px',color:'#777'}},latest.roundDef.short+' · '+fmtDate(latest.entry.date)+(!overdue&&days!==null?' · '+days+'d ago':'')));if(latest.entry.treatment)left.appendChild(h('div',{className:'tx-pill'},'Tx: '+latest.entry.treatment));
+      if(latest){left.appendChild(h('div',{style:{fontSize:'12px',color:'#777'}},latest.roundDef.short+' · '+fmtDate(latest.entry.date)+(!overdue&&days!==null&&!snapshotDate?' · '+days+'d ago':'')));if(latest.entry.treatment)left.appendChild(h('div',{className:'tx-pill'},'Tx: '+latest.entry.treatment));
         const diseasesFound2=(latest.entry.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
         if(diseasesFound2.length){
           const dWrap=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'4px',marginTop:'3px'}});
@@ -6542,8 +6568,8 @@ function renderOverviewTab(){
       else left.appendChild(h('div',{style:{fontSize:'12px',color:'#bbb'}},'No entries yet'));
       row.appendChild(left);
       const right=h('div',{style:{display:'flex',gap:'8px',alignItems:'center',flexShrink:'0'}});
-      // Current hive count — single shared implementation, see computeCurrentHivesForSite.
-      const hivesToShow=computeCurrentHivesForSite(op,site)||null;
+      // Hive count: use getSiteHiveState so snapshotDate cutoff is respected
+      const hivesToShow=getSiteHiveState(op,site,snapshotDate).hives||null;
       if(hivesToShow)right.appendChild(h('div',{style:{textAlign:'center'}},h('div',{style:{fontSize:'18px',fontWeight:'700',lineHeight:'1'}},hivesToShow),h('div',{style:{fontSize:'10px',color:'#999',textTransform:'uppercase'}},'hives')));
       if(avg!==null)right.appendChild(scoreCircle(avg,32,14));
       row.appendChild(right);card.appendChild(row);
