@@ -447,7 +447,13 @@ async function addMovement(mov){
     // onto, instead of correctly carrying forward the last real hive count.
     const lastWithHives = allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
     const lastReal=allSiteEntries.find(e=>!e._movement)||null;
-    const lastHives = parseInt(lastWithHives?.hives)||0;
+    // If the site has no real diary entries, the stored hive count in movement entries may be
+    // stale due to prior movements being deleted. Use movement record replay as the baseline
+    // so this new movement entry is built on the correct count, not a corrupted snapshot.
+    const hasRealSiteEntry2=allSiteEntries.some(e=>!e._movement);
+    const lastHives = hasRealSiteEntry2
+      ? (parseInt(lastWithHives?.hives)||0)
+      : replayHivesFromMovements(opName, siteKey, mov.date);
     const lastDead = parseInt((mergeTarget||lastWithHives)?.dead)||0;
     // Composition (doubles/singles/light) must chain across consecutive movements: use the most
     // recent entry of ANY type, since a movement entry carries the updated counts forward. Using
@@ -1892,7 +1898,7 @@ function calcSummary(opName, cutoffDate){
     logged++;
     // For each field, use the most recent entry that actually has a value for it
     // This prevents empty fields in a new entry zeroing out previous counts
-    const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!cutoffDate||e.date<=cutoffDate)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const allSiteEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!cutoffDate||e.date<=cutoffDate)).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
     const HIVE_FIELDS_LV=['hives','dead','singles','doubles','light','weak','alive_hives','dead_hives'];
     // Only lids_floors wants "most recent non-zero" (a maintenance item genuinely may not have
     // been checked this visit). singles/doubles/light/weak respect an explicit 0 — a hive count
@@ -1906,8 +1912,14 @@ function calcSummary(opName, cutoffDate){
     // one field) lets them drift apart when a visit records hives but skips the box count, which
     // is exactly what was making fleet-wide doubles+singles fail to reconcile with total hives.
     const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
+    // For sites with no real diary entries, movement entry snapshots can be stale (inflated)
+    // when prior movements were deleted. Override the stored hive count with a replay from
+    // the movement records, which is always correct regardless of prior deletions.
+    const hasRealSiteEntry=allSiteEntries.some(e=>!e._movement);
+    const replayedHives=(!hasRealSiteEntry)?replayHivesFromMovements(opName,site,cutoffDate):null;
     const lastVal=k=>{
       if(HIVE_FIELDS_LV.includes(k)){
+        if(k==='hives'&&replayedHives!==null) return replayedHives;
         if(!mostRecentWithHives) return 0;
         const raw=mostRecentWithHives[k];
         return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
@@ -2053,6 +2065,41 @@ function getSiteScoreEntryAnyRound(op, site, cutoffDate){
   )||null;
 }
 
+// ── Shared: replay movement RECORDS to compute a site's in-yard hive count from scratch ──
+// Used when a site has no real diary entries, because stored movement ENTRY snapshots can
+// become stale when earlier movements are deleted (each entry's hives value was correct at
+// write time, but it chains on the previous entry's value — delete that earlier entry and
+// every subsequent snapshot is wrong). Movement RECORDS (hive_movements in localStorage) are
+// the ground truth: each record holds its own raw alive_hives delta and is independently
+// correct regardless of what other records exist. This gives the right answer even after
+// deletions, whereas the stored snapshot approach does not.
+function replayHivesFromMovements(opName, site, cutoffDate){
+  const mvs=loadMovements().filter(m=>{
+    if(cutoffDate&&m.date>cutoffDate) return false;
+    const fromHere=m.from_site===site&&(m.from_op===opName||!m.from_op);
+    const toHere=m.to_site===site&&(m.to_op===opName||!m.to_op);
+    return fromHere||toHere;
+  }).sort((a,b)=>{
+    const dc=(a.date||'').localeCompare(b.date||'');
+    return dc!==0?dc:(a.logged_at||a.saved_at||'').localeCompare(b.logged_at||b.saved_at||'');
+  });
+  let count=0;
+  for(const m of mvs){
+    const alive=parseInt(m.alive_hives)||0;
+    const fromHere=m.from_site===site&&(m.from_op===opName||!m.from_op);
+    const toHere=m.to_site===site&&(m.to_op===opName||!m.to_op);
+    if(m.direction==='yard_yard'){
+      if(fromHere) count=Math.max(0,count-alive);
+      else if(toHere) count+=alive;
+    } else if(m.direction==='to_orchard'){
+      if(fromHere) count=Math.max(0,count-alive); // yard loses hives to orchard
+    } else if(m.direction==='from_orchard'){
+      if(toHere) count+=alive; // yard gains hives back from orchard
+    }
+  }
+  return Math.max(0,count);
+}
+
 // ── Shared: exact current-hive-count calculation, factored out of the yard detail page so
 // every screen that needs "how many hives are at this site right now" uses this literal same
 // code path — no separate reimplementation that could quietly drift out of sync.
@@ -2065,7 +2112,12 @@ function computeCurrentHivesForSite(op, site){
   // kept going wrong — it requires correctly figuring out same-day ordering, timezones, and
   // what's already been reflected, every single time, instead of once at write time.
   const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]));
-  if(!allEntries.length) return 0;
+  if(!allEntries.length) return replayHivesFromMovements(op,site,null);
+  // If this site has no real diary entries (only auto-generated movement entries), the stored
+  // hive count in those entries can be stale when prior movements were deleted. Use movement
+  // record replay instead — it recomputes from scratch and is always correct.
+  const hasRealEntry=allEntries.some(e=>!e._movement);
+  if(!hasRealEntry) return replayHivesFromMovements(op,site,null);
   const sorted=[...allEntries].sort((a,b)=>{
     // Date is the PRIMARY sort key — an old entry that was recently edited (updating its
     // saved_at) must not outrank a genuinely more recent visit just because it was touched
@@ -5907,19 +5959,26 @@ function showPollinationDetailModal(opName, cutoffDate){
   // We group "outs" by (orchard → site) so we can show which yards contributed.
   // Returns are subtracted at the orchard level (we can't know which source site
   // the returned hives originally came from, so returns reduce the orchard total).
-  const byOrchard={}; // { orchardName: { net, sites: { siteName: hives } } }
+  const byOrchard={}; // { orchardName: { net, sites: { siteName: hives }, returns } }
+  const unmatchedReturns=[]; // from_orchard movements where to_site not in opSites
   loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
     const mh=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
     if(!mh) return;
     if(m.direction==='to_orchard'&&opSites.includes(m.from_site)){
       const o=m.to_orchard||'Unknown orchard';
-      if(!byOrchard[o]) byOrchard[o]={net:0,sites:{}};
+      if(!byOrchard[o]) byOrchard[o]={net:0,sites:{},returns:0};
       byOrchard[o].net+=mh;
       byOrchard[o].sites[m.from_site]=(byOrchard[o].sites[m.from_site]||0)+mh;
-    } else if(m.direction==='from_orchard'&&opSites.includes(m.to_site)){
+    } else if(m.direction==='from_orchard'){
       const o=m.from_orchard||'Unknown orchard';
-      if(!byOrchard[o]) byOrchard[o]={net:0,sites:{}};
-      byOrchard[o].net-=mh;
+      if(opSites.includes(m.to_site)){
+        if(!byOrchard[o]) byOrchard[o]={net:0,sites:{},returns:0};
+        byOrchard[o].net-=mh;
+        byOrchard[o].returns=(byOrchard[o].returns||0)+mh;
+      } else {
+        // Return movement exists but destination yard not in this operation — this causes opHivesOut to stay inflated
+        unmatchedReturns.push({orchard:o,to_site:m.to_site||'(no destination)',hives:mh,date:m.date});
+      }
     }
   });
   // Only show orchards that still have hives (net > 0)
@@ -5972,6 +6031,23 @@ function showPollinationDetailModal(opName, cutoffDate){
     }
   }
 
+  // Unmatched returns — from_orchard movements whose destination yard isn't in this operation.
+  // These reduce movement records in Supabase but DON'T reduce opHivesOut, causing the fleet
+  // total to be overcounted by their hive count. Surface them so the user can investigate.
+  if(unmatchedReturns.length>0){
+    const umSection=h('div',{style:{marginTop:'14px',background:'#fff8e6',border:'1.5px solid #ef9f27',borderRadius:'12px',padding:'13px 14px'}});
+    umSection.appendChild(h('div',{style:{fontWeight:'700',fontSize:'13px',color:'#b07800',marginBottom:'6px'}},'⚠ Unmatched returns ('+unmatchedReturns.length+')'));
+    umSection.appendChild(h('div',{style:{fontSize:'11px',color:'#888',marginBottom:'8px',lineHeight:'1.5'}},'These return-from-orchard movements have a destination yard not in this operation — they\'re not reducing the pollination count. Check if the yard name has changed or was logged to the wrong operation.'));
+    unmatchedReturns.forEach(r=>{
+      const row=h('div',{style:{fontSize:'12px',color:'#555',padding:'4px 0',borderTop:'1px solid rgba(0,0,0,0.08)',display:'flex',justifyContent:'space-between'}});
+      row.appendChild(h('span',null,r.orchard+' → '+(r.to_site||'(blank)')+(r.date?' · '+r.date:'')));
+      row.appendChild(h('span',{style:{fontWeight:'700',color:'#b07800',marginLeft:'8px',flexShrink:'0'}},r.hives+' hives'));
+      umSection.appendChild(row);
+    });
+    const umTotal=unmatchedReturns.reduce((s,r)=>s+r.hives,0);
+    umSection.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#b07800',marginTop:'6px',paddingTop:'6px',borderTop:'1px solid rgba(0,0,0,0.1)',textAlign:'right'}},umTotal+' hives not subtracted from total'));
+    box.appendChild(umSection);
+  }
   overlay.appendChild(box);
   overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
@@ -6222,9 +6298,33 @@ function renderSummaryPanel(opName, cutoffDate){
     if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) opHivesOut+=mh;
     else if(m.direction==='from_orchard'&&opSitesPan.includes(m.to_site)) opHivesOut-=mh;
   });
+  // Debug: log movement breakdown to console so any overcounting can be diagnosed.
+  // Open browser dev tools (Console tab) to see this output while on the summary screen.
+  {
+    const dbgOut=[],dbgIn=[],dbgMissed=[];
+    loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
+      const mh=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+      if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) dbgOut.push({date:m.date,from:m.from_site,to:m.to_orchard,hives:mh});
+      else if(m.direction==='from_orchard'){
+        if(opSitesPan.includes(m.to_site)) dbgIn.push({date:m.date,from:m.from_orchard,to:m.to_site,hives:mh});
+        else dbgMissed.push({date:m.date,from:m.from_orchard,to:m.to_site||'(blank)',hives:mh,reason:'to_site not in '+opName+' sites'});
+      }
+    });
+    const totalOut=dbgOut.reduce((s,r)=>s+r.hives,0);
+    const totalIn=dbgIn.reduce((s,r)=>s+r.hives,0);
+    const totalMissed=dbgMissed.reduce((s,r)=>s+r.hives,0);
+    console.group('[Apiary] opHivesOut for '+opName);
+    console.log('In-yard hives (s.hives):',s.hives);
+    console.log('To-orchard movements (total out):',totalOut,dbgOut);
+    console.log('From-orchard returns (subtracted):',totalIn,dbgIn);
+    console.log('Net in orchards (opHivesOut):',Math.max(0,totalOut-totalIn));
+    if(dbgMissed.length) console.warn('UNMATCHED RETURNS (not subtracted — '+totalMissed+' hives):',dbgMissed);
+    console.groupEnd();
+  }
   opHivesOut=Math.max(0,opHivesOut);
   const trueFleetTotal=s.hives+opHivesOut;
   const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
+  // "Alive hives" = total fleet (in-yard + orchards). Breakdown shown below when orchards exist.
   [{l:'Alive hives',v:trueFleetTotal,key:'hives',color:'#1a2e1a'},{l:'Dead',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
     const clickable=st.v>0;
     const box2=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}33`}:{}});
@@ -6409,12 +6509,17 @@ function renderSummaryPanel(opName, cutoffDate){
     }
     panel.appendChild(qyRow);
   }
-  // Hives in orchards — already computed above as opHivesOut
+  // Breakdown row — shown when hives are out in orchards (explains the alive hives total above)
   if(opHivesOut>0){
-    const hivesInYards=s.hives; // s.hives is already just in-yard count (diary entries are reduced when hives move out)
     const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
-    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{className:'stat-val'},hivesInYards),h('div',{className:'stat-lbl'},'Hives in yards')));
-    orchDiv.appendChild(h('div',{className:'stat-box',style:{cursor:'pointer'},onClick:()=>showPollinationDetailModal(opName,cutoffDate)},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut),h('div',{className:'stat-lbl'},'In pollination ↗')));
+    // In-yard breakdown
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'rgba(255,255,255,0.7)',lineHeight:'1.1'}},s.hives),h('div',{className:'stat-lbl'},'In yards')));
+    // Pollination tile (clickable drill-down)
+    const polBox=h('div',{className:'stat-box',style:{cursor:'pointer'}});
+    polBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut));
+    polBox.appendChild(h('div',{className:'stat-lbl'},'In pollination ↗'));
+    polBox.addEventListener('click',()=>showPollinationDetailModal(opName,cutoffDate));
+    orchDiv.appendChild(polBox);
     panel.appendChild(orchDiv);
   }
   if(s.avgScore){
