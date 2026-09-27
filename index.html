@@ -6513,7 +6513,7 @@ function renderSummaryPanel(opName, cutoffDate){
   if(opHivesOut>0){
     const orchDiv=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
     // In-yard breakdown
-    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'rgba(255,255,255,0.7)',lineHeight:'1.1'}},s.hives),h('div',{className:'stat-lbl'},'In yards')));
+    orchDiv.appendChild(h('div',{className:'stat-box'},h('div',{style:{fontSize:'20px',fontWeight:'700',color:'var(--text)',lineHeight:'1.1'}},s.hives),h('div',{className:'stat-lbl'},'In yards')));
     // Pollination tile (clickable drill-down)
     const polBox=h('div',{className:'stat-box',style:{cursor:'pointer'}});
     polBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#9b59b6',lineHeight:'1.1'}},opHivesOut));
