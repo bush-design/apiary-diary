@@ -740,8 +740,9 @@ function getOrchardTotals(){
     const hives=parseInt(m.hives)>0?parseInt(m.hives):rawHives;
     // Scale pallets/singles proportionally when a split hive count is provided
     const scaleFactor=(rawHives>0&&hives!==rawHives)?(hives/rawHives):1;
-    const effPallets=Math.round(pallets*scaleFactor);
-    const effSingles=Math.round(singles*scaleFactor);
+    const effPallets=rawHives>0?Math.round(pallets*scaleFactor):0;
+    // When no pallet/singles breakdown exists but hives are recorded, treat all as individuals (unpalletised)
+    const effSingles=rawHives>0?Math.round(singles*scaleFactor):hives;
     if(m.direction==='to_orchard'){
       const o=m.to_orchard;
       if(!totals[o])totals[o]={pallets:0,singles:0,hives:0};
@@ -11176,15 +11177,20 @@ function renderMovementsScreen(){
         if(m.direction==='to_orchard'&&m.to_orchard===o){
           const site=m.from_site;if(!site)return;
           if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,moves:[]};
-          siteBreakdown[site].sent+=parseInt(m.pallets)||0;
-          siteBreakdown[site].sentSingles+=parseInt(m.singles)||0;
+          const mPal=parseInt(m.pallets)||0, mSing=parseInt(m.singles)||0, mRaw=mPal*4+mSing;
+          const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
+          // No pallet/singles breakdown — treat all as individuals (unpalletised)
+          siteBreakdown[site].sent+=mRaw>0?mPal:0;
+          siteBreakdown[site].sentSingles+=mRaw>0?mSing:mHives;
           siteBreakdown[site].moves.push({...m,type:'in'});
         }
         if(m.direction==='from_orchard'&&m.from_orchard===o){
           const site=m.to_site;if(!site)return;
           if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,moves:[]};
-          siteBreakdown[site].returned+=parseInt(m.pallets)||0;
-          siteBreakdown[site].retSingles+=parseInt(m.singles)||0;
+          const mPal=parseInt(m.pallets)||0, mSing=parseInt(m.singles)||0, mRaw=mPal*4+mSing;
+          const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
+          siteBreakdown[site].returned+=mRaw>0?mPal:0;
+          siteBreakdown[site].retSingles+=mRaw>0?mSing:mHives;
           siteBreakdown[site].moves.push({...m,type:'out'});
         }
       });
