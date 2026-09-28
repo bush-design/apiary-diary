@@ -1913,14 +1913,12 @@ function calcSummary(opName, cutoffDate){
     // one field) lets them drift apart when a visit records hives but skips the box count, which
     // is exactly what was making fleet-wide doubles+singles fail to reconcile with total hives.
     const mostRecentWithHives=allSiteEntries.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
-    // For sites with no real diary entries, movement entry snapshots can be stale (inflated)
-    // when prior movements were deleted. Override the stored hive count with a replay from
-    // the movement records, which is always correct regardless of prior deletions.
-    const hasRealSiteEntry=allSiteEntries.some(e=>!e._movement);
-    const replayedHives=(!hasRealSiteEntry)?replayHivesFromMovements(opName,site,cutoffDate):null;
+    // Use diary-anchored replay for the hive count — last real diary visit as the anchor,
+    // movement record deltas applied on top.  This means movements never cause fleet drift.
     const lastVal=k=>{
       if(HIVE_FIELDS_LV.includes(k)){
-        if(k==='hives'&&replayedHives!==null) return replayedHives;
+        // hives always comes from the anchor+delta function so movements can't cause drift
+        if(k==='hives') return anchoredHivesForSite(opName,site,cutoffDate);
         if(!mostRecentWithHives) return 0;
         const raw=mostRecentWithHives[k];
         return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
@@ -2074,6 +2072,66 @@ function getSiteScoreEntryAnyRound(op, site, cutoffDate){
 // the ground truth: each record holds its own raw alive_hives delta and is independently
 // correct regardless of what other records exist. This gives the right answer even after
 // deletions, whereas the stored snapshot approach does not.
+// ── Diary-anchored hive count ──────────────────────────────────────────────────────────────
+// Uses the last REAL (human-logged) diary entry as a stable anchor, then applies raw movement
+// record deltas from that point forward.  Because both the in-yard deductions AND opHivesOut
+// in the fleet summary come from the same movement records, they cancel exactly — movements
+// can never cause drift in the alive total.  Only a new diary visit or an explicit death
+// changes the fleet count.
+function anchoredHivesForSite(opName, site, cutoffDate){
+  // All real (non-movement) diary entries with a hive count, up to cutoffDate
+  const realEntries=Object.keys(ROUNDS).flatMap(rk=>
+    (STATE.entries[eKey(opName,site,rk)]||[])
+      .filter(e=>!e._movement&&e.hives!==undefined&&e.hives!==null&&e.hives!=='')
+      .filter(e=>!cutoffDate||(e.date||'')<=cutoffDate)
+  ).sort((a,b)=>{
+    const dc=(b.date||'').localeCompare(a.date||'');
+    if(dc!==0) return dc;
+    return (b.saved_at||b.logged_at||'').localeCompare(a.saved_at||a.logged_at||'');
+  });
+
+  // No real diary entry → replay from movement records from scratch (movement-only yard)
+  if(!realEntries.length) return replayHivesFromMovements(opName,site,cutoffDate);
+
+  const anchor=realEntries[0];
+  const anchorHives=Math.max(0,parseInt(anchor.hives)||0);
+  const anchorDate=anchor.date||'';
+  const anchorTime=anchor.saved_at||anchor.logged_at||(anchorDate+'T12:00:00');
+
+  // Apply movement record deltas that occurred AFTER the anchor entry
+  let delta=0;
+  loadMovements().forEach(m=>{
+    if(cutoffDate&&(m.date||'')>cutoffDate) return;
+    const mDate=m.date||'';
+    const mTime=m.logged_at||m.saved_at||(mDate+'T12:00:00');
+    // Skip movements at or before the anchor
+    if(mDate<anchorDate) return;
+    if(mDate===anchorDate&&mTime<=anchorTime) return;
+
+    const fromHere=m.from_site===site&&(m.from_op===opName||!m.from_op);
+    const toHere=m.to_site===site&&(m.to_op===opName||!m.to_op);
+    if(!fromHere&&!toHere) return;
+
+    // Use the SAME hive-count formula as opPolHives / opHivesOut in the summary panels.
+    // This ensures the yard-side deduction exactly cancels the orchard-side addition,
+    // keeping the fleet total (s.hives + opHivesOut) stable across movements.
+    const mhCount=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0
+      ?(parseInt(m.alive_hives)||0)
+      :parseInt(m.hives)>0?parseInt(m.hives)
+      :(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+    if(m.direction==='yard_yard'){
+      if(fromHere) delta-=mhCount;
+      else if(toHere) delta+=mhCount;
+    } else if(m.direction==='to_orchard'){
+      if(fromHere) delta-=mhCount; // hives left yard physically (but still owned by op)
+    } else if(m.direction==='from_orchard'){
+      if(toHere) delta+=mhCount; // hives returned to yard
+    }
+  });
+
+  return Math.max(0,anchorHives+delta);
+}
+
 function replayHivesFromMovements(opName, site, cutoffDate){
   const mvs=loadMovements().filter(m=>{
     if(cutoffDate&&m.date>cutoffDate) return false;
@@ -2104,33 +2162,10 @@ function replayHivesFromMovements(opName, site, cutoffDate){
 // ── Shared: exact current-hive-count calculation, factored out of the yard detail page so
 // every screen that needs "how many hives are at this site right now" uses this literal same
 // code path — no separate reimplementation that could quietly drift out of sync.
-function computeCurrentHivesForSite(op, site){
-  // Every entry — a real hive check OR an auto-generated movement entry — already stores its
-  // own correct resulting hive count at the moment it was created (logToSite computes
-  // "whatever was there before + this movement's change" once, when the movement happens).
-  // So the current count is simply whichever entry is most recent; there's no need to re-do
-  // that addition every time this gets read. Re-adding movements at read time is exactly what
-  // kept going wrong — it requires correctly figuring out same-day ordering, timezones, and
-  // what's already been reflected, every single time, instead of once at write time.
-  const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]));
-  if(!allEntries.length) return replayHivesFromMovements(op,site,null);
-  // If this site has no real diary entries (only auto-generated movement entries), the stored
-  // hive count in those entries can be stale when prior movements were deleted. Use movement
-  // record replay instead — it recomputes from scratch and is always correct.
-  const hasRealEntry=allEntries.some(e=>!e._movement);
-  if(!hasRealEntry) return replayHivesFromMovements(op,site,null);
-  const sorted=[...allEntries].sort((a,b)=>{
-    // Date is the PRIMARY sort key — an old entry that was recently edited (updating its
-    // saved_at) must not outrank a genuinely more recent visit just because it was touched
-    // more recently. saved_at/logged_at/recorded_at only break ties between same-day entries.
-    const dc=(b.date||'').localeCompare(a.date||'');
-    if(dc!==0) return dc;
-    const tsA=a.saved_at||a.logged_at||a.recorded_at||(a.date+'T12:00:00');
-    const tsB=b.saved_at||b.logged_at||b.recorded_at||(b.date+'T12:00:00');
-    return tsB.localeCompare(tsA);
-  });
-  const mostRecentWithHives=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='');
-  return mostRecentWithHives?Math.max(0,parseInt(mostRecentWithHives.hives)||0):0;
+// Uses diary-anchored replay: last REAL diary entry as anchor + movement record deltas,
+// so hive movements never cause drift in the fleet total.
+function computeCurrentHivesForSite(op, site, cutoffDate){
+  return anchoredHivesForSite(op, site, cutoffDate||null);
 }
 
 // ── Shared: effective last-visit date, following the hive chain when a site is empty ──
