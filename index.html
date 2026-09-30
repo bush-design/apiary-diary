@@ -536,7 +536,7 @@ async function addMovement(mov){
     // multi-yard consolidation truckload), each source's data combines into the same entry:
     // numeric fields sum together, comma-separated fields (treatment, diseases) merge uniquely,
     // free-text notes concatenate.
-    const COLLATE_SUM_FIELDS=['qr','virgin','cell_needed','tops','splits','nuc_splits','breeders','finishers',
+    const COLLATE_SUM_FIELDS=['qr','virgin','cell_in','cell_needed','tops','splits','nuc_splits','breeders','finishers',
       'pol_pallet','part_pallet','pol_singles','pol_bc','pol_doubles','hives_fed','honey_hives_fed','pollen_hives_fed',
       'fd_on','on_34','fd_harv','harv_34','honeycomb_fd','honeycomb_hd','best_hive_boxes'];
     // Litres Fed is a per-hive rate applied across the whole yard, not a running total — when
@@ -780,7 +780,7 @@ const ROUNDS = {
     {key:"hives",label:"Hives",type:"number"},{key:"singles",label:"Singles",type:"number"},
     {key:"doubles",label:"Doubles",type:"number"},{key:"dead",label:"Dead",type:"number"},
     {key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},{key:"qr",label:"QR",type:"number"},
-    {key:"virgin",label:"Virgin",type:"number"},{key:"cell_needed",label:"Cell needed",type:"number"},
+    {key:"virgin",label:"Virgin",type:"number"},{key:"cell_in",label:"Cell In",type:"number"},{key:"cell_needed",label:"Cell needed",type:"number"},
     {key:"tops",label:"Tops",type:"number"},{key:"splits",label:"Splits taken",type:"number"},
     {key:"carrot",label:"Carrot pallets",type:"number"},{key:"carrot_score",label:"Carrot Score",type:"carrot_grid"},
     {key:"fd_harv",label:"FD Harv",type:"number"},{key:"harv_34",label:"3/4 Harv",type:"number"},
@@ -1451,7 +1451,7 @@ async function maybeQuarterlyBackup(){
 function buildExportRows(opName){
   const sites=allSitesFor(opName);
   const yards=OPERATIONS[opName].yards;
-  const header=['Operation','Batch','Site','Round','Date','Hives','Singles (BC)','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indiv.','POL Singles (BC)','POL Doubles (BC)','QR','Virgin','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
+  const header=['Operation','Batch','Site','Round','Date','Hives','Singles (BC)','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indiv.','POL Singles (BC)','POL Doubles (BC)','QR','Virgin','Cell In','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
   const dataRows=[];
   sites.forEach(site=>{
     const batch=Object.entries(yards).find(([,d])=>d.sites.includes(site))?.[0]||'';
@@ -1461,7 +1461,7 @@ function buildExportRows(opName){
         const bd=e.score_breakdown||{};
         let st=0,sc=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){st+=n*v;sc+=v;}});
         const avg=sc>0?(st/sc).toFixed(1):'';
-        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.pol_bc||'',e.pol_doubles||'',e.qr||'',e.virgin||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
+        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.pol_bc||'',e.pol_doubles||'',e.qr||'',e.virgin||'',e.cell_in||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
       });
     });
   });
@@ -1552,6 +1552,7 @@ const EXPORT_FIELD_DEFS=[
   {label:'POL Indiv.',get:e=>e.pol_singles||''},
   {label:'QR',get:e=>e.qr||''},
   {label:'Virgin',get:e=>e.virgin||''},
+  {label:'Cell In',get:e=>e.cell_in||''},
   {label:'Cell Needed',get:e=>e.cell_needed||''},
   {label:'Tops',get:e=>e.tops||''},
   {label:'Splits',get:e=>e.splits||''},
@@ -7767,6 +7768,7 @@ function renderEntriesList(){
       {l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
       {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
+      {l:'Cell In',v:anchoredVal('cell_in'),show:anchoredVal('cell_in')>0},
       {l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
       {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
       {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
@@ -7897,7 +7899,7 @@ function renderEntriesList(){
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
       {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
-      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_needed',label:'Cell Needed'},
+      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},
       {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
@@ -8490,7 +8492,7 @@ function renderForm(){
     ]},
     {key:'queens',label:'Requeening',color:'#7a4fa8',fields:[
       {key:'qr',label:'QR',type:'number'},{key:'virgin',label:'Virgin',type:'number'},
-      {key:'cell_needed',label:'Cell Needed',type:'number'},{key:'tops',label:'Top Splits',type:'number'},
+      {key:'cell_in',label:'Cell In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},{key:'tops',label:'Top Splits',type:'number'},
       {key:'splits',label:'Box Splits',type:'number'},{key:'nuc_splits',label:'Nuc Splits',type:'number'},
       {key:'breeders',label:'Breeders',type:'number'},{key:'finishers',label:'Finishers',type:'number'},
     ]},
@@ -9160,6 +9162,7 @@ function renderEntriesList(){
       {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
       {l:'Nuc Splits',v:lv('nuc_splits'),show:lv('nuc_splits')>0},
       {l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
+      {l:'Cell In',v:anchoredVal('cell_in'),show:anchoredVal('cell_in')>0},
       {l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
       {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
       {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
@@ -9290,7 +9293,7 @@ function renderEntriesList(){
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
       {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
-      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_needed',label:'Cell Needed'},
+      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},
       {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
