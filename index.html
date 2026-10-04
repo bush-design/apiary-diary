@@ -543,7 +543,7 @@ async function addMovement(mov){
     // multiple sources merge into one destination, this should average across them, not sum.
     const COLLATE_AVG_FIELDS=['litres_fed'];
     const COLLATE_MERGE_FIELDS=['treatment','diseases']; // comma-separated, dedupe on merge
-    const COLLATE_NOTE_FIELDS=['disease_notes'];
+    const COLLATE_NOTE_FIELDS=['disease_notes','tops_dest','splits_dest','nuc_splits_dest'];
     let sourceCollated=null;
     if(!isDeduction&&mov.direction!=='from_orchard'&&mov.from_site&&mov.from_op){
       const sourceEntries=Object.keys(ROUNDS).flatMap(r2=>(STATE.entries[eKey(mov.from_op,mov.from_site,r2)]||[]))
@@ -947,6 +947,36 @@ function loadFlags(){try{return JSON.parse(localStorage.getItem('apiary_flags')|
 function saveFlags(flags){try{localStorage.setItem('apiary_flags',JSON.stringify(flags));}catch(e){}}
 function flagKey(op,site){return `${op}__${site}__flag`;}
 function getFlag(op,site){const f=loadFlags();return f[flagKey(op,site)]||null;}
+
+// ── Auto-flag: matings check needed after 21 days of cell_in ──────────────────────────────
+// Returns a flag-like object when the most recent cell_in entry is ≥21 days old AND there is
+// no newer QR (queen-right) diary entry logged after it (which would mean the check was done).
+// Returns null when no flag applies, just like getFlag.
+function getMatingCheckFlag(op,site){
+  const allEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]))
+    .sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return(b.saved_at||b.logged_at||'').localeCompare(a.saved_at||a.logged_at||'');});
+  const lastCellIn=allEntries.find(e=>parseInt(e.cell_in)>0);
+  if(!lastCellIn) return null;
+  const ciDate=lastCellIn.date||'';
+  if(!ciDate) return null;
+  // Check if any newer QR entry exists after this cell_in (means matings were checked)
+  const ciTime=lastCellIn.saved_at||lastCellIn.logged_at||(ciDate+'T12:00:00');
+  const hasNewerQR=allEntries.some(e=>{
+    if(!(parseInt(e.qr)>0)) return false;
+    const eDate=e.date||'';
+    if(eDate<ciDate) return false;
+    if(eDate===ciDate) return(e.saved_at||e.logged_at||eDate+'T12:00:00')>ciTime;
+    return true;
+  });
+  if(hasNewerQR) return null;
+  const today=new Date();today.setHours(0,0,0,0);
+  const [cy,cm,cd]=ciDate.split('-').map(Number);
+  const cellDay=new Date(cy,cm-1,cd);
+  const daysSince=Math.floor((today-cellDay)/(1000*60*60*24));
+  if(daysSince<21) return null;
+  return{comment:`Matings check needed — cells in ${daysSince}d ago`,date:ciDate,_auto:true,_type:'mating_check'};
+}
+
 async function setFlag(op,site,comment){
   const f=loadFlags();
   const k=flagKey(op,site);
@@ -1451,7 +1481,7 @@ async function maybeQuarterlyBackup(){
 function buildExportRows(opName){
   const sites=allSitesFor(opName);
   const yards=OPERATIONS[opName].yards;
-  const header=['Operation','Batch','Site','Round','Date','Hives','Singles (BC)','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indiv.','POL Singles (BC)','POL Doubles (BC)','QR','Virgin','Cell In','Cell Needed','Tops','Carrot Pallets','Carrot Score','Splits','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
+  const header=['Operation','Batch','Site','Round','Date','Hives','Singles (BC)','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indiv.','POL Singles (BC)','POL Doubles (BC)','QR','Virgin','Cell In','Cell Needed','Tops','Top Splits Dest','Carrot Pallets','Carrot Score','Splits','Box Splits Dest','Nuc Splits','Nuc Splits Dest','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
   const dataRows=[];
   sites.forEach(site=>{
     const batch=Object.entries(yards).find(([,d])=>d.sites.includes(site))?.[0]||'';
@@ -1461,7 +1491,7 @@ function buildExportRows(opName){
         const bd=e.score_breakdown||{};
         let st=0,sc=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){st+=n*v;sc+=v;}});
         const avg=sc>0?(st/sc).toFixed(1):'';
-        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.pol_bc||'',e.pol_doubles||'',e.qr||'',e.virgin||'',e.cell_in||'',e.cell_needed||'',e.tops||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
+        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.pol_bc||'',e.pol_doubles||'',e.qr||'',e.virgin||'',e.cell_in||'',e.cell_needed||'',e.tops||'',e.tops_dest||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.splits_dest||'',e.nuc_splits||'',e.nuc_splits_dest||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
       });
     });
   });
@@ -2350,12 +2380,12 @@ function renderOpSelector(){
     }
     // ── Flagged sites on op card ──
     const opSites=Object.values(op.yards).flatMap(y=>y.sites);
-    const flaggedSites=opSites.filter(site=>getFlag(name,site));
+    const flaggedSites=opSites.filter(site=>getFlag(name,site)||getMatingCheckFlag(name,site));
     if(flaggedSites.length>0){
       const flagDiv=h('div',{style:{borderTop:'1px solid rgba(255,255,255,0.12)',paddingTop:'10px',marginTop: s.logged>0?'0':'0'}});
       flagDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'6px'}},'Flagged sites'));
       flaggedSites.forEach(site=>{
-        const flag=getFlag(name,site);
+        const flag=getFlag(name,site)||getMatingCheckFlag(name,site);
         const row=h('div',{style:{display:'flex',gap:'6px',alignItems:'flex-start',marginBottom:'5px',cursor:'pointer'},
           onClick:(e)=>{e.stopPropagation();showFlagModal(name,site);}});
         row.appendChild(h('span',{style:{color:'#ef9f27',fontWeight:'700',flexShrink:'0',fontSize:'13px'}},'!'));
@@ -6717,8 +6747,8 @@ function renderOverviewTab(){
       row.appendChild(right);card.appendChild(row);
       if(afbInq2){card.appendChild(h('div',{style:{marginTop:'7px',fontSize:'12px',color:'#c0392b',background:'#fde8e8',borderRadius:'5px',padding:'5px 8px',fontWeight:'700'}},'⚠ AFB Under Inquiry since '+fmtDate(afbInq2.date)));}
       if(latest?.entry?.comments)card.appendChild(h('div',{style:{marginTop:'5px',fontSize:'12px',color:'#555',background:'#f8f8f6',borderRadius:'5px',padding:'5px 8px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},latest.entry.comments));
-      const flag=getFlag(op,site);
-      if(flag){const fb=h('div',{style:{marginTop:'7px',background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'6px',padding:'6px 10px',fontSize:'12px',color:'#b07800',display:'flex',gap:'6px',alignItems:'flex-start',cursor:'pointer'}},h('span',{style:{fontWeight:'700',flexShrink:'0'}},'! '),h('span',null,flag.comment));fb.addEventListener('click',e=>{e.stopPropagation();showFlagModal(op,site);});card.appendChild(fb);}
+      const flag=getFlag(op,site)||getMatingCheckFlag(op,site);
+      if(flag){const fb=h('div',{style:{marginTop:'7px',background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'6px',padding:'6px 10px',fontSize:'12px',color:'#b07800',display:'flex',gap:'6px',alignItems:'flex-start',cursor:'pointer'}},h('span',{style:{fontWeight:'700',flexShrink:'0'}},'! '),h('span',null,flag.comment));fb.addEventListener('click',e=>{e.stopPropagation();if(!flag._auto)showFlagModal(op,site);});card.appendChild(fb);}
       resultsContainer.appendChild(card);
     });
     if(!anyResults&&q){
@@ -6782,7 +6812,7 @@ function calcBatchSummary(op, batch, sites){
     fdHarv+=lv(site,'fd_harv');harv34+=lv(site,'harv_34');
     breeders+=getSiteBreederCount(op,site);
     finishers+=parseInt(getSiteFieldAnyRound(op,site,'finishers'))||0;
-    if(getFlag(op,site)) flagCount++;
+    if(getFlag(op,site)||getMatingCheckFlag(op,site)) flagCount++;
     if(getCheck(op,site)) checkCount++;
   });
   return{hives,dead,alive,singles,doubles,light,fdOn,on34,hcFdOn,hcHdOn,fdHarv,harv34,breeders,finishers,flagCount,checkCount};
@@ -7457,7 +7487,7 @@ function renderSitesList(){
     // calculation that could drift out of sync with it.
     const currentHives=getSiteHiveState(op,site,snapshotDate).hives;
 
-    const flag=getFlag(op,site);
+    const flag=getFlag(op,site)||getMatingCheckFlag(op,site);
     const chk=getCheck(op,site);
     const afb=getAFBInquiry(op,site);
 
@@ -7819,12 +7849,12 @@ function renderEntriesList(){
     wrap.appendChild(polReviewBanner);
   }
 
-  // Flag if present (urgent — amber)
-  const flag=getFlag(op,site);
+  // Flag if present (urgent — amber) — may be manual or auto (mating check)
+  const flag=getFlag(op,site)||getMatingCheckFlag(op,site);
   if(flag){
     const fb=h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',cursor:'pointer',display:'flex',gap:'6px',alignItems:'flex-start'}},
       h('span',{style:{fontWeight:'700',color:'#ef9f27',flexShrink:'0'}},'!'),h('span',{style:{fontSize:'13px',color:'#b07800'}},flag.comment));
-    fb.addEventListener('click',()=>showFlagModal(op,site));
+    if(!flag._auto) fb.addEventListener('click',()=>showFlagModal(op,site));
     wrap.appendChild(fb);
   }
   // Check reminder (less urgent — blue)
@@ -7900,7 +7930,7 @@ function renderEntriesList(){
       {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
       {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},
-      {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
+      {key:'tops',label:'Top Splits'},{key:'tops_dest',label:'Top Splits → '},{key:'splits',label:'Box Splits'},{key:'splits_dest',label:'Box Splits → '},{key:'nuc_splits',label:'Nuc Splits'},{key:'nuc_splits_dest',label:'Nuc Splits → '},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
@@ -8492,8 +8522,10 @@ function renderForm(){
     ]},
     {key:'queens',label:'Requeening',color:'#7a4fa8',fields:[
       {key:'qr',label:'QR',type:'number'},{key:'virgin',label:'Virgin',type:'number'},
-      {key:'cell_in',label:'Cell In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},{key:'tops',label:'Top Splits',type:'number'},
-      {key:'splits',label:'Box Splits',type:'number'},{key:'nuc_splits',label:'Nuc Splits',type:'number'},
+      {key:'cell_in',label:'Cell In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},
+      {key:'tops',label:'Top Splits',type:'number'},{key:'tops_dest',label:'Top splits sent to',type:'yard_dest'},
+      {key:'splits',label:'Box Splits',type:'number'},{key:'splits_dest',label:'Box splits sent to',type:'yard_dest'},
+      {key:'nuc_splits',label:'Nuc Splits',type:'number'},{key:'nuc_splits_dest',label:'Nuc splits sent to',type:'yard_dest'},
       {key:'breeders',label:'Breeders',type:'number'},{key:'finishers',label:'Finishers',type:'number'},
     ]},
     {key:'pollination',label:'Pollination',color:'#b07800',fields:[
@@ -8863,6 +8895,25 @@ function renderForm(){
           cell.appendChild(ni);grid.appendChild(cell);
         });
         fw.appendChild(grid);
+      } else if(f.type==='text'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
+        const inp=h('input',{type:'text',placeholder:'—',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'14px',background:'#fff',boxSizing:'border-box'}});
+        inp.value=vals[f.key]||'';
+        inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
+        fw.appendChild(inp);
+      } else if(f.type==='yard_dest'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
+        const yardList=allSitesFor(op).filter(s=>s!==site).sort();
+        const sel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'14px',background:'#fff',boxSizing:'border-box',color:'#333',appearance:'auto'}});
+        sel.appendChild(h('option',{value:''},'— not recorded —'));
+        yardList.forEach(s=>{
+          const opt=h('option',{value:s},s);
+          if((vals[f.key]||'')=== s) opt.selected=true;
+          sel.appendChild(opt);
+        });
+        sel.addEventListener('change',e=>STATE.formVals[f.key]=e.target.value);
+        if(vals[f.key]) sel.value=vals[f.key];
+        fw.appendChild(sel);
       }
       body.appendChild(fw);
     });
@@ -9213,12 +9264,12 @@ function renderEntriesList(){
     wrap.appendChild(polReviewBanner);
   }
 
-  // Flag if present (urgent — amber)
-  const flag=getFlag(op,site);
+  // Flag if present (urgent — amber) — may be manual or auto (mating check)
+  const flag=getFlag(op,site)||getMatingCheckFlag(op,site);
   if(flag){
     const fb=h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'6px',cursor:'pointer',display:'flex',gap:'6px',alignItems:'flex-start'}},
       h('span',{style:{fontWeight:'700',color:'#ef9f27',flexShrink:'0'}},'!'),h('span',{style:{fontSize:'13px',color:'#b07800'}},flag.comment));
-    fb.addEventListener('click',()=>showFlagModal(op,site));
+    if(!flag._auto) fb.addEventListener('click',()=>showFlagModal(op,site));
     wrap.appendChild(fb);
   }
   // Check reminder (less urgent — blue)
@@ -9294,7 +9345,7 @@ function renderEntriesList(){
       {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
       {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},
-      {key:'tops',label:'Top Splits'},{key:'splits',label:'Box Splits'},{key:'nuc_splits',label:'Nuc Splits'},
+      {key:'tops',label:'Top Splits'},{key:'tops_dest',label:'Top Splits → '},{key:'splits',label:'Box Splits'},{key:'splits_dest',label:'Box Splits → '},{key:'nuc_splits',label:'Nuc Splits'},{key:'nuc_splits_dest',label:'Nuc Splits → '},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
