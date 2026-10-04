@@ -12760,6 +12760,42 @@ async function bootApp(){
     localStorage.setItem('apiary_migrated_winter','1');
   }
 
+  // ── One-time backfill: create in_yard batches for existing cell_in diary entries ──
+  if(!localStorage.getItem('apiary_migrated_inyard_v1')){
+    try{
+      const allE=JSON.parse(localStorage.getItem('apiary_entries')||'{}');
+      const allS=loadNucYards();
+      let changed=false;
+      Object.entries(allE).forEach(([key,entries])=>{
+        // key format: op__site__round
+        const parts=key.split('__');
+        if(parts.length<3) return;
+        const op=parts[0];
+        const site=parts.slice(1,parts.length-1).join('__');
+        const nucKey='__nucs__'+op;
+        if(!allS[nucKey]) allS[nucKey]={name:'Splits',op,batches:[]};
+        (entries||[]).forEach(entry=>{
+          const count=parseInt(entry.cell_in)||0;
+          if(count<=0||!entry.date) return;
+          // Check if a diary-sourced in_yard batch already exists for this yard+date
+          const isDiary=b=>b._fromDiary&&b.dateAdded===entry.date&&(b.sourceYard===site||b.sourceYard.startsWith(site+' '));
+          const existing=allS[nucKey].batches.find(b=>isDiary(b)&&b.splitType==='in_yard');
+          if(existing) return;
+          // Create missing in_yard batch
+          const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
+          const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
+          const sameSite=allS[nucKey].batches.filter(b=>b.splitType==='in_yard'&&(b.sourceYard===site||b.sourceYard.startsWith(site+' ')));
+          const batchLabel=sameSite.length>0?site+' '+(sameSite.length+1):site;
+          const nucs=Array.from({length:count},(_,i)=>({id:nextId+i,status:'cell',cellDate:entry.date,virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
+          allS[nucKey].batches.push({id:Date.now()+Math.random(),sourceYard:batchLabel,sourceOp:op,dateAdded:entry.date,nucs,splitType:'in_yard',destYard:'',_fromDiary:true});
+          changed=true;
+        });
+      });
+      if(changed) saveNucYards(allS);
+    }catch(e){console.warn('in_yard backfill failed:',e);}
+    localStorage.setItem('apiary_migrated_inyard_v1','1');
+  }
+
   // Show app immediately with local data
   render();
 
