@@ -2849,6 +2849,28 @@ function renderNucsScreen(){
   });
   screen.appendChild(typeToggle);
 
+  // Status filter
+  const STATUS_FILTERS=[{k:'all',l:'All'},{k:'cell',l:'Cell'},{k:'virgin',l:'Virgin'},{k:'dl',l:'DL'},{k:'mated',l:'Mated'},{k:'waiting',l:'Waiting'}];
+  let selectedStatus=STATE._nucStatusFilter||'all';
+  const statusToggle=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px',flexWrap:'wrap'}});
+  STATUS_FILTERS.forEach(sf=>{
+    const active=selectedStatus===sf.k;
+    const btn=h('button',{type:'button',style:{padding:'4px 12px',borderRadius:'20px',border:'1.5px solid '+(active?'#1a6fb0':'#ddd'),background:active?'#1a6fb018':'#fff',color:active?'#1a6fb0':'#888',fontSize:'12px',fontWeight:'700',cursor:'pointer'}},sf.l);
+    btn.addEventListener('click',()=>{
+      STATE._nucStatusFilter=sf.k;
+      selectedStatus=sf.k;
+      renderBatches();
+      statusToggle.querySelectorAll('button').forEach((b,i)=>{
+        const isA=STATUS_FILTERS[i].k===selectedStatus;
+        b.style.border='1.5px solid '+(isA?'#1a6fb0':'#ddd');
+        b.style.background=isA?'#1a6fb018':'#fff';
+        b.style.color=isA?'#1a6fb0':'#888';
+      });
+    });
+    statusToggle.appendChild(btn);
+  });
+  screen.appendChild(statusToggle);
+
   // Batches area
   const batchArea=h('div',null);
   screen.appendChild(batchArea);
@@ -2955,16 +2977,29 @@ function renderNucsScreen(){
   function renderBatches(){
     batchArea.innerHTML='';
     const all=loadNucYards();
-    // Find all batches for this op, filtered by type
+    // Find all batches for this op, filtered by type and status, sorted newest first
     const opBatches=[];
     Object.entries(all).forEach(([key,yard])=>{
       if(yard.op===selectedOp){
         (yard.batches||[]).forEach((batch,bi)=>{
           const bt=batch.splitType||'nuc';
-          if(selectedType==='all'||selectedType===bt) opBatches.push({key,yard,batch,bi});
+          if(selectedType!=='all'&&selectedType!==bt) return;
+          // Status filter: batch must contain at least one nuc matching the status
+          if(selectedStatus!=='all'){
+            const nucs=batch.nucs||[];
+            const match=nucs.some(n=>{
+              if(selectedStatus==='mated') return n.status==='mated'||n.transferredTo;
+              if(selectedStatus==='waiting') return !n.status||n.status==='waiting';
+              return n.status===selectedStatus;
+            });
+            if(!match) return;
+          }
+          opBatches.push({key,yard,batch,bi});
         });
       }
     });
+    // Sort newest first by dateAdded
+    opBatches.sort((a,b)=>(b.batch.dateAdded||'').localeCompare(a.batch.dateAdded||''));
 
     // Summary stats
     const allNucs=opBatches.flatMap(({batch})=>batch.nucs||[]);
@@ -2990,7 +3025,8 @@ function renderNucsScreen(){
     }
 
     if(!opBatches.length){
-      batchArea.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},selectedType==='all'?'No splits yet for '+selectedOp:'No '+TYPE_FILTERS.find(t=>t.k===selectedType)?.l+' splits yet for '+selectedOp));
+      const emptyMsg=selectedStatus!=='all'?'No '+STATUS_FILTERS.find(s=>s.k===selectedStatus)?.l+' splits for '+selectedOp:selectedType==='all'?'No splits yet for '+selectedOp:'No '+TYPE_FILTERS.find(t=>t.k===selectedType)?.l+' splits yet for '+selectedOp;
+      batchArea.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},emptyMsg));
     } else {
       opBatches.forEach(({key,yard,batch,bi})=>{
         const nucs=batch.nucs||[];
@@ -7959,14 +7995,12 @@ function renderEntriesList(){
           btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
         } else {
-          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px 3px 8px',display:'inline-flex',alignItems:'center',gap:'5px',cursor:'default'}});
+          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
           const showNormal=()=>{
             pill.innerHTML='';
             pill.appendChild(document.createTextNode(f.v+' '+f.l));
-            const x=h('span',{style:{fontSize:'11px',opacity:'0.45',cursor:'pointer',lineHeight:'1',paddingLeft:'3px'}},'×');
-            const onX=ev=>{ev.preventDefault();ev.stopPropagation();showConfirm();};
-            x.addEventListener('touchend',onX,{passive:false});x.addEventListener('click',onX);
-            pill.appendChild(x);
+            const onTap=ev=>{ev.preventDefault();ev.stopPropagation();showConfirm();};
+            pill.addEventListener('touchend',onTap,{passive:false});pill.addEventListener('click',onTap);
           };
           const showConfirm=()=>{
             pill.innerHTML='';
@@ -9170,44 +9204,52 @@ function renderForm(){
           localStorage.setItem(inquiryKey,JSON.stringify({date:entry.date,site,op}));
         }
       }
-      // Auto-create split batches in Splits screen when _dest yard is filled
-      function _autoCreateSplitBatch(count,destYard,splitType){
-        if(!(count>0)||!destYard||STATE.editing!==null) return;
+      // Reconcile _fromDiary split batches against the current entry values.
+      // Runs on both new saves and edits — removes stale type batches, creates/updates current ones.
+      // Individual cell progress within a continuing batch is always preserved.
+      (function reconcileDiarySplits(){
         const nucKey='__nucs__'+op;
         const allS=loadNucYards();
         if(!allS[nucKey])allS[nucKey]={name:'Splits',op,batches:[]};
-        const exists=allS[nucKey].batches.find(b=>b._fromDiary&&b.dateAdded===entry.date&&(b.sourceYard===site||b.sourceYard.startsWith(site+' '))&&b.splitType===splitType);
-        if(!exists){
-          const sameSite=allS[nucKey].batches.filter(b=>b.splitType===splitType&&(b.sourceYard===site||b.sourceYard.startsWith(site+' ')));
-          const batchLabel=sameSite.length>0?site+' '+(sameSite.length+1):site;
-          const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
-          const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
-          const nucs=Array.from({length:count},(_,i)=>({id:nextId+i,status:'waiting',cellDate:'',virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
-          allS[nucKey].batches.push({id:Date.now(),sourceYard:batchLabel,sourceOp:op,dateAdded:entry.date,nucs,destYard,splitType,_fromDiary:true});
-          saveNucYards(allS);
-          const typeLabel=splitType==='top'?'top':splitType==='box'?'box':'nuc';
-          showToast(count+' '+typeLabel+' split'+(count!==1?'s':'')+' added to Splits');
-        }
-      }
-      _autoCreateSplitBatch(parseInt(entry.tops)||0, entry.tops_dest, 'top');
-      _autoCreateSplitBatch(parseInt(entry.splits)||0, entry.splits_dest, 'box');
-      _autoCreateSplitBatch(parseInt(entry.nuc_splits)||0, entry.nuc_splits_dest||'(nucs)', 'nuc');
-      // Cell in — auto-create in-yard tracking batch
-      const cellInCount=parseInt(entry.cell_in)||0;
-      if(cellInCount>0&&STATE.editing===null){
-        const nucKey='__nucs__'+op;
-        const allS=loadNucYards();
-        if(!allS[nucKey])allS[nucKey]={name:'Splits',op,batches:[]};
-        const exists=allS[nucKey].batches.find(b=>b._fromDiary&&b.dateAdded===entry.date&&b.sourceYard===site&&b.splitType==='in_yard');
-        if(!exists){
-          const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
-          const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
-          const cells=Array.from({length:cellInCount},(_,i)=>({id:nextId+i,status:'cell',cellDate:entry.date,virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
-          allS[nucKey].batches.push({id:Date.now(),sourceYard:site,sourceOp:op,dateAdded:entry.date,nucs:cells,splitType:'in_yard',_fromDiary:true});
-          saveNucYards(allS);
-          showToast(cellInCount+' cell'+(cellInCount!==1?'s':'')+' in '+site+' added to Splits');
-        }
-      }
+        const isDiary=b=>b._fromDiary&&b.dateAdded===entry.date&&(b.sourceYard===site||b.sourceYard.startsWith(site+' '));
+        const desired=[
+          {splitType:'top',  count:parseInt(entry.tops)||0,       destYard:entry.tops_dest||''},
+          {splitType:'box',  count:parseInt(entry.splits)||0,     destYard:entry.splits_dest||''},
+          {splitType:'nuc',  count:parseInt(entry.nuc_splits)||0, destYard:entry.nuc_splits_dest||'(nucs)'},
+          {splitType:'in_yard', count:parseInt(entry.cell_in)||0, destYard:''},
+        ];
+        let changed=false;
+        // Remove batches whose type is no longer present in the entry
+        const before=allS[nucKey].batches.length;
+        allS[nucKey].batches=allS[nucKey].batches.filter(b=>{
+          if(!isDiary(b)) return true;
+          const d=desired.find(d=>d.splitType===b.splitType);
+          return !!(d&&d.count>0);
+        });
+        if(allS[nucKey].batches.length!==before) changed=true;
+        // Create new or update existing batch for each desired type
+        desired.forEach(({splitType,count,destYard})=>{
+          if(count<=0) return;
+          // top/box/nuc require a destYard to appear on Splits page; in_yard does not
+          if(splitType!=='in_yard'&&!destYard) return;
+          const existing=allS[nucKey].batches.find(b=>isDiary(b)&&b.splitType===splitType);
+          if(existing){
+            if(existing.destYard!==destYard){existing.destYard=destYard;changed=true;}
+          } else {
+            const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
+            const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
+            const sameSite=allS[nucKey].batches.filter(b=>b.splitType===splitType&&(b.sourceYard===site||b.sourceYard.startsWith(site+' ')));
+            const batchLabel=sameSite.length>0?site+' '+(sameSite.length+1):site;
+            const initStatus=splitType==='in_yard'?'cell':'waiting';
+            const nucs=Array.from({length:count},(_,i)=>({id:nextId+i,status:initStatus,cellDate:splitType==='in_yard'?entry.date:'',virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
+            allS[nucKey].batches.push({id:Date.now()+Math.random(),sourceYard:batchLabel,sourceOp:op,dateAdded:entry.date,nucs,splitType,destYard,_fromDiary:true});
+            changed=true;
+            if(splitType==='in_yard') showToast(count+' cell'+(count!==1?'s':'')+' in '+site+' added to Splits');
+            else{const tl=splitType==='top'?'top':splitType==='box'?'box':'nuc';showToast(count+' '+tl+' split'+(count!==1?'s':'')+' added to Splits');}
+          }
+        });
+        if(changed) saveNucYards(allS);
+      })();
       if(entry.check_note){setCheck(op,site,entry.check_note);}
       if(STATE.editing!==null&&entry._movement){
         const oldEntry=existing[STATE.editing];
@@ -9422,14 +9464,12 @@ function renderEntriesList(){
           btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
         } else {
-          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px 3px 8px',display:'inline-flex',alignItems:'center',gap:'5px',cursor:'default'}});
+          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
           const showNormal=()=>{
             pill.innerHTML='';
             pill.appendChild(document.createTextNode(f.v+' '+f.l));
-            const x=h('span',{style:{fontSize:'11px',opacity:'0.45',cursor:'pointer',lineHeight:'1',paddingLeft:'3px'}},'×');
-            const onX=ev=>{ev.preventDefault();ev.stopPropagation();showConfirm();};
-            x.addEventListener('touchend',onX,{passive:false});x.addEventListener('click',onX);
-            pill.appendChild(x);
+            const onTap=ev=>{ev.preventDefault();ev.stopPropagation();showConfirm();};
+            pill.addEventListener('touchend',onTap,{passive:false});pill.addEventListener('click',onTap);
           };
           const showConfirm=()=>{
             pill.innerHTML='';
