@@ -178,7 +178,7 @@ function saveSeasonNotes(d){try{localStorage.setItem('apiary_season_notes',JSON.
 
 // Years storage (replaces seasons)
 function loadYears(){try{return JSON.parse(localStorage.getItem('apiary_years')||'[]');}catch(e){return[];}}
-function saveYears(y){try{localStorage.setItem('apiary_years',JSON.stringify(y));}catch(e){}}
+function saveYears(y){try{localStorage.setItem('apiary_years',JSON.stringify(y));pushToSupabase('years',y).catch(e=>console.warn('Years sync failed:',e));}catch(e){}}
 // Keep loadSeasons/saveSeasons for backward compat
 function loadSeasons(){return loadYears();}
 function saveSeasons(s){saveYears(s);}
@@ -1155,6 +1155,17 @@ async function pullFromSupabase(skipRender){
           }
           return;
         }
+        if(row.entry_key==='years'){
+          if(row.data&&Array.isArray(row.data)&&row.data.length){
+            // Merge: keep all years from both local and remote, deduplicated by startYear
+            const local=loadYears();
+            const byYear={};
+            [...local,...row.data].forEach(y=>{byYear[y.startYear]=y;});
+            const merged=Object.values(byYear).sort((a,b)=>b.startYear-a.startYear);
+            try{localStorage.setItem('apiary_years',JSON.stringify(merged));}catch(e){}
+          }
+          return;
+        }
         if(row.entry_key==='custom_yards'){
           // Supabase is authoritative for custom yards — use it directly
           // This ensures deletions on one device propagate to all others
@@ -1279,6 +1290,14 @@ function subscribeRealtime(){
     }
     if(entry_key==='season_notes'){
       if(data&&typeof data==='object') saveSeasonNotes(data);
+      return;
+    }
+    if(entry_key==='nuc_yards'){
+      if(data&&typeof data==='object'){const local=loadNucYards();const merged={...local,...data};try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(merged));}catch(e){}}
+      return;
+    }
+    if(entry_key==='years'){
+      if(data&&Array.isArray(data)&&data.length){const local=loadYears();const byYear={};[...local,...data].forEach(y=>{byYear[y.startYear]=y;});const merged=Object.values(byYear).sort((a,b)=>b.startYear-a.startYear);try{localStorage.setItem('apiary_years',JSON.stringify(merged));}catch(e){}}
       return;
     }
     if(entry_key==='custom_yards'){
@@ -12862,9 +12881,11 @@ async function bootApp(){
       await pullFromSupabase();
       subscribeRealtime();
       await flushPending();
-      // Push nuc yards so other devices can see splits data
+      // Push nuc yards and years so other devices can see splits and season data
       const _localNucYards=loadNucYards();
       if(Object.keys(_localNucYards).length) pushToSupabase('nuc_yards',_localNucYards).catch(()=>{});
+      const _localYears=loadYears();
+      if(_localYears.length) pushToSupabase('years',_localYears).catch(()=>{});
       updateSyncDot('online');
     }catch(e){
       console.warn('Supabase init failed:',e);
