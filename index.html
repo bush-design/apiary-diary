@@ -2809,7 +2809,6 @@ function renderNucsScreen(){
     btn.addEventListener('click',()=>{
       STATE._nucOp=op;
       selectedOp=op;
-      renderInYard();
       renderBatches();
       // Update toggle buttons
       opToggle.querySelectorAll('button').forEach((b,i)=>{
@@ -2823,12 +2822,8 @@ function renderNucsScreen(){
   });
   screen.appendChild(opToggle);
 
-  // In Yard area (above split type toggle)
-  const inYardArea=h('div',null);
-  screen.appendChild(inYardArea);
-
   // Type filter toggle
-  const TYPE_FILTERS=[{k:'all',l:'All'},{k:'top',l:'Tops'},{k:'box',l:'Box'},{k:'nuc',l:'Nucs'}];
+  const TYPE_FILTERS=[{k:'all',l:'All'},{k:'top',l:'Tops'},{k:'box',l:'Box'},{k:'nuc',l:'Nucs'},{k:'in_yard',l:'In Yard'}];
   let selectedType=STATE._nucTypeFilter||'all';
   const typeToggle=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px'}});
   TYPE_FILTERS.forEach(tf=>{
@@ -2879,6 +2874,7 @@ function renderNucsScreen(){
     top:{label:'Top Split',color:'#3d7a4f'},
     box:{label:'Box Split',color:'#1a6fb0'},
     nuc:{label:'Nuc',color:'#9b59b6'},
+    in_yard:{label:'In Yard',color:'#ef9f27'},
   };
 
   function renderInYard(){
@@ -3043,7 +3039,7 @@ function renderNucsScreen(){
 
         if(showCheck){
           batchArea.appendChild(h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'8px',fontSize:'13px',color:'#b07800',fontWeight:'600'}},
-            '⏰ '+batch.sourceYard+' — check nucs (cells in '+showCheck+'d ago)'
+            '⏰ '+batch.sourceYard+' — check '+(batch.splitType==='in_yard'?'cells':'nucs')+' (cells in '+showCheck+'d ago)'
           ));
         }
 
@@ -3060,8 +3056,9 @@ function renderNucsScreen(){
         bTopRow.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:bTypeMeta.color,background:bTypeMeta.color+'18',borderRadius:'8px',padding:'2px 7px'}},bTypeMeta.label));
         if(batch.destYard) bTopRow.appendChild(h('span',{style:{fontSize:'11px',color:'#888'}},`→ ${batch.destYard}`));
         bLeft.appendChild(bTopRow);
+        const batchCountLabel=batch.splitType==='in_yard'?(nucs.length+' cell'+(nucs.length!==1?'s':'')+' in'):(nucs.length+' split'+(nucs.length!==1?'s':''));
         bLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},
-          nucs.length+' splits · Added '+fmtDate(batch.dateAdded)+(mated?' · '+mated+' mated':'')+(failed?' · '+failed+' failed':'')
+          batchCountLabel+' · Added '+fmtDate(batch.dateAdded)+(mated?' · '+mated+' mated':'')+(failed?' · '+failed+' failed':'')
         ));
         bHdr.appendChild(bLeft);
         const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},STATE._expandedNucBatch===key?'▲':'▼');
@@ -3126,7 +3123,6 @@ function renderNucsScreen(){
     },'+ Add split batch'));
   }
 
-  renderInYard();
   renderBatches();
   wrap.appendChild(screen);
   return wrap;
