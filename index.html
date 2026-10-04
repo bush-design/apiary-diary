@@ -168,7 +168,7 @@ function getPOLSites(){
 
 // Nuc yard storage
 function loadNucYards(){try{return JSON.parse(localStorage.getItem('apiary_nuc_yards')||'{}');}catch(e){return{};}}
-function saveNucYards(d){try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(d));}catch(e){}}
+function saveNucYards(d){try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(d));pushToSupabase('nuc_yards',d).catch(e=>console.warn('Nuc yards sync failed:',e));}catch(e){}}
 // Season notes — free-text planning notes per operation, per season. Not tied to any single
 // yard (these are operation-wide thoughts like "order more supers before spring"), and not
 // shared across operations either. Persist until manually cleared — no automatic archiving.
@@ -1143,6 +1143,15 @@ async function pullFromSupabase(skipRender){
         if(row.entry_key==='season_notes'){
           if(row.data&&typeof row.data==='object'){
             saveSeasonNotes(row.data);
+          }
+          return;
+        }
+        if(row.entry_key==='nuc_yards'){
+          if(row.data&&typeof row.data==='object'){
+            // Merge: remote wins for any key it has, local keeps keys not on remote
+            const local=loadNucYards();
+            const merged={...local,...row.data};
+            try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(merged));}catch(e){}
           }
           return;
         }
@@ -12853,6 +12862,9 @@ async function bootApp(){
       await pullFromSupabase();
       subscribeRealtime();
       await flushPending();
+      // Push nuc yards so other devices can see splits data
+      const _localNucYards=loadNucYards();
+      if(Object.keys(_localNucYards).length) pushToSupabase('nuc_yards',_localNucYards).catch(()=>{});
       updateSyncDot('online');
     }catch(e){
       console.warn('Supabase init failed:',e);
