@@ -3024,93 +3024,122 @@ function renderNucsScreen(){
       const emptyMsg=selectedStatus!=='all'?'No '+STATUS_FILTERS.find(s=>s.k===selectedStatus)?.l+' splits for '+selectedOp:selectedType==='all'?'No splits yet for '+selectedOp:'No '+TYPE_FILTERS.find(t=>t.k===selectedType)?.l+' splits yet for '+selectedOp;
       batchArea.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},emptyMsg));
     } else {
-      opBatches.forEach(({key,yard,batch,bi})=>{
-        const nucs=batch.nucs||[];
-        const today=new Date();
+      // Group batches by yard name + date so same-yard same-day types appear in one card
+      const groups=new Map();
+      opBatches.forEach(item=>{
+        const gk=item.batch.sourceYard+'|'+(item.batch.dateAdded||'');
+        if(!groups.has(gk)) groups.set(gk,[]);
+        groups.get(gk).push(item);
+      });
+      const today=new Date();
 
-        // 2-week check reminder
-        const checkNucs=nucs.filter(n=>n.cellDate&&!n.matedDate&&!n.transferredTo&&n.status!=='failed');
-        let showCheck=false;
-        if(checkNucs.length){
-          const cellDate=new Date(checkNucs[0].cellDate);
-          const days=Math.floor((today-cellDate)/(1000*60*60*24));
-          if(days>=14) showCheck=days;
-        }
+      groups.forEach((items,gk)=>{
+        const firstBatch=items[0].batch;
+        const groupExpandKey='grp|'+gk;
+        const isExpanded=STATE._expandedNucBatch===groupExpandKey;
 
-        if(showCheck){
-          batchArea.appendChild(h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'8px',fontSize:'13px',color:'#b07800',fontWeight:'600'}},
-            '⏰ '+batch.sourceYard+' — check '+(batch.splitType==='in_yard'?'cells':'nucs')+' (cells in '+showCheck+'d ago)'
-          ));
-        }
+        // 2-week check reminder — show once per group if any batch triggers it
+        let shownCheck=false;
+        items.forEach(({batch})=>{
+          if(shownCheck) return;
+          const checkNucs=(batch.nucs||[]).filter(n=>n.cellDate&&!n.matedDate&&!n.transferredTo&&n.status!=='failed');
+          if(checkNucs.length){
+            const days=Math.floor((today-new Date(checkNucs[0].cellDate))/(1000*60*60*24));
+            if(days>=14){
+              batchArea.appendChild(h('div',{style:{background:'#fff8e6',border:'1px solid #ef9f27',borderRadius:'8px',padding:'8px 12px',marginBottom:'8px',fontSize:'13px',color:'#b07800',fontWeight:'600'}},
+                '⏰ '+firstBatch.sourceYard+' — check '+(batch.splitType==='in_yard'?'cells':'nucs')+' ('+days+'d ago)'
+              ));
+              shownCheck=true;
+            }
+          }
+        });
 
         const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid #ddd'}});
 
-        // Batch header — tappable to expand
+        // Card header: yard name + type badges, tappable to expand
         const bHdr=h('div',{style:{padding:'11px 14px',background:'#f8f8f6',borderBottom:'.5px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}});
-        const mated=nucs.filter(n=>n.status==='mated'||n.transferredTo).length;
-        const failed=nucs.filter(n=>n.status==='failed').length;
         const bLeft=h('div',null);
-        const bTypeMeta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
-        const bTopRow=h('div',{style:{display:'flex',alignItems:'center',gap:'7px'}});
-        bTopRow.appendChild(h('span',{style:{fontWeight:'700',fontSize:'15px'}},batch.sourceYard));
-        bTopRow.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:bTypeMeta.color,background:bTypeMeta.color+'18',borderRadius:'8px',padding:'2px 7px'}},bTypeMeta.label));
-        if(batch.destYard) bTopRow.appendChild(h('span',{style:{fontSize:'11px',color:'#888'}},`→ ${batch.destYard}`));
+        const bTopRow=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
+        bTopRow.appendChild(h('span',{style:{fontWeight:'700',fontSize:'15px'}},firstBatch.sourceYard));
+        items.forEach(({batch})=>{
+          const meta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
+          bTopRow.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:meta.color,background:meta.color+'18',borderRadius:'8px',padding:'2px 7px'}},meta.label));
+        });
         bLeft.appendChild(bTopRow);
-        const batchCountLabel=batch.splitType==='in_yard'?(nucs.length+' cell'+(nucs.length!==1?'s':'')+' in'):(nucs.length+' split'+(nucs.length!==1?'s':''));
-        bLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},
-          batchCountLabel+' · Added '+fmtDate(batch.dateAdded)+(mated?' · '+mated+' mated':'')+(failed?' · '+failed+' failed':'')
-        ));
+        bLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'3px'}},'Added '+fmtDate(firstBatch.dateAdded)));
         bHdr.appendChild(bLeft);
-        const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},STATE._expandedNucBatch===key?'▲':'▼');
+        const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},isExpanded?'▲':'▼');
         bHdr.appendChild(bChev);
         card.appendChild(bHdr);
 
-        // Starts expanded if this batch is the one remembered as open — kept in STATE so it
-        // survives a full re-render, e.g. returning here after updating an individual nuc.
-        const bBody=h('div',{style:{display:STATE._expandedNucBatch===key?'block':'none'}});
-
-        // Individual nucs
-        nucs.forEach((nuc,ni)=>{
-          const isTransferred=!!nuc.transferredTo;
-          const statusColor=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#aaa';
-          const statusLabel=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Recheck';
-          const nRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
-            onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=key;setState({op:'__nucs__'});})});
-          const nLeft=h('div',null);
-          nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' '+(ni+1)));
-          if(nuc.cellDate) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'Cell: '+fmtDate(nuc.cellDate)));
-          if(nuc.transferredTo) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#3d7a4f'}},'→ '+nuc.transferredTo+' · '+fmtDate(nuc.transferredDate)));
-          nRow.appendChild(nLeft);
-          nRow.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:statusColor,background:statusColor+'18',borderRadius:'10px',padding:'3px 8px'}},statusLabel));
-          bBody.appendChild(nRow);
+        // Sub-rows: one line per batch type, always visible
+        const subRows=h('div',{style:{padding:'8px 14px 10px',borderBottom:'.5px solid #eee'}});
+        items.forEach(({batch})=>{
+          const nucs=batch.nucs||[];
+          const meta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
+          const mated=nucs.filter(n=>n.status==='mated'||n.transferredTo).length;
+          const failed=nucs.filter(n=>n.status==='failed').length;
+          const countLabel=batch.splitType==='in_yard'?(nucs.length+' cell'+(nucs.length!==1?'s':'')+' in yard'):(nucs.length+' split'+(nucs.length!==1?'s':''));
+          const sr=h('div',{style:{display:'flex',alignItems:'center',gap:'5px',marginBottom:'2px',fontSize:'12px'}});
+          sr.appendChild(h('span',{style:{fontWeight:'700',color:meta.color}},countLabel));
+          if(batch.destYard) sr.appendChild(h('span',{style:{color:'#888'}},'→ '+batch.destYard));
+          if(mated) sr.appendChild(h('span',{style:{color:'#3d7a4f'}},'· '+mated+' mated'));
+          if(failed) sr.appendChild(h('span',{style:{color:'#e24b4a'}},'· '+failed+' failed'));
+          subRows.appendChild(sr);
         });
+        card.appendChild(subRows);
 
-        // Batch actions
-        const actRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',padding:'10px 14px',borderTop:'.5px solid #f0f0ee'}});
-        actRow.appendChild(h('button',{style:{padding:'8px',background:'#9b59b611',border:'1px solid #9b59b6',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#9b59b6',cursor:'pointer'},
-          onClick:()=>showBatchUpdateModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Update batch'));
-        actRow.appendChild(h('button',{style:{padding:'8px',background:'#1a6fb011',border:'1px solid #1a6fb0',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#1a6fb0',cursor:'pointer'},
-          onClick:()=>showSendNucsModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Send to yard'));
-        actRow.appendChild(h('button',{style:{padding:'8px',background:'#55555511',border:'1px solid #999',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#666',cursor:'pointer'},
-          onClick:()=>showChangeSourceModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Change source'));
-        actRow.appendChild(h('button',{style:{padding:'8px',background:'#e24b4a11',border:'1px solid #e24b4a',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#e24b4a',cursor:'pointer'},
-          onClick:()=>{
-            const msg=batch._fromDiary?'Delete this nuc batch? This was created from a diary entry — deleting here will NOT remove the nuc splits from that entry.':'Delete this nuc batch?';
-            confirmAction(msg,()=>{
-              const all2=loadNucYards();
-              all2[key].batches.splice(bi,1);
-              saveNucYards(all2);
-              STATE._nucOp=selectedOp;
-              setState({op:'__nucs__'});
-            });
-          }},'Delete batch'));
-        bBody.appendChild(actRow);
+        // Expandable body: individual items per batch, with type section divider if multiple types
+        const bBody=h('div',{style:{display:isExpanded?'block':'none'}});
+        items.forEach(({key,batch,bi},itemIdx)=>{
+          const nucs=batch.nucs||[];
+          if(!nucs.length) return;
+          const meta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
+          // Type section label when multiple types in group
+          if(items.length>1){
+            bBody.appendChild(h('div',{style:{padding:'5px 14px',background:meta.color+'0d',borderBottom:'.5px solid '+meta.color+'33',borderTop:itemIdx>0?'.5px solid #eee':'none',fontSize:'10px',fontWeight:'800',color:meta.color,textTransform:'uppercase',letterSpacing:'.06em'}},meta.label));
+          }
+          nucs.forEach((nuc,ni)=>{
+            const isTransferred=!!nuc.transferredTo;
+            const sc=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#aaa';
+            const sl=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Recheck';
+            const nRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
+              onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=groupExpandKey;setState({op:'__nucs__'});})});
+            const nLeft=h('div',null);
+            nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' '+(ni+1)));
+            if(nuc.cellDate) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'Cell: '+fmtDate(nuc.cellDate)));
+            if(nuc.transferredTo) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#3d7a4f'}},'→ '+nuc.transferredTo+' · '+fmtDate(nuc.transferredDate)));
+            nRow.appendChild(nLeft);
+            nRow.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:sc,background:sc+'18',borderRadius:'10px',padding:'3px 8px'}},sl));
+            bBody.appendChild(nRow);
+          });
+          // Actions for this batch
+          const actRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',padding:'10px 14px',borderTop:'.5px solid #f0f0ee',marginBottom:itemIdx<items.length-1?'0':'0'}});
+          actRow.appendChild(h('button',{style:{padding:'8px',background:'#9b59b611',border:'1px solid #9b59b6',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#9b59b6',cursor:'pointer'},
+            onClick:()=>showBatchUpdateModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Update batch'));
+          actRow.appendChild(h('button',{style:{padding:'8px',background:'#1a6fb011',border:'1px solid #1a6fb0',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#1a6fb0',cursor:'pointer'},
+            onClick:()=>showSendNucsModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Send to yard'));
+          actRow.appendChild(h('button',{style:{padding:'8px',background:'#55555511',border:'1px solid #999',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#666',cursor:'pointer'},
+            onClick:()=>showChangeSourceModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Change source'));
+          actRow.appendChild(h('button',{style:{padding:'8px',background:'#e24b4a11',border:'1px solid #e24b4a',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#e24b4a',cursor:'pointer'},
+            onClick:()=>{
+              const msg=batch._fromDiary?'Delete this batch? This was created from a diary entry — deleting here will NOT remove the diary entry data.':'Delete this batch?';
+              confirmAction(msg,()=>{
+                const all2=loadNucYards();
+                all2[key].batches.splice(bi,1);
+                saveNucYards(all2);
+                STATE._nucOp=selectedOp;
+                setState({op:'__nucs__'});
+              });
+            }},'Delete batch'));
+          bBody.appendChild(actRow);
+        });
 
         bHdr.addEventListener('click',()=>{
           const open=bBody.style.display!=='none';
           bBody.style.display=open?'none':'block';
           bChev.textContent=open?'▼':'▲';
-          STATE._expandedNucBatch=open?null:key;
+          STATE._expandedNucBatch=open?null:groupExpandKey;
         });
         card.appendChild(bBody);
         batchArea.appendChild(card);
