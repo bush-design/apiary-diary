@@ -2805,6 +2805,7 @@ function renderNucsScreen(){
     btn.addEventListener('click',()=>{
       STATE._nucOp=op;
       selectedOp=op;
+      renderInYard();
       renderBatches();
       // Update toggle buttons
       opToggle.querySelectorAll('button').forEach((b,i)=>{
@@ -2817,6 +2818,10 @@ function renderNucsScreen(){
     opToggle.appendChild(btn);
   });
   screen.appendChild(opToggle);
+
+  // In Yard area (above split type toggle)
+  const inYardArea=h('div',null);
+  screen.appendChild(inYardArea);
 
   // Type filter toggle
   const TYPE_FILTERS=[{k:'all',l:'All'},{k:'top',l:'Tops'},{k:'box',l:'Box'},{k:'nuc',l:'Nucs'}];
@@ -2849,6 +2854,99 @@ function renderNucsScreen(){
     box:{label:'Box Split',color:'#1a6fb0'},
     nuc:{label:'Nuc',color:'#9b59b6'},
   };
+
+  function renderInYard(){
+    inYardArea.innerHTML='';
+    const all=loadNucYards();
+    const inYardBatches=[];
+    Object.entries(all).forEach(([key,yard])=>{
+      if(yard.op===selectedOp){
+        (yard.batches||[]).forEach((batch,bi)=>{
+          if((batch.splitType||'nuc')==='in_yard') inYardBatches.push({key,yard,batch,bi});
+        });
+      }
+    });
+    if(!inYardBatches.length) return;
+
+    const secHdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',cursor:'pointer',padding:'2px 0'}});
+    secHdr.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'800',color:'#b07800',textTransform:'uppercase',letterSpacing:'.07em'}},'In Yard Cells'));
+    const hChev=h('span',{style:{color:'#b07800',fontSize:'13px'}},STATE._inYardCollapsed?'▼':'▲');
+    secHdr.appendChild(hChev);
+    inYardArea.appendChild(secHdr);
+
+    const secBody=h('div',{style:{display:STATE._inYardCollapsed?'none':'block',marginBottom:'16px'}});
+
+    inYardBatches.forEach(({key,yard,batch,bi})=>{
+      const cells=batch.nucs||[];
+      const mated=cells.filter(c=>c.status==='mated'||c.transferredTo).length;
+      const failed=cells.filter(c=>c.status==='failed').length;
+      const waiting=cells.length-mated-failed;
+      const expandKey='iy__'+key+'__'+bi;
+
+      const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'8px',overflow:'hidden',border:'.5px solid #f0e0b0'}});
+
+      const cHdr=h('div',{style:{padding:'10px 14px',background:'#fffbf0',borderBottom:'.5px solid #f5e6cc',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}});
+      const cLeft=h('div',null);
+      const cTopRow=h('div',{style:{display:'flex',alignItems:'center',gap:'7px'}});
+      cTopRow.appendChild(h('span',{style:{fontWeight:'700',fontSize:'15px'}},batch.sourceYard));
+      cTopRow.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#b07800',background:'#b0780018',borderRadius:'8px',padding:'2px 7px'}},'In Yard'));
+      cLeft.appendChild(cTopRow);
+      cLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},
+        cells.length+' cells · '+fmtDate(batch.dateAdded)+(mated?' · '+mated+' mated':'')+(failed?' · '+failed+' failed':'')+(waiting&&!mated&&!failed?' · tracking':'')
+      ));
+      cHdr.appendChild(cLeft);
+      const cChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},STATE._expandedInYard===expandKey?'▲':'▼');
+      cHdr.appendChild(cChev);
+      card.appendChild(cHdr);
+
+      const cBody=h('div',{style:{display:STATE._expandedInYard===expandKey?'block':'none'}});
+
+      // Individual cells
+      cells.forEach((cell,ci)=>{
+        const sc=cell.status==='failed'?'#e24b4a':cell.status==='mated'||cell.transferredTo?'#3d7a4f':cell.status==='dl'?'#1a6fb0':cell.status==='virgin'?'#9b59b6':cell.status==='cell'?'#ef9f27':'#aaa';
+        const sl=cell.transferredTo?'QR ✓':cell.status==='failed'?'Failed':cell.status==='mated'?'Mated ✓':cell.status==='dl'?'DL':cell.status==='virgin'?'Virgin':cell.status==='cell'?'Cell in':'Waiting';
+        const cRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
+          onClick:()=>showNucModal(selectedOp,key,bi,ci,()=>{STATE._nucOp=selectedOp;STATE._expandedInYard=expandKey;setState({op:'__nucs__'});})});
+        const cRowLeft=h('div',null);
+        cRowLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' cell '+(ci+1)));
+        if(cell.cellDate) cRowLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'In: '+fmtDate(cell.cellDate)));
+        cRow.appendChild(cRowLeft);
+        cRow.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:sc,background:sc+'18',borderRadius:'10px',padding:'3px 8px'}},sl));
+        cBody.appendChild(cRow);
+      });
+
+      // Batch actions
+      const actRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',padding:'10px 14px',borderTop:'.5px solid #f0f0ee'}});
+      actRow.appendChild(h('button',{style:{padding:'8px',background:'#b0780011',border:'1px solid #b07800',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#b07800',cursor:'pointer'},
+        onClick:()=>showBatchUpdateModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;STATE._expandedInYard=expandKey;setState({op:'__nucs__'});})},'Update batch'));
+      actRow.appendChild(h('button',{style:{padding:'8px',background:'#e24b4a11',border:'1px solid #e24b4a',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#e24b4a',cursor:'pointer'},
+        onClick:()=>confirmAction('Delete this in-yard cell batch?',()=>{
+          const all2=loadNucYards();all2[key].batches.splice(bi,1);saveNucYards(all2);
+          STATE._nucOp=selectedOp;setState({op:'__nucs__'});
+        })},'Delete'));
+      cBody.appendChild(actRow);
+
+      cHdr.addEventListener('click',()=>{
+        const open=cBody.style.display!=='none';
+        cBody.style.display=open?'none':'block';
+        cChev.textContent=open?'▼':'▲';
+        STATE._expandedInYard=open?null:expandKey;
+      });
+      card.appendChild(cBody);
+      secBody.appendChild(card);
+    });
+    inYardArea.appendChild(secBody);
+
+    // Divider before splits section
+    inYardArea.appendChild(h('div',{style:{height:'1px',background:'#eee',marginBottom:'14px'}}));
+
+    secHdr.addEventListener('click',()=>{
+      const open=secBody.style.display!=='none';
+      secBody.style.display=open?'none':'block';
+      hChev.textContent=open?'▼':'▲';
+      STATE._inYardCollapsed=open;
+    });
+  }
 
   function renderBatches(){
     batchArea.innerHTML='';
@@ -2988,6 +3086,7 @@ function renderNucsScreen(){
     },'+ Add split batch'));
   }
 
+  renderInYard();
   renderBatches();
   wrap.appendChild(screen);
   return wrap;
@@ -9062,6 +9161,22 @@ function renderForm(){
       _autoCreateSplitBatch(parseInt(entry.tops)||0, entry.tops_dest, 'top');
       _autoCreateSplitBatch(parseInt(entry.splits)||0, entry.splits_dest, 'box');
       _autoCreateSplitBatch(parseInt(entry.nuc_splits)||0, entry.nuc_splits_dest||'(nucs)', 'nuc');
+      // Cell in — auto-create in-yard tracking batch
+      const cellInCount=parseInt(entry.cell_in)||0;
+      if(cellInCount>0&&STATE.editing===null){
+        const nucKey='__nucs__'+op;
+        const allS=loadNucYards();
+        if(!allS[nucKey])allS[nucKey]={name:'Splits',op,batches:[]};
+        const exists=allS[nucKey].batches.find(b=>b._fromDiary&&b.dateAdded===entry.date&&b.sourceYard===site&&b.splitType==='in_yard');
+        if(!exists){
+          const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
+          const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
+          const cells=Array.from({length:cellInCount},(_,i)=>({id:nextId+i,status:'cell',cellDate:entry.date,virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
+          allS[nucKey].batches.push({id:Date.now(),sourceYard:site,sourceOp:op,dateAdded:entry.date,nucs:cells,splitType:'in_yard',_fromDiary:true});
+          saveNucYards(allS);
+          showToast(cellInCount+' cell'+(cellInCount!==1?'s':'')+' in '+site+' added to Splits');
+        }
+      }
       if(entry.check_note){setCheck(op,site,entry.check_note);}
       if(STATE.editing!==null&&entry._movement){
         const oldEntry=existing[STATE.editing];
