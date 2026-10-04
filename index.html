@@ -2435,6 +2435,20 @@ function renderOpSelector(){
   }
   wrap.appendChild(movCard);
 
+  // Splits card (below Hive Movements)
+  const allNucData=loadNucYards();
+  const totalNucs=Object.values(allNucData).reduce((a,ny)=>a+ny.batches.reduce((b,bt)=>b+(bt.nucs||[]).length,0),0);
+  const totalMated=Object.values(allNucData).reduce((a,ny)=>a+ny.batches.reduce((b,bt)=>b+(bt.nucs||[]).filter(n=>n.status==='mated'||n.transferredTo).length,0),0);
+  const nucCard=h('button',{className:'op-card',style:{background:'#2a1a08',border:'1.5px solid #ef9f2750',marginTop:'10px'},onClick:()=>setState({op:'__nucs__'})});
+  nucCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+    h('div',null,
+      h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Splits'),
+      h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},totalNucs>0?totalNucs+' splits · '+totalMated+' mated':'No splits yet')
+    ),
+    h('div',{style:{fontSize:'22px',color:'#ef9f27',opacity:'0.85'}},'›')
+  ));
+  wrap.appendChild(nucCard);
+
   // Reports card
   const repCard=h('button',{className:'op-card',style:{background:'#1a3a2a',border:'1.5px solid #2d6a4433',marginTop:'10px'},onClick:()=>setState({op:'__reports__'})});
   repCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
@@ -2445,20 +2459,6 @@ function renderOpSelector(){
     h('div',{style:{fontSize:'22px',color:'#7ecb8f',opacity:'0.8'}},'›')
   ));
   wrap.appendChild(repCard);
-
-  // Nucs card
-  const allNucData=loadNucYards();
-  const totalNucs=Object.values(allNucData).reduce((a,ny)=>a+ny.batches.reduce((b,bt)=>b+(bt.nucs||[]).length,0),0);
-  const totalMated=Object.values(allNucData).reduce((a,ny)=>a+ny.batches.reduce((b,bt)=>b+(bt.nucs||[]).filter(n=>n.status==='mated'||n.transferredTo).length,0),0);
-  const nucCard=h('button',{className:'op-card',style:{background:'#1f2e1a',border:'1.5px solid #3d7a4f33',marginTop:'10px'},onClick:()=>setState({op:'__nucs__'})});
-  nucCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-    h('div',null,
-      h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Splits'),
-      h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'2px'}},totalNucs>0?totalNucs+' splits · '+totalMated+' mated':'No splits yet')
-    ),
-    h('div',{style:{fontSize:'22px',color:'#7ecb8f',opacity:'0.8'}},'›')
-  ));
-  wrap.appendChild(nucCard);
 
   const lastExportIso=getLastExportTimestamp();
   const exportCard=h('button',{className:'op-card',style:{background:'#2e1f3a',border:'1.5px solid #9b59b633',marginTop:'10px'},onClick:()=>setState({op:'__export__'})});
