@@ -946,6 +946,10 @@ async function setCheck(op,site,note){
 function loadFlags(){try{return JSON.parse(localStorage.getItem('apiary_flags')||'{}');}catch(e){return{};}}
 function saveFlags(flags){try{localStorage.setItem('apiary_flags',JSON.stringify(flags));}catch(e){}}
 function flagKey(op,site){return `${op}__${site}__flag`;}
+
+// ── Hidden summary badge keys (view-only preference, never touches diary data) ──
+function loadHiddenBadges(){try{return new Set(JSON.parse(localStorage.getItem('apiary_hidden_badges')||'[]'));}catch(e){return new Set();}}
+function saveHiddenBadges(s){try{localStorage.setItem('apiary_hidden_badges',JSON.stringify([...s]));}catch(e){}}
 function getFlag(op,site){const f=loadFlags();return f[flagKey(op,site)]||null;}
 
 // ── Auto-flag: matings check needed after 21 days of cell_in ──────────────────────────────
@@ -7921,31 +7925,33 @@ function renderEntriesList(){
       {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
       {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
       {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0&&!isPolIndivDismissed(op,site)},
-      {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
-      {l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
-      {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
-      {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
-      {l:'QR',v:lv('qr'),show:lv('qr')>0},
-      {l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
-      {l:'Box Splits'+(lvStr('splits_dest')?' → '+lvStr('splits_dest'):''),v:lv('splits'),show:lv('splits')>0},
-      {l:'Top Splits'+(lvStr('tops_dest')?' → '+lvStr('tops_dest'):''),v:lv('tops'),show:lv('tops')>0},
-      {l:'FD Harv',v:anchoredVal('fd_harv'),show:anchoredVal('fd_harv')>0},
-      {l:'3/4 Harv',v:anchoredVal('harv_34'),show:anchoredVal('harv_34')>0},
-      {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
-      {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
-      {l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
-      {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
-      {l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:lv('nuc_splits'),show:lv('nuc_splits')>0},
-      {l:'Cell In',v:anchoredVal('cell_in'),show:anchoredVal('cell_in')>0},
-      {l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
-      {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
-      {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
+      {k:'pol_singles',l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0&&!isPolIndivDismissed(op,site)},
+      {k:'pol_bc',l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
+      {k:'pol_doubles',l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
+      {k:'carrot',l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
+      {k:'check',l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
+      {k:'qr',l:'QR',v:lv('qr'),show:lv('qr')>0},
+      {k:'virgin',l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
+      {k:'splits',l:'Box Splits'+(lvStr('splits_dest')?' → '+lvStr('splits_dest'):''),v:lv('splits'),show:lv('splits')>0},
+      {k:'tops',l:'Top Splits'+(lvStr('tops_dest')?' → '+lvStr('tops_dest'):''),v:lv('tops'),show:lv('tops')>0},
+      {k:'fd_harv',l:'FD Harv',v:anchoredVal('fd_harv'),show:anchoredVal('fd_harv')>0},
+      {k:'harv_34',l:'3/4 Harv',v:anchoredVal('harv_34'),show:anchoredVal('harv_34')>0},
+      {k:'honeycomb_fd',l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
+      {k:'honeycomb_hd',l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
+      {k:'pollen_hives_fed',l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
+      {k:'breeders',l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
+      {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:lv('nuc_splits'),show:lv('nuc_splits')>0},
+      {k:'cell_in',l:'Cell In',v:anchoredVal('cell_in'),show:anchoredVal('cell_in')>0},
+      {k:'cell_needed',l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
+      {k:'hives_fed',l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
+      {k:'litres_fed',l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
     ].filter(x=>x.show);
-    if(extras.length&&!wholeYardMovedOut){
+    const _hiddenB1=loadHiddenBadges();
+    const visibleExtras=extras.filter(x=>x.k==='pol_singles'||!_hiddenB1.has(x.k));
+    if(visibleExtras.length&&!wholeYardMovedOut){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
-      extras.forEach(f=>{
-        if(f.l==='⚠ POL Indiv.'){
+      visibleExtras.forEach(f=>{
+        if(f.k==='pol_singles'){
           // Tappable pill — dismisses warning (no data change)
           const btn=h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#b07800',background:'rgba(239,159,39,0.18)',border:'1.5px solid #b07800',borderRadius:'6px',padding:'6px 10px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},f.v+' '+f.l,' ✕');
           const doDismiss=e=>{e.preventDefault();e.stopPropagation();dismissPolIndiv(op,site);showToast('POL Individual dismissed for '+site);setState({});};
@@ -7953,7 +7959,28 @@ function renderEntriesList(){
           btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
         } else {
-          eRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l));
+          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px 3px 8px',display:'inline-flex',alignItems:'center',gap:'5px',cursor:'default'}});
+          const showNormal=()=>{
+            pill.innerHTML='';
+            pill.appendChild(document.createTextNode(f.v+' '+f.l));
+            const x=h('span',{style:{fontSize:'11px',opacity:'0.45',cursor:'pointer',lineHeight:'1',paddingLeft:'3px'}},'×');
+            const onX=ev=>{ev.preventDefault();ev.stopPropagation();showConfirm();};
+            x.addEventListener('touchend',onX,{passive:false});x.addEventListener('click',onX);
+            pill.appendChild(x);
+          };
+          const showConfirm=()=>{
+            pill.innerHTML='';
+            pill.appendChild(document.createTextNode('Remove from tile?'));
+            const yes=h('span',{style:{cursor:'pointer',fontWeight:'800',color:'#ef9f27',paddingLeft:'6px'}},'Yes');
+            const no=h('span',{style:{cursor:'pointer',opacity:'0.55',paddingLeft:'5px'}},'No');
+            const onYes=ev=>{ev.stopPropagation();const s=loadHiddenBadges();s.add(f.k);saveHiddenBadges(s);setState({});};
+            const onNo=ev=>{ev.stopPropagation();showNormal();};
+            yes.addEventListener('touchend',ev=>{ev.preventDefault();onYes(ev);},{passive:false});yes.addEventListener('click',onYes);
+            no.addEventListener('touchend',ev=>{ev.preventDefault();onNo(ev);},{passive:false});no.addEventListener('click',onNo);
+            pill.appendChild(yes);pill.appendChild(no);
+          };
+          showNormal();
+          eRow.appendChild(pill);
         }
       });
       summaryPanel.appendChild(eRow);
@@ -9357,35 +9384,37 @@ function renderEntriesList(){
     }
     // Extra fields row — pol pallets, part pallets, carrot, check, QR etc
     const extras=[
-      {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
-      {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
-      {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
-      {l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0&&!isPolIndivDismissed(op,site)},
-      {l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
-      {l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
-      {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
-      {l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
-      {l:'QR',v:lv('qr'),show:lv('qr')>0},
-      {l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
-      {l:'Box Splits'+(lvStr('splits_dest')?' → '+lvStr('splits_dest'):''),v:lv('splits'),show:lv('splits')>0},
-      {l:'Top Splits'+(lvStr('tops_dest')?' → '+lvStr('tops_dest'):''),v:lv('tops'),show:lv('tops')>0},
-      {l:'FD Harv',v:anchoredVal('fd_harv'),show:anchoredVal('fd_harv')>0},
-      {l:'3/4 Harv',v:anchoredVal('harv_34'),show:anchoredVal('harv_34')>0},
-      {l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
-      {l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
-      {l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
-      {l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
-      {l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:lv('nuc_splits'),show:lv('nuc_splits')>0},
-      {l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
-      {l:'Cell In',v:anchoredVal('cell_in'),show:anchoredVal('cell_in')>0},
-      {l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
-      {l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
-      {l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
+      {k:'lids_floors',l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
+      {k:'pol_pallet',l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
+      {k:'part_pallet',l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
+      {k:'pol_singles',l:'⚠ POL Indiv.',v:lv('pol_singles'),show:lv('pol_singles')>0&&!isPolIndivDismissed(op,site)},
+      {k:'pol_bc',l:'POL Singles (BC)',v:lv('pol_bc'),show:lv('pol_bc')>0},
+      {k:'pol_doubles',l:'POL Doubles (BC)',v:lv('pol_doubles'),show:lv('pol_doubles')>0},
+      {k:'carrot',l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
+      {k:'check',l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
+      {k:'qr',l:'QR',v:lv('qr'),show:lv('qr')>0},
+      {k:'virgin',l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
+      {k:'splits',l:'Box Splits'+(lvStr('splits_dest')?' → '+lvStr('splits_dest'):''),v:lv('splits'),show:lv('splits')>0},
+      {k:'tops',l:'Top Splits'+(lvStr('tops_dest')?' → '+lvStr('tops_dest'):''),v:lv('tops'),show:lv('tops')>0},
+      {k:'fd_harv',l:'FD Harv',v:anchoredVal('fd_harv'),show:anchoredVal('fd_harv')>0},
+      {k:'harv_34',l:'3/4 Harv',v:anchoredVal('harv_34'),show:anchoredVal('harv_34')>0},
+      {k:'honeycomb_fd',l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
+      {k:'honeycomb_hd',l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
+      {k:'pollen_hives_fed',l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
+      {k:'breeders',l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
+      {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:lv('nuc_splits'),show:lv('nuc_splits')>0},
+      {k:'finishers',l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
+      {k:'cell_in',l:'Cell In',v:anchoredVal('cell_in'),show:anchoredVal('cell_in')>0},
+      {k:'cell_needed',l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
+      {k:'hives_fed',l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
+      {k:'litres_fed',l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
     ].filter(x=>x.show);
-    if(extras.length&&!wholeYardOut2){
+    const _hiddenB2=loadHiddenBadges();
+    const visibleExtras2=extras.filter(x=>x.k==='pol_singles'||!_hiddenB2.has(x.k));
+    if(visibleExtras2.length&&!wholeYardOut2){
       const eRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'8px'}});
-      extras.forEach(f=>{
-        if(f.l==='⚠ POL Indiv.'){
+      visibleExtras2.forEach(f=>{
+        if(f.k==='pol_singles'){
           // Tappable pill — dismisses warning (no data change)
           const btn=h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#b07800',background:'rgba(239,159,39,0.18)',border:'1.5px solid #b07800',borderRadius:'6px',padding:'6px 10px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},f.v+' '+f.l,' ✕');
           const doDismiss=e=>{e.preventDefault();e.stopPropagation();dismissPolIndiv(op,site);showToast('POL Individual dismissed for '+site);setState({});};
@@ -9393,7 +9422,28 @@ function renderEntriesList(){
           btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
         } else {
-          eRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px'}},f.v+' '+f.l));
+          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px 3px 8px',display:'inline-flex',alignItems:'center',gap:'5px',cursor:'default'}});
+          const showNormal=()=>{
+            pill.innerHTML='';
+            pill.appendChild(document.createTextNode(f.v+' '+f.l));
+            const x=h('span',{style:{fontSize:'11px',opacity:'0.45',cursor:'pointer',lineHeight:'1',paddingLeft:'3px'}},'×');
+            const onX=ev=>{ev.preventDefault();ev.stopPropagation();showConfirm();};
+            x.addEventListener('touchend',onX,{passive:false});x.addEventListener('click',onX);
+            pill.appendChild(x);
+          };
+          const showConfirm=()=>{
+            pill.innerHTML='';
+            pill.appendChild(document.createTextNode('Remove from tile?'));
+            const yes=h('span',{style:{cursor:'pointer',fontWeight:'800',color:'#ef9f27',paddingLeft:'6px'}},'Yes');
+            const no=h('span',{style:{cursor:'pointer',opacity:'0.55',paddingLeft:'5px'}},'No');
+            const onYes=ev=>{ev.stopPropagation();const s=loadHiddenBadges();s.add(f.k);saveHiddenBadges(s);setState({});};
+            const onNo=ev=>{ev.stopPropagation();showNormal();};
+            yes.addEventListener('touchend',ev=>{ev.preventDefault();onYes(ev);},{passive:false});yes.addEventListener('click',onYes);
+            no.addEventListener('touchend',ev=>{ev.preventDefault();onNo(ev);},{passive:false});no.addEventListener('click',onNo);
+            pill.appendChild(yes);pill.appendChild(no);
+          };
+          showNormal();
+          eRow.appendChild(pill);
         }
       });
       summaryPanel.appendChild(eRow);
