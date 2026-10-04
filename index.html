@@ -1148,9 +1148,28 @@ async function pullFromSupabase(skipRender){
         }
         if(row.entry_key==='nuc_yards'){
           if(row.data&&typeof row.data==='object'){
-            // Merge: remote wins for any key it has, local keeps keys not on remote
+            // Merge at batch level: local wins for batches it has (preserves cell-level updates),
+            // remote adds any batches not present locally (picks up other devices' work).
             const local=loadNucYards();
-            const merged={...local,...row.data};
+            const merged={...local};
+            Object.entries(row.data).forEach(([key,remoteYard])=>{
+              if(!merged[key]){
+                merged[key]=remoteYard;
+              } else {
+                const localBatches=merged[key].batches||[];
+                const remoteBatches=remoteYard.batches||[];
+                const byId={};
+                // Local batches go in first
+                localBatches.forEach(b=>{byId[String(b.id)]=b;});
+                // Remote adds batches not in local; if id matches, keep whichever has more nucs
+                remoteBatches.forEach(b=>{
+                  const sid=String(b.id);
+                  if(!byId[sid]) byId[sid]=b;
+                  else if((b.nucs||[]).length>(byId[sid].nucs||[]).length) byId[sid]=b;
+                });
+                merged[key]={...merged[key],...remoteYard,batches:Object.values(byId)};
+              }
+            });
             try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(merged));}catch(e){}
           }
           return;
@@ -1293,7 +1312,14 @@ function subscribeRealtime(){
       return;
     }
     if(entry_key==='nuc_yards'){
-      if(data&&typeof data==='object'){const local=loadNucYards();const merged={...local,...data};try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(merged));}catch(e){}}
+      if(data&&typeof data==='object'){
+        const local=loadNucYards();const merged={...local};
+        Object.entries(data).forEach(([key,remoteYard])=>{
+          if(!merged[key]){merged[key]=remoteYard;}
+          else{const localB=merged[key].batches||[];const remoteB=remoteYard.batches||[];const byId={};localB.forEach(b=>{byId[String(b.id)]=b;});remoteB.forEach(b=>{const sid=String(b.id);if(!byId[sid])byId[sid]=b;else if((b.nucs||[]).length>(byId[sid].nucs||[]).length)byId[sid]=b;});merged[key]={...merged[key],...remoteYard,batches:Object.values(byId)};}
+        });
+        try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(merged));}catch(e){}
+      }
       return;
     }
     if(entry_key==='years'){
@@ -12878,14 +12904,26 @@ async function bootApp(){
   if(_sbLoaded){
     try{
       window._sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      // Capture local data BEFORE pull so we can push the full set after merge
+      const _preNucYards=loadNucYards();
+      const _preYears=loadYears();
       await pullFromSupabase();
       subscribeRealtime();
       await flushPending();
-      // Push nuc yards and years so other devices can see splits and season data
-      const _localNucYards=loadNucYards();
-      if(Object.keys(_localNucYards).length) pushToSupabase('nuc_yards',_localNucYards).catch(()=>{});
+      // Re-merge pre-pull local data back in (protects against remote overwriting local batches)
+      // then push the combined result so other devices see everything
+      if(Object.keys(_preNucYards).length){
+        const afterPull=loadNucYards();const remerged={...afterPull};
+        Object.entries(_preNucYards).forEach(([key,ly])=>{
+          if(!remerged[key]){remerged[key]=ly;}
+          else{const byId={};(remerged[key].batches||[]).forEach(b=>{byId[String(b.id)]=b;});(ly.batches||[]).forEach(b=>{const sid=String(b.id);if(!byId[sid])byId[sid]=b;else if((b.nucs||[]).length>(byId[sid].nucs||[]).length)byId[sid]=b;});remerged[key]={...remerged[key],...ly,batches:Object.values(byId)};}
+        });
+        try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(remerged));}catch(e){}
+        pushToSupabase('nuc_yards',remerged).catch(()=>{});
+      }
       const _localYears=loadYears();
-      if(_localYears.length) pushToSupabase('years',_localYears).catch(()=>{});
+      if(_preYears.length){const byY={};[..._localYears,..._preYears].forEach(y=>{byY[y.startYear]=y;});const mergedY=Object.values(byY).sort((a,b)=>b.startYear-a.startYear);try{localStorage.setItem('apiary_years',JSON.stringify(mergedY));}catch(e){} pushToSupabase('years',mergedY).catch(()=>{});}
+      else if(_localYears.length) pushToSupabase('years',_localYears).catch(()=>{});
       updateSyncDot('online');
     }catch(e){
       console.warn('Supabase init failed:',e);
