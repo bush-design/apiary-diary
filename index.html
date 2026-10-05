@@ -168,6 +168,9 @@ function getPOLSites(){
 
 // Nuc yard storage
 function loadNucYards(){try{return JSON.parse(localStorage.getItem('apiary_nuc_yards')||'{}');}catch(e){return{};}}
+// Normalise finisher: old data stored a string, new data stores an array
+function asFinishers(v){if(!v)return[];if(Array.isArray(v))return v;return[v];}
+function finisherStr(v){const a=asFinishers(v);return a.length?a.join(' / '):'';}
 function saveNucYards(d){try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(d));pushToSupabase('nuc_yards',d).catch(e=>console.warn('Nuc yards sync failed:',e));}catch(e){}}
 // Season notes — free-text planning notes per operation, per season. Not tied to any single
 // yard (these are operation-wide thoughts like "order more supers before spring"), and not
@@ -2765,12 +2768,12 @@ function showCellSourceModal(op, nucYardKey, batchIdx, onSave){
 
   // Finisher
   box.appendChild(h('div',{style:{fontSize:'11px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'6px'}},'Finisher'));
-  const fiPills=h('div',{style:{display:'flex',gap:'6px',overflowX:'auto',paddingBottom:'4px',marginBottom:'18px'}});
-  const refreshFi=()=>fiPills.querySelectorAll('button').forEach(b=>{const a=b.textContent===(batch.finisher||'');b.style.background=a?'#3d7a4f':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#3d7a4f':'#ddd';});
+  const fiPills=h('div',{style:{display:'flex',gap:'6px',overflowX:'auto',paddingBottom:'4px',marginBottom:'18px',flexWrap:'wrap'}});
+  const refreshFi=()=>{const cur=asFinishers(batch.finisher);fiPills.querySelectorAll('button').forEach(b=>{const a=cur.includes(b.textContent);b.style.background=a?'#3d7a4f':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#3d7a4f':'#ddd';});};
   Array.from({length:19},(_,i)=>'F'+(i+1)).forEach(opt=>{
-    const active=(batch.finisher||'')===opt;
+    const active=asFinishers(batch.finisher).includes(opt);
     fiPills.appendChild(h('button',{style:{padding:'6px 11px',border:'1.5px solid '+(active?'#3d7a4f':'#ddd'),borderRadius:'20px',fontSize:'13px',fontWeight:'700',cursor:'pointer',background:active?'#3d7a4f':'#fff',color:active?'#fff':'#555',flexShrink:'0',transition:'all .12s'},
-      onClick:()=>{batch.finisher=batch.finisher===opt?'':opt;saveNucYards(all);refreshFi();}},opt));
+      onClick:()=>{const cur=asFinishers(batch.finisher);const idx=cur.indexOf(opt);batch.finisher=idx>-1?cur.filter(x=>x!==opt):[...cur,opt];saveNucYards(all);refreshFi();}},opt));
   });
   box.appendChild(fiPills);
 
@@ -3179,7 +3182,7 @@ function renderNucsScreen(){
           {
             const sampleNuc=nucs.find(n=>n.breeder||n.finisher);
             const br=batch.breeder||(sampleNuc&&sampleNuc.breeder)||'';
-            const fi=batch.finisher||(sampleNuc&&sampleNuc.finisher)||'';
+            const fi=finisherStr(batch.finisher||(sampleNuc&&sampleNuc.finisher)||'');
             if(br||fi){
               const bf=h('span',{style:{color:'#aaa',fontSize:'11px',marginLeft:'2px'}});
               bf.textContent='· '+(br&&fi?br+' / '+fi:br||fi);
@@ -3201,7 +3204,7 @@ function renderNucsScreen(){
             const sampleNuc2=(batch.nucs||[]).find(n=>n.breeder||n.finisher);
             const bfParts=[];
             const _br=batch.breeder||(sampleNuc2&&sampleNuc2.breeder)||'';
-            const _fi=batch.finisher||(sampleNuc2&&sampleNuc2.finisher)||'';
+            const _fi=finisherStr(batch.finisher||(sampleNuc2&&sampleNuc2.finisher)||'');
             if(_br) bfParts.push(_br);
             if(_fi) bfParts.push(_fi);
             const bfStr=bfParts.join(' / ');
@@ -3225,7 +3228,7 @@ function renderNucsScreen(){
             if(nuc.cellDate){
               const cdParts=['Cell: '+fmtDate(nuc.cellDate)];
               if(nuc.breeder) cdParts.push(nuc.breeder);
-              if(nuc.finisher) cdParts.push(nuc.finisher);
+              if(nuc.finisher){const _nf=finisherStr(nuc.finisher);if(_nf)cdParts.push(_nf);}
               nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},cdParts.join(' · ')));
             }
             if(nuc.transferredTo) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#3d7a4f'}},'→ '+nuc.transferredTo+' · '+fmtDate(nuc.transferredDate)));
@@ -7304,15 +7307,17 @@ function showAddNucBatchModal(op,nucYardKey,onSave){
   box.appendChild(breederWrap);
 
   // Finisher selector (F1–F19)
-  let selFinisher='';
+  let selFinisher=[];
   const finisherWrap=h('div',{style:{marginBottom:'14px'}});
-  finisherWrap.appendChild(h('label',{style:{fontSize:'11px',color:'#aaa',display:'block',marginBottom:'5px'}},'Finisher (optional)'));
-  const finisherPills=h('div',{style:{display:'flex',gap:'6px',overflowX:'auto',paddingBottom:'4px'}});
+  finisherWrap.appendChild(h('label',{style:{fontSize:'11px',color:'#aaa',display:'block',marginBottom:'5px'}},'Finisher (optional — select multiple)'));
+  const finisherPills=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
   Array.from({length:19},(_,i)=>'F'+(i+1)).forEach(opt=>{
     const pill=h('button',{style:{padding:'5px 10px',border:'1.5px solid #ddd',borderRadius:'20px',fontSize:'13px',fontWeight:'700',cursor:'pointer',background:'#fff',color:'#555',flexShrink:'0',transition:'all .15s'},
       onClick:()=>{
-        selFinisher=selFinisher===opt?'':opt;
-        finisherPills.querySelectorAll('button').forEach(b=>{const active=b.textContent===selFinisher;b.style.background=active?'#3d7a4f':'#fff';b.style.color=active?'#fff':'#555';b.style.borderColor=active?'#3d7a4f':'#ddd';});
+        const idx=selFinisher.indexOf(opt);
+        if(idx>-1) selFinisher=selFinisher.filter(x=>x!==opt);
+        else selFinisher=[...selFinisher,opt];
+        finisherPills.querySelectorAll('button').forEach(b=>{const a=selFinisher.includes(b.textContent);b.style.background=a?'#3d7a4f':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#3d7a4f':'#ddd';});
       }},opt);
     finisherPills.appendChild(pill);
   });
@@ -7330,7 +7335,7 @@ function showAddNucBatchModal(op,nucYardKey,onSave){
       const existingNucs=all[nucYardKey].batches.flatMap(b=>b.nucs||[]);
       const nextId=existingNucs.length>0?Math.max(...existingNucs.map(n=>n.id))+1:1;
       const nucs=Array.from({length:count},(_,i)=>({id:nextId+i,status:'waiting',cellDate:'',virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
-      all[nucYardKey].batches.push({id:Date.now(),sourceYard:selectedSrc,sourceOp:selectedSrcOp,dateAdded:dateInp.value,nucs,...(selBreeder?{breeder:selBreeder}:{}),...(selFinisher?{finisher:selFinisher}:{})});
+      all[nucYardKey].batches.push({id:Date.now(),sourceYard:selectedSrc,sourceOp:selectedSrcOp,dateAdded:dateInp.value,nucs,...(selBreeder?{breeder:selBreeder}:{}),...(selFinisher.length?{finisher:selFinisher}:{})});
       saveNucYards(all);
 
       // Also reflect this on the source yard's own diary — same "Nuc Splits" field under
@@ -7544,11 +7549,12 @@ function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
       bfWrap.appendChild(brPills);
       // Finisher row
       bfWrap.appendChild(h('div',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'5px'}},'Finisher'));
-      const fiPills=h('div',{style:{display:'flex',gap:'5px',overflowX:'auto',paddingBottom:'2px'}});
+      const fiPills=h('div',{style:{display:'flex',gap:'5px',overflowX:'auto',paddingBottom:'2px',flexWrap:'wrap'}});
+      const refreshNucFi=()=>{const cur=asFinishers(nuc.finisher);fiPills.querySelectorAll('button').forEach(b=>{const a=cur.includes(b.textContent);b.style.background=a?'#3d7a4f':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#3d7a4f':'#ddd';});};
       Array.from({length:19},(_,i)=>'F'+(i+1)).forEach(opt=>{
-        const active=nuc.finisher===opt;
+        const active=asFinishers(nuc.finisher).includes(opt);
         const p=h('button',{style:{padding:'4px 9px',border:'1.5px solid '+(active?'#3d7a4f':'#ddd'),borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',background:active?'#3d7a4f':'#fff',color:active?'#fff':'#555',flexShrink:'0',transition:'all .12s'},
-          onClick:()=>{nuc.finisher=nuc.finisher===opt?'':opt;saveNucYards(all);box.parentElement&&box.parentElement.remove();showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave);}},opt);
+          onClick:()=>{const cur=asFinishers(nuc.finisher);const idx=cur.indexOf(opt);nuc.finisher=idx>-1?cur.filter(x=>x!==opt):[...cur,opt];saveNucYards(all);refreshNucFi();}},opt);
         fiPills.appendChild(p);
       });
       bfWrap.appendChild(fiPills);
@@ -8353,12 +8359,12 @@ function renderEntriesList(){
       {key:'mites_found',label:'Mites Found'},{key:'mites_tested',label:'Hives Tested'},
       {key:'diseases',label:'Diseases'},
     ];
-    const visFields=ALL_FIELDS.filter(f=>{const v=entry[f.key];if(v===undefined||v===null||v==='')return false;if(typeof v==='boolean')return v===true;return true;});
+    const visFields=ALL_FIELDS.filter(f=>{const v=entry[f.key];if(v===undefined||v===null||v==='')return false;if(Array.isArray(v))return v.length>0;if(typeof v==='boolean')return v===true;return true;});
     if(visFields.length){
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});
       visFields.forEach(f=>{
         const raw=entry[f.key];
-        const val=typeof raw==='boolean'?'Yes':String(raw);
+        const val=Array.isArray(raw)?raw.join(' / '):typeof raw==='boolean'?'Yes':String(raw);
         grid.appendChild(h('div',null,
           h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
           h('div',{style:{fontWeight:'600',fontSize:'14px',color:f.key==='dead'&&parseInt(val)>0?'#e24b4a':'#1a1a1a'}},
@@ -8930,7 +8936,7 @@ function renderForm(){
       {key:'qr',label:'QR',type:'number'},{key:'virgin',label:'Virgin',type:'number'},
       {key:'cell_in',label:'Cell In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},
       {key:'cell_breeder',label:'Breeder',type:'pill_select',options:['B1','B2','B3','B4','B5'],color:'#1a6fb0'},
-      {key:'cell_finisher',label:'Finisher',type:'pill_select',options:Array.from({length:19},(_,i)=>'F'+(i+1)),color:'#3d7a4f'},
+      {key:'cell_finisher',label:'Finisher',type:'pill_multi_select',options:Array.from({length:19},(_,i)=>'F'+(i+1)),color:'#3d7a4f'},
       {key:'tops',label:'Top Splits',type:'number'},{key:'tops_dest',label:'Top splits sent to',type:'yard_dest'},
       {key:'splits',label:'Box Splits',type:'number'},{key:'splits_dest',label:'Box splits sent to',type:'yard_dest'},
       {key:'nuc_splits',label:'Nuc Splits',type:'number'},{key:'nuc_splits_dest',label:'Nuc splits sent to',type:'yard_dest'},
@@ -9004,6 +9010,19 @@ function renderForm(){
           const active=(vals[f.key]||'')===opt;
           const p=h('button',{type:'button',style:{padding:'4px 10px',border:'1.5px solid '+(active?col:'#ddd'),borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',background:active?col:'#fff',color:active?'#fff':'#555',flexShrink:'0',transition:'all .12s'},
             onClick:()=>{STATE.formVals[f.key]=(STATE.formVals[f.key]===opt?'':opt);refreshPills();}},opt);
+          pillRow.appendChild(p);
+        });
+        fw.appendChild(pillRow);
+      } else if(f.type==='pill_multi_select'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'5px'}},f.label+' (select multiple)'));
+        const col=f.color||'#555';
+        const pillRow=h('div',{style:{display:'flex',gap:'5px',flexWrap:'wrap',paddingBottom:'2px'}});
+        const getCur=()=>asFinishers(STATE.formVals[f.key]);
+        const refreshMultiPills=()=>{const cur=getCur();pillRow.querySelectorAll('button').forEach(b=>{const a=cur.includes(b.textContent);b.style.background=a?col:'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?col:'#ddd';});};
+        (f.options||[]).forEach(opt=>{
+          const active=asFinishers(vals[f.key]).includes(opt);
+          const p=h('button',{type:'button',style:{padding:'4px 10px',border:'1.5px solid '+(active?col:'#ddd'),borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',background:active?col:'#fff',color:active?'#fff':'#555',flexShrink:'0',transition:'all .12s'},
+            onClick:()=>{const cur=getCur();const idx=cur.indexOf(opt);STATE.formVals[f.key]=idx>-1?cur.filter(x=>x!==opt):[...cur,opt];refreshMultiPills();}},opt);
           pillRow.appendChild(p);
         });
         fw.appendChild(pillRow);
@@ -9836,12 +9855,12 @@ function renderEntriesList(){
       {key:'mites_found',label:'Mites Found'},{key:'mites_tested',label:'Hives Tested'},
       {key:'diseases',label:'Diseases'},
     ];
-    const visFields=ALL_FIELDS.filter(f=>{const v=entry[f.key];if(v===undefined||v===null||v==='')return false;if(typeof v==='boolean')return v===true;return true;});
+    const visFields=ALL_FIELDS.filter(f=>{const v=entry[f.key];if(v===undefined||v===null||v==='')return false;if(Array.isArray(v))return v.length>0;if(typeof v==='boolean')return v===true;return true;});
     if(visFields.length){
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});
       visFields.forEach(f=>{
         const raw=entry[f.key];
-        const val=typeof raw==='boolean'?'Yes':String(raw);
+        const val=Array.isArray(raw)?raw.join(' / '):typeof raw==='boolean'?'Yes':String(raw);
         grid.appendChild(h('div',null,
           h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
           h('div',{style:{fontWeight:'600',fontSize:'14px',color:f.key==='dead'&&parseInt(val)>0?'#e24b4a':'#1a1a1a'}},
