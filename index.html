@@ -3139,12 +3139,15 @@ function renderNucsScreen(){
           if(batch.destYard) sr.appendChild(h('span',{style:{color:'#888'}},'→ '+batch.destYard));
           if(mated) sr.appendChild(h('span',{style:{color:'#3d7a4f'}},'· '+mated+' mated'));
           if(failed) sr.appendChild(h('span',{style:{color:'#e24b4a'}},'· '+failed+' failed'));
-          if(batch.breeder||batch.finisher){
-            const bf=h('span',{style:{color:'#aaa',fontSize:'11px',marginLeft:'2px'}});
-            if(batch.breeder&&batch.finisher) bf.textContent='· '+batch.breeder+' / '+batch.finisher;
-            else if(batch.breeder) bf.textContent='· '+batch.breeder;
-            else bf.textContent='· '+batch.finisher;
-            sr.appendChild(bf);
+          {
+            const sampleNuc=nucs.find(n=>n.breeder||n.finisher);
+            const br=batch.breeder||(sampleNuc&&sampleNuc.breeder)||'';
+            const fi=batch.finisher||(sampleNuc&&sampleNuc.finisher)||'';
+            if(br||fi){
+              const bf=h('span',{style:{color:'#aaa',fontSize:'11px',marginLeft:'2px'}});
+              bf.textContent='· '+(br&&fi?br+' / '+fi:br||fi);
+              sr.appendChild(bf);
+            }
           }
           subRows.appendChild(sr);
         });
@@ -3158,9 +3161,12 @@ function renderNucsScreen(){
           const meta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
           // Type section label when multiple types in group, or breeder/finisher info if single type
           {
+            const sampleNuc2=(batch.nucs||[]).find(n=>n.breeder||n.finisher);
             const bfParts=[];
-            if(batch.breeder) bfParts.push(batch.breeder);
-            if(batch.finisher) bfParts.push(batch.finisher);
+            const _br=batch.breeder||(sampleNuc2&&sampleNuc2.breeder)||'';
+            const _fi=batch.finisher||(sampleNuc2&&sampleNuc2.finisher)||'';
+            if(_br) bfParts.push(_br);
+            if(_fi) bfParts.push(_fi);
             const bfStr=bfParts.join(' / ');
             if(items.length>1){
               const div=h('div',{style:{padding:'5px 14px',background:meta.color+'0d',borderBottom:'.5px solid '+meta.color+'33',borderTop:itemIdx>0?'.5px solid #eee':'none',display:'flex',justifyContent:'space-between',alignItems:'center'}});
@@ -3179,7 +3185,12 @@ function renderNucsScreen(){
               onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=groupExpandKey;setState({op:'__nucs__'});})});
             const nLeft=h('div',null);
             nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' '+(ni+1)));
-            if(nuc.cellDate) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'Cell: '+fmtDate(nuc.cellDate)));
+            if(nuc.cellDate){
+              const cdParts=['Cell: '+fmtDate(nuc.cellDate)];
+              if(nuc.breeder) cdParts.push(nuc.breeder);
+              if(nuc.finisher) cdParts.push(nuc.finisher);
+              nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},cdParts.join(' · ')));
+            }
             if(nuc.transferredTo) nLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#3d7a4f'}},'→ '+nuc.transferredTo+' · '+fmtDate(nuc.transferredDate)));
             nRow.appendChild(nLeft);
             nRow.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:sc,background:sc+'18',borderRadius:'10px',padding:'3px 8px'}},sl));
@@ -7478,6 +7489,32 @@ function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
     di.addEventListener('change',e=>{nuc[key]=e.target.value;saveNucYards(all);});
     row.appendChild(di);
     box.appendChild(row);
+    // Breeder / Finisher selectors — shown alongside Cell In date
+    if(key==='cellDate'){
+      const bfWrap=h('div',{style:{background:'#faf8ff',border:'.5px solid #e8e0f8',borderRadius:'10px',padding:'10px 12px',marginBottom:'8px'}});
+      // Breeder row
+      const brLabel=h('div',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'5px'}},'Breeder');
+      bfWrap.appendChild(brLabel);
+      const brPills=h('div',{style:{display:'flex',gap:'5px',marginBottom:'8px'}});
+      ['B1','B2','B3','B4','B5'].forEach(opt=>{
+        const active=nuc.breeder===opt;
+        const p=h('button',{style:{padding:'4px 11px',border:'1.5px solid '+(active?'#1a6fb0':'#ddd'),borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',background:active?'#1a6fb0':'#fff',color:active?'#fff':'#555',transition:'all .12s'},
+          onClick:()=>{nuc.breeder=nuc.breeder===opt?'':opt;saveNucYards(all);box.parentElement&&box.parentElement.remove();showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave);}},opt);
+        brPills.appendChild(p);
+      });
+      bfWrap.appendChild(brPills);
+      // Finisher row
+      bfWrap.appendChild(h('div',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'5px'}},'Finisher'));
+      const fiPills=h('div',{style:{display:'flex',gap:'5px',overflowX:'auto',paddingBottom:'2px'}});
+      Array.from({length:19},(_,i)=>'F'+(i+1)).forEach(opt=>{
+        const active=nuc.finisher===opt;
+        const p=h('button',{style:{padding:'4px 9px',border:'1.5px solid '+(active?'#3d7a4f':'#ddd'),borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',background:active?'#3d7a4f':'#fff',color:active?'#fff':'#555',flexShrink:'0',transition:'all .12s'},
+          onClick:()=>{nuc.finisher=nuc.finisher===opt?'':opt;saveNucYards(all);box.parentElement&&box.parentElement.remove();showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave);}},opt);
+        fiPills.appendChild(p);
+      });
+      bfWrap.appendChild(fiPills);
+      box.appendChild(bfWrap);
+    }
   });
 
   // Transfer section (only shown if mated)
@@ -8853,6 +8890,8 @@ function renderForm(){
     {key:'queens',label:'Requeening',color:'#7a4fa8',fields:[
       {key:'qr',label:'QR',type:'number'},{key:'virgin',label:'Virgin',type:'number'},
       {key:'cell_in',label:'Cell In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},
+      {key:'cell_breeder',label:'Breeder',type:'pill_select',options:['B1','B2','B3','B4','B5'],color:'#1a6fb0'},
+      {key:'cell_finisher',label:'Finisher',type:'pill_select',options:Array.from({length:19},(_,i)=>'F'+(i+1)),color:'#3d7a4f'},
       {key:'tops',label:'Top Splits',type:'number'},{key:'tops_dest',label:'Top splits sent to',type:'yard_dest'},
       {key:'splits',label:'Box Splits',type:'number'},{key:'splits_dest',label:'Box splits sent to',type:'yard_dest'},
       {key:'nuc_splits',label:'Nuc Splits',type:'number'},{key:'nuc_splits_dest',label:'Nuc splits sent to',type:'yard_dest'},
@@ -8917,7 +8956,19 @@ function renderForm(){
 
     sec.fields.forEach(f=>{
       const fw=h('div',{style:{marginTop:'10px'}});
-      if(f.type==='number'){
+      if(f.type==='pill_select'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'5px'}},f.label));
+        const col=f.color||'#555';
+        const pillRow=h('div',{style:{display:'flex',gap:'5px',overflowX:'auto',paddingBottom:'2px'}});
+        const refreshPills=()=>{pillRow.querySelectorAll('button').forEach(b=>{const a=b.textContent===(STATE.formVals[f.key]||'');b.style.background=a?col:'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?col:'#ddd';});};
+        (f.options||[]).forEach(opt=>{
+          const active=(vals[f.key]||'')===opt;
+          const p=h('button',{type:'button',style:{padding:'4px 10px',border:'1.5px solid '+(active?col:'#ddd'),borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',background:active?col:'#fff',color:active?'#fff':'#555',flexShrink:'0',transition:'all .12s'},
+            onClick:()=>{STATE.formVals[f.key]=(STATE.formVals[f.key]===opt?'':opt);refreshPills();}},opt);
+          pillRow.appendChild(p);
+        });
+        fw.appendChild(pillRow);
+      } else if(f.type==='number'){
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
         const inp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box'}});
         inp.value=vals[f.key]||'';
