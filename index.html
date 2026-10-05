@@ -3472,6 +3472,172 @@ function renderReportsScreen(){
     return entries;
   }
 
+  // ── Queen Rearing / Cell Success Report ──
+  {
+    const qrCard=h('div',{style:{background:'#fff',borderRadius:'12px',border:'.5px solid #ddd',marginBottom:'10px',overflow:'hidden'}});
+    const qrHdr=h('div',{style:{display:'flex',alignItems:'center',padding:'13px 14px',cursor:'pointer',background:'#fafaf8',gap:'10px',userSelect:'none',WebkitUserSelect:'none'}});
+    qrHdr.appendChild(h('div',{style:{width:'32px',height:'32px',borderRadius:'8px',background:'#edf7f0',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'17px',flexShrink:'0'}},'👑'));
+    const qrHT=h('div',{style:{flex:'1',minWidth:'0'}});
+    qrHT.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'700',color:'#333'}},'Queen Rearing'));
+    qrHT.appendChild(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'2px'}},'Cell success · splits · nuc queens'));
+    qrHdr.appendChild(qrHT);
+    const qrChev=h('span',{style:{fontSize:'10px',color:'#ccc',flexShrink:'0',marginLeft:'2px'}},'▲');
+    qrHdr.appendChild(qrChev);
+    qrCard.appendChild(qrHdr);
+    const qrBody=h('div',{style:{display:'block',padding:'10px'}});
+    qrCard.appendChild(qrBody);
+    qrHdr.addEventListener('click',()=>{const open=qrBody.style.display!=='none';qrBody.style.display=open?'none':'block';qrChev.textContent=open?'▼':'▲';});
+    const qrSec=qrBody;
+
+    const allNucData=loadNucYards();
+
+    // Build per-operation batch stats
+    const byOp={};
+    Object.values(allNucData).forEach(yard=>{
+      const opName=yard.op;
+      if(!opName) return;
+      if(!byOp[opName]) byOp[opName]=[];
+      (yard.batches||[]).forEach(batch=>{
+        const nucs=batch.nucs||[];
+        if(!nucs.length) return;
+        // cellsIn: nucs that had a cell placed (cellDate set, or status progressed past waiting)
+        const cellStatuses=['cell','virgin','dl','mated','failed'];
+        const cellsIn=nucs.filter(n=>n.cellDate||cellStatuses.includes(n.status)||n.transferredTo).length;
+        if(!cellsIn) return; // no cells placed yet in this batch
+        const mated=nucs.filter(n=>n.status==='mated'||n.transferredTo).length;
+        const failed=nucs.filter(n=>n.status==='failed').length;
+        const inProgress=nucs.filter(n=>{
+          const hasCell=n.cellDate||cellStatuses.includes(n.status)||n.transferredTo;
+          return hasCell&&n.status!=='mated'&&!n.transferredTo&&n.status!=='failed';
+        }).length;
+        const pct=cellsIn>0?Math.round(mated/cellsIn*100):0;
+        // Effective breeder/finisher: batch-level, or fall back to first nuc with one
+        const effBr=batch.breeder||(nucs.find(n=>n.breeder)||{}).breeder||'';
+        const effFi=finisherStr(batch.finisher)||finisherStr((nucs.find(n=>n.finisher&&n.finisher.length)||{}).finisher)||'';
+        byOp[opName].push({
+          sourceYard:batch.sourceYard||'—',
+          dateAdded:batch.dateAdded||'',
+          breeder:effBr,finisher:effFi,
+          cellsIn,mated,failed,inProgress,
+          totalNucs:nucs.length,pct
+        });
+      });
+    });
+
+    const opNames=Object.keys(byOp).filter(op=>byOp[op].length).sort();
+
+    if(!opNames.length){
+      const empty=h('div',{style:{background:'#fff',borderRadius:'10px',border:'.5px solid #ddd',padding:'16px 14px',color:'#bbb',fontSize:'13px',textAlign:'center'}},'No queen rearing batches with cells placed yet');
+      qrSec.appendChild(empty);
+    } else {
+      opNames.forEach(opName=>{
+        const batches=byOp[opName];
+        // Op totals
+        const opCells=batches.reduce((a,b)=>a+b.cellsIn,0);
+        const opMated=batches.reduce((a,b)=>a+b.mated,0);
+        const opFailed=batches.reduce((a,b)=>a+b.failed,0);
+        const opInProg=batches.reduce((a,b)=>a+b.inProgress,0);
+        const opPct=opCells>0?Math.round(opMated/opCells*100):0;
+        const pctColor=p=>p>=80?'#3d7a4f':p>=60?'#d08000':'#c0392b';
+        const pctBg=p=>p>=80?'#edf7f0':p>=60?'#fef8ec':'#fdf0ef';
+
+        const opCard=h('div',{style:{background:'#fff',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'10px',overflow:'hidden'}});
+
+        // Tappable header
+        const opHdr=h('div',{style:{display:'flex',alignItems:'center',padding:'11px 14px',cursor:'pointer',background:'#fafaf8',gap:'8px',userSelect:'none',WebkitUserSelect:'none'}});
+        const hdrLeft=h('div',{style:{flex:'1',minWidth:'0'}});
+        hdrLeft.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'700',color:'#333'}},opName));
+        const subParts=['Total: '+opMated+' mated / '+opCells+' cells'];
+        if(opInProg>0) subParts.push(opInProg+' in progress');
+        if(opFailed>0) subParts.push(opFailed+' failed');
+        hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#999',marginTop:'2px'}},subParts.join(' · ')));
+        opHdr.appendChild(hdrLeft);
+        const badge=h('span',{style:{
+          fontSize:'15px',fontWeight:'800',
+          color:pctColor(opPct),background:pctBg(opPct),
+          borderRadius:'8px',padding:'4px 10px',flexShrink:'0'
+        }},opPct+'%');
+        opHdr.appendChild(badge);
+        const chev=h('span',{style:{fontSize:'10px',color:'#ccc',flexShrink:'0',marginLeft:'2px'}},'▼');
+        opHdr.appendChild(chev);
+        opCard.appendChild(opHdr);
+
+        // Collapsible body (open by default)
+        const opBody=h('div',{style:{display:'block'}});
+
+        // Column headings
+        const colHdr=h('div',{style:{
+          display:'flex',alignItems:'center',padding:'5px 14px',
+          borderTop:'.5px solid #eee',background:'#f6f6f4',gap:'4px',
+          fontSize:'9px',color:'#bbb',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.05em'
+        }});
+        colHdr.appendChild(h('span',{style:{flex:'1'}},'Source · Date · B/F'));
+        colHdr.appendChild(h('span',{style:{width:'40px',textAlign:'center'}},'Cells'));
+        colHdr.appendChild(h('span',{style:{width:'44px',textAlign:'center'}},'Mated'));
+        colHdr.appendChild(h('span',{style:{width:'46px',textAlign:'center'}},'Rate'));
+        opBody.appendChild(colHdr);
+
+        // Batch rows, newest first
+        const sorted=[...batches].sort((a,b)=>(b.dateAdded||'').localeCompare(a.dateAdded||''));
+        sorted.forEach(bt=>{
+          const row=h('div',{style:{display:'flex',alignItems:'center',padding:'9px 14px',borderTop:'.5px solid #f0f0ee',gap:'4px'}});
+
+          const rowLeft=h('div',{style:{flex:'1',minWidth:'0'}});
+          rowLeft.appendChild(h('div',{style:{fontSize:'13px',fontWeight:'600',color:'#444',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}},bt.sourceYard));
+          const meta=[];
+          if(bt.dateAdded) meta.push(fmtDate(bt.dateAdded));
+          if(bt.breeder) meta.push(bt.breeder);
+          if(bt.finisher) meta.push(bt.finisher);
+          if(meta.length) rowLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'1px'}},meta.join(' · ')));
+          // Status note
+          const sn=[];
+          if(bt.inProgress>0) sn.push(bt.inProgress+' in progress');
+          if(bt.failed>0) sn.push(bt.failed+' failed');
+          if(sn.length) rowLeft.appendChild(h('div',{style:{fontSize:'10px',color:'#bbb',marginTop:'1px'}},sn.join(' · ')));
+          row.appendChild(rowLeft);
+
+          row.appendChild(h('div',{style:{width:'40px',textAlign:'center',fontSize:'15px',fontWeight:'700',color:'#666',flexShrink:'0'}},bt.cellsIn));
+          row.appendChild(h('div',{style:{width:'44px',textAlign:'center',fontSize:'15px',fontWeight:'700',color:'#333',flexShrink:'0'}},bt.mated));
+
+          const btPct=bt.cellsIn>0?bt.pct:null;
+          const pctEl=h('div',{style:{
+            width:'46px',textAlign:'center',fontSize:'14px',fontWeight:'800',flexShrink:'0',
+            color:btPct!=null?pctColor(btPct):'#ccc'
+          }},btPct!=null?btPct+'%':'—');
+          row.appendChild(pctEl);
+
+          opBody.appendChild(row);
+        });
+
+        // Totals row
+        const totRow=h('div',{style:{
+          display:'flex',alignItems:'center',padding:'9px 14px',
+          borderTop:'1px solid #e8e8e8',background:'#f0f6f2',gap:'4px'
+        }});
+        const totLabel=h('div',{style:{flex:'1'}});
+        totLabel.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#555',textTransform:'uppercase',letterSpacing:'.04em'}},'Total'));
+        if(opInProg>0) totLabel.appendChild(h('span',{style:{fontSize:'11px',color:'#aaa',marginLeft:'6px'}},opInProg+' still in progress'));
+        totRow.appendChild(totLabel);
+        totRow.appendChild(h('div',{style:{width:'40px',textAlign:'center',fontSize:'15px',fontWeight:'800',color:'#555',flexShrink:'0'}},opCells));
+        totRow.appendChild(h('div',{style:{width:'44px',textAlign:'center',fontSize:'16px',fontWeight:'800',color:'#333',flexShrink:'0'}},opMated));
+        totRow.appendChild(h('div',{style:{width:'46px',textAlign:'center',fontSize:'16px',fontWeight:'800',flexShrink:'0',color:pctColor(opPct)}},opPct+'%'));
+        opBody.appendChild(totRow);
+
+        // Toggle collapse on header click
+        opHdr.addEventListener('click',()=>{
+          const open=opBody.style.display!=='none';
+          opBody.style.display=open?'none':'block';
+          chev.textContent=open?'▼':'▲';
+        });
+
+        opCard.appendChild(opBody);
+        qrSec.appendChild(opCard);
+      });
+    }
+
+    screen.appendChild(qrCard);
+  }
+
   // ── Chart controls ──
   const metricsArea=h('div',null);
   screen.appendChild(metricsArea);
@@ -4125,67 +4291,140 @@ function renderReportsScreen(){
     }
 
     // Quick reports — curated presets so common questions don't require manual axis/mode setup
-    const quickWrap=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginBottom:'12px',border:'.5px solid #ddd'}});
-    quickWrap.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',marginBottom:'8px'}},'Quick reports'));
-    const quickGrid=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px'}});
-    const QUICK_REPORTS=[
-      {label:'Mite rate by operation',custom:'miterate'},
-      {label:'Yield by operation',custom:'yield'},
-      {label:'Hive strength trend',custom:'strength'},
-      {label:'Dead/alive right now',custom:'deadalive'},
-      {label:'Disease prevalence',mode:'trend',x:'operations',y:'disease'},
-      {label:'Treatment coverage',custom:'treatment'},
-      {label:'Days since last visit',custom:'overdue'},
-      {label:'AFB inquiry timeline',custom:'afb'},
-      {label:'Yield vs hive strength',custom:'scatter'},
-      {label:'Movement log by driver',custom:'movements'},
-      {label:'Entries by person',custom:'people'},
-      {label:'Pollination hives by orchard',custom:'pollination'},
-      {label:'Nuc success rate',custom:'nucsuccess'},
-      {label:'Hive loss by season',custom:'hloss'},
-      {label:'Hive strength by scoring round',custom:'scoreround'},
-    ];
-    function backToCharts(){
-      customArea.style.display='none';customArea.innerHTML='';
-      ctrl.style.display='';chartCard.style.display='';statsArea.style.display='';
-    }
-    function showCustomReport(key){
-      ctrl.style.display='none';chartCard.style.display='none';statsArea.style.display='none';
-      customArea.style.display='block';customArea.innerHTML='';
-      const body=h('div',null);
-      customArea.appendChild(body);
-      if(key==='treatment') renderTreatmentCoverage(body);
-      else if(key==='overdue') renderOverdueHeatmap(body);
-      else if(key==='afb') renderAFBTimeline(body);
-      else if(key==='scatter') renderYieldScatter(body);
-      else if(key==='movements') renderMovementsByDriver(body);
-      else if(key==='miterate') renderMiteRateByOperation(body);
-      else if(key==='deadalive') renderDeadAliveReport(body);
-      else if(key==='yield') renderYieldByOperation(body);
-      else if(key==='strength') renderHiveStrengthTrend(body);
-      else if(key==='people') renderEntriesByPerson(body);
-      else if(key==='pollination') renderPollinationReport(body);
-      else if(key==='nucsuccess') renderNucSuccessReport(body);
-      else if(key==='hloss') renderHiveLossReport(body);
-      else if(key==='scoreround') renderHiveStrengthByRound(body);
-    }
-    QUICK_REPORTS.forEach(q=>{
-      const qBtn=h('button',{type:'button',style:{padding:'7px 12px',borderRadius:'20px',border:'1px solid #ddd',background:'#f8f8f6',color:'#333',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},q.label);
-      qBtn.addEventListener('click',()=>{
-        if(q.custom){showCustomReport(q.custom);return;}
-        backToCharts();
-        selectMode(q.mode);
-        ySel.value=q.y;
-        xSel.value=q.x;
-        if(q.mode==='snapshot') snapDate.value=todayStr();
-        if(years.length) yearSel2.value=years[0].startYear; // most recent beekeeping year
-        updateFilterVisibility();
-        updateChart();
-      });
-      quickGrid.appendChild(qBtn);
+    // ── Report Filter & Sections ──
+    if(!window.__rf) window.__rf={yr:null,season:null};
+    const rf=window.__rf;
+
+    // ── Filter bar: year ranges + seasons ──
+    const filterBar=h('div',{style:{marginBottom:'10px',overflowX:'auto',display:'flex',gap:'6px',paddingBottom:'4px',WebkitOverflowScrolling:'touch',scrollbarWidth:'none'}});
+    years.forEach((yr,i)=>{
+      const short=(yr.startYear%100)+'–'+((yr.startYear+1)%100).toString().padStart(2,'0');
+      const active=rf.yr===yr.startYear||(rf.yr===null&&i===0);
+      const pill=h('button',{type:'button',style:{flexShrink:'0',padding:'6px 13px',borderRadius:'20px',border:'1.5px solid '+(active?'#2369c4':'#ddd'),background:active?'#2369c4':'#f8f8f6',color:active?'#fff':'#555',fontSize:'12px',fontWeight:'600',cursor:'pointer',whiteSpace:'nowrap'}},yr.name||short);
+      pill.addEventListener('click',()=>{window.__rf={yr:yr.startYear,season:window.__rf.season};renderChart();});
+      filterBar.appendChild(pill);
     });
-    quickWrap.appendChild(quickGrid);
-    metricsArea.appendChild(quickWrap);
+    [{key:'spring',label:'Spring'},{key:'summer',label:'Summer'},{key:'autumn',label:'Autumn'},{key:'winter',label:'Winter'}].forEach(s=>{
+      const active=rf.season===s.key;
+      const pill=h('button',{type:'button',style:{flexShrink:'0',padding:'6px 13px',borderRadius:'20px',border:'1.5px solid '+(active?'#3d7a4f':'#ddd'),background:active?'#3d7a4f':'#f8f8f6',color:active?'#fff':'#555',fontSize:'12px',fontWeight:'600',cursor:'pointer',whiteSpace:'nowrap'}},s.label);
+      pill.addEventListener('click',()=>{window.__rf={yr:window.__rf.yr,season:active?null:s.key};renderChart();});
+      filterBar.appendChild(pill);
+    });
+    metricsArea.appendChild(filterBar);
+
+    // Section body refs declared here so diseaseSec/deathsSec blocks below can target them
+    let hiveNumsDeathsHolder, colHealthDiseaseHolder;
+
+    // ── Section builder helper ──
+    function mkSec(icon,bg,title,sub,startOpen){
+      const card=h('div',{style:{background:'#fff',borderRadius:'12px',border:'.5px solid #ddd',marginBottom:'10px',overflow:'hidden'}});
+      const hdr=h('div',{style:{display:'flex',alignItems:'center',padding:'13px 14px',cursor:'pointer',background:'#fafaf8',gap:'10px',userSelect:'none',WebkitUserSelect:'none'}});
+      hdr.appendChild(h('div',{style:{width:'32px',height:'32px',borderRadius:'8px',background:bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'17px',flexShrink:'0'}},icon));
+      const ht=h('div',{style:{flex:'1',minWidth:'0'}});
+      ht.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'700',color:'#333'}},title));
+      if(sub) ht.appendChild(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'2px'}},sub));
+      hdr.appendChild(ht);
+      const chev=h('span',{style:{fontSize:'10px',color:'#ccc',flexShrink:'0',marginLeft:'2px'}},startOpen?'▲':'▼');
+      hdr.appendChild(chev);
+      card.appendChild(hdr);
+      const body=h('div',{style:{display:startOpen?'block':'none',padding:'10px'}});
+      let drawn=startOpen;
+      hdr.addEventListener('click',()=>{
+        const open=body.style.display!=='none';
+        body.style.display=open?'none':'block';
+        chev.textContent=open?'▼':'▲';
+        if(!open&&!drawn){drawn=true;card._fn&&card._fn(body);}
+        if(!open) window.dispatchEvent(new Event('resize'));
+      });
+      card.appendChild(body);
+      metricsArea.appendChild(card);
+      return {body,setFn(fn){card._fn=fn;}};
+    }
+
+    // ── 1. Quick Snapshot ──
+    const snap=mkSec('🐝','#edf7f0','Quick Snapshot','Season totals at a glance',true);
+    {
+      const selYr=rf.yr?years.find(y=>y.startYear===rf.yr):years[0];
+      const selSeason=rf.season;
+      let snapEntries=[];
+      if(selYr){
+        const ranges=getSeasonRanges(selYr);
+        let rng={start:ranges.winter.start,end:ranges.autumn.end};
+        if(selSeason==='spring') rng=ranges.spring;
+        else if(selSeason==='summer'&&ranges.summer) rng=ranges.summer;
+        else if(selSeason==='summer') rng={start:ranges.spring.end,end:ranges.autumn.start};
+        else if(selSeason==='autumn') rng=ranges.autumn;
+        else if(selSeason==='winter') rng=ranges.winter;
+        snapEntries=getSeasonEntries(rng);
+      }
+      const daVals=getDeadAlive(snapEntries,true);
+      const alive=daVals.reduce((a,v)=>a+(parseInt(v.hives)||0),0);
+      const dead=daVals.reduce((a,v)=>a+(parseInt(v.dead)||0),0);
+      const increases=snapEntries.reduce((a,e)=>a+(parseInt(e.tops)||0)+(parseInt(e.splits)||0)+(parseInt(e.nuc_splits)||0),0);
+      const allNucsSnap=loadNucYards();
+      let nucMated=0,nucTotal=0;
+      Object.values(allNucsSnap).forEach(yard=>(yard.batches||[]).forEach(batch=>(batch.nucs||[]).forEach(n=>{
+        if(n.cellDate||['cell','virgin','dl','mated','failed'].includes(n.status)||n.transferredTo) nucTotal++;
+        if(n.status==='mated'||n.transferredTo) nucMated++;
+      })));
+      const kpiGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}});
+      const kpiTile=(label,val,sub,color)=>{const t=h('div',{style:{background:'#f8f8f6',borderRadius:'10px',padding:'12px 10px 10px',border:'.5px solid #eee'}});t.appendChild(h('div',{style:{fontSize:'10px',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.05em',color:'#aaa',marginBottom:'4px'}},label));t.appendChild(h('div',{style:{fontSize:'26px',fontWeight:'800',color:color||'#333',lineHeight:'1',fontVariantNumeric:'tabular-nums'}},String(val)));if(sub)t.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb',marginTop:'4px'}},sub));return t;};
+      kpiGrid.appendChild(kpiTile('Colonies',alive,'alive right now','#2369c4'));
+      kpiGrid.appendChild(kpiTile('Increases',increases,'splits & tops','#3d7a4f'));
+      kpiGrid.appendChild(kpiTile('Queens Mated',nucMated,nucTotal>0?'of '+nucTotal+' cells':'—','#3d7a4f'));
+      kpiGrid.appendChild(kpiTile('Losses',dead,dead===0?'none recorded':dead+' coloni'+(dead===1?'y':'es'),dead>0?'#c0392b':'#3d7a4f'));
+      snap.body.appendChild(kpiGrid);
+    }
+
+    // ── 2. Hive Numbers ──
+    const hiveNum=mkSec('📊','#eaf2ff','Hive Numbers','Colony counts, increases & losses');
+    hiveNumsDeathsHolder=h('div',null);
+    hiveNum.body.appendChild(hiveNumsDeathsHolder);
+    hiveNum.setFn(function(body){
+      renderDeadAliveReport(body);
+      renderHiveLossReport(body);
+    });
+
+    // ── 3. Colony Health ──
+    const colHealth=mkSec('🏥','#fff8e6','Colony Health','Scores, treatments, disease & AFB');
+    colHealthDiseaseHolder=h('div',null);
+    colHealth.body.appendChild(colHealthDiseaseHolder);
+    colHealth.setFn(function(body){
+      renderHiveStrengthByRound(body);
+      renderMiteRateByOperation(body);
+      renderTreatmentCoverage(body);
+      renderAFBTimeline(body);
+      renderOverdueHeatmap(body);
+    });
+
+    // ── 4. Entries by Person ──
+    const byPerson=mkSec('👤','#f0eeff','Entries by Person','Diary entries & movements per beekeeper');
+    byPerson.setFn(function(body){
+      renderEntriesByPerson(body);
+      renderMovementsByDriver(body);
+    });
+
+    // ── 5. Yield ──
+    const yieldSecW=mkSec('🍯','#fffbec','Yield','Honey & production per operation');
+    yieldSecW.setFn(function(body){
+      renderYieldByOperation(body);
+      renderYieldScatter(body);
+      renderPollinationReport(body);
+    });
+
+    // ── 6. Custom Charts ──
+    const custCharts=mkSec('📈','#f3e8ff','Custom Charts','Manual Y/X axis chart builder');
+    custCharts.setFn(function(body){
+      body.appendChild(ctrl);
+      body.appendChild(chartCard);
+      body.appendChild(statsArea);
+      body.appendChild(customArea);
+      customArea.style.display='none';
+      ctrl.style.display='';chartCard.style.display='';statsArea.style.display='';
+      setTimeout(resizeCanvas,50);
+      updateFilterVisibility();
+      updateChart();
+    });
 
     // The manual Y/X axis + mode picker panel (ctrl) is intentionally never attached to the
     // page anymore — Quick Reports are now the only interface. Its elements (ySel, xSel,
@@ -4208,15 +4447,13 @@ function renderReportsScreen(){
       updateChart();
     };
     chartCard.appendChild(canvas);
-    metricsArea.appendChild(chartCard);
+    // chartCard, statsArea, customArea are appended lazily inside Custom Charts section
 
     // Stats summary below chart
     const statsArea=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',border:'.5px solid #ddd'}});
-    metricsArea.appendChild(statsArea);
 
     // Custom (non-chart-engine) reports render here
     const customArea=h('div',{style:{display:'none'}});
-    metricsArea.appendChild(customArea);
 
     // ── Treatment coverage: % of sites treated with each product, per operation ──
     function renderTreatmentCoverage(container){
@@ -6072,8 +6309,7 @@ function renderReportsScreen(){
     ySel.addEventListener('change',updateChart);
     opFilter.addEventListener('change',updateChart);
 
-    // Draw after layout
-    setTimeout(resizeCanvas,50);
+    // (canvas resize is triggered when Custom Charts section opens)
 
     // ── Disease summary ──
     const diseaseSec=h('div',{style:{background:'#fff',borderRadius:'12px',padding:'12px',marginTop:'12px',border:'.5px solid #e24b4a33'}});
@@ -6087,7 +6323,7 @@ function renderReportsScreen(){
     diseaseSec.appendChild(diseaseSeasonSel);
     const diseaseArea=h('div',null);
     diseaseSec.appendChild(diseaseArea);
-    metricsArea.appendChild(diseaseSec);
+    colHealthDiseaseHolder.appendChild(diseaseSec);
 
     function renderDiseaseStats(){
       diseaseArea.innerHTML='';
@@ -6194,7 +6430,7 @@ function renderReportsScreen(){
     deathsSec.appendChild(deathsYrSel);
     const deathsArea=h('div',null);
     deathsSec.appendChild(deathsArea);
-    metricsArea.appendChild(deathsSec);
+    hiveNumsDeathsHolder.appendChild(deathsSec);
 
     function renderDeathsReport(){
       deathsArea.innerHTML='';
