@@ -7600,14 +7600,24 @@ function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
   box.appendChild(notesInp);
 
   // Back to source yard button
-  const srcYardName=all[nucYardKey]?.batches[batchIdx]?.sourceYard?.replace(/ \d+$/,'').trim()||'';
-  if(srcYardName){
-    let srcOp2=null,srcBatch2=null;
-    Object.entries(OPERATIONS).forEach(([opN])=>{Object.entries(getYards(opN)).forEach(([bN,b])=>{if(b.sites.some(s=>srcYardName.includes(s)||s.includes(srcYardName))){srcOp2=opN;srcBatch2=bN;}});});
+  const srcYardRaw=all[nucYardKey]?.batches[batchIdx]?.sourceYard||'';
+  if(srcYardRaw){
+    let srcOp2=null,srcBatch2=null,srcSite=srcYardRaw;
+    // Try exact match first, then prefix match as fallback
+    Object.entries(OPERATIONS).forEach(([opN])=>{Object.entries(getYards(opN)).forEach(([bN,b])=>{
+      if(b.sites.some(s=>s===srcYardRaw)){srcOp2=opN;srcBatch2=bN;srcSite=srcYardRaw;}
+    });});
+    if(!srcOp2){
+      // Fallback: strip trailing nuc-index suffix (e.g. "Joe 90 1" → "Joe 90")
+      const stripped=srcYardRaw.replace(/ \d+$/,'').trim();
+      Object.entries(OPERATIONS).forEach(([opN])=>{Object.entries(getYards(opN)).forEach(([bN,b])=>{
+        if(b.sites.some(s=>s===stripped)){srcOp2=opN;srcBatch2=bN;srcSite=stripped;}
+      });});
+    }
     if(srcOp2){
       box.appendChild(h('button',{style:{marginTop:'8px',width:'100%',padding:'10px',background:'#1a6fb011',border:'1px solid #1a6fb0',color:'#1a6fb0',borderRadius:'8px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
-        onClick:()=>{overlay.remove();setState({op:srcOp2,tab:'diary',run:srcBatch2,site:srcYardName,diaryView:'entries'});}
-      },'→ Go to '+srcYardName));
+        onClick:()=>{overlay.remove();setState({op:srcOp2,tab:'diary',run:srcBatch2,site:srcSite,diaryView:'entries'});}
+      },'→ Go to '+srcSite));
     }
   }
   box.appendChild(h('button',{style:{marginTop:'8px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
