@@ -3423,7 +3423,7 @@ function renderReportsScreen(){
     }
   },'Add year'));
   yearSec.appendChild(addYrCard);
-  screen.appendChild(yearSec);
+  // yearSec is appended inside metricsArea (below filter bar) by renderChart()
 
   // ── Helper: get all entries for a season across all ops ──
   function getSeasonEntries(season){
@@ -3473,6 +3473,7 @@ function renderReportsScreen(){
   }
 
   // ── Queen Rearing / Cell Success Report ──
+  let qrCardForMetrics;
   {
     const qrCard=h('div',{style:{background:'#fff',borderRadius:'12px',border:'.5px solid #ddd',marginBottom:'10px',overflow:'hidden'}});
     const qrHdr=h('div',{style:{display:'flex',alignItems:'center',padding:'13px 14px',cursor:'pointer',background:'#fafaf8',gap:'10px',userSelect:'none',WebkitUserSelect:'none'}});
@@ -3635,7 +3636,7 @@ function renderReportsScreen(){
       });
     }
 
-    screen.appendChild(qrCard);
+    qrCardForMetrics=qrCard; // inserted into metricsArea after Quick Snapshot
   }
 
   // ── Chart controls ──
@@ -4311,6 +4312,7 @@ function renderReportsScreen(){
       filterBar.appendChild(pill);
     });
     metricsArea.appendChild(filterBar);
+    metricsArea.appendChild(yearSec);
 
     // Section body refs declared here so diseaseSec/deathsSec blocks below can target them
     let hiveNumsDeathsHolder, colHealthDiseaseHolder;
@@ -4375,6 +4377,9 @@ function renderReportsScreen(){
       kpiGrid.appendChild(kpiTile('Losses',dead,dead===0?'none recorded':dead+' coloni'+(dead===1?'y':'es'),dead>0?'#c0392b':'#3d7a4f'));
       snap.body.appendChild(kpiGrid);
     }
+
+    // Queen Rearing card (built above, placed here in order)
+    if(qrCardForMetrics) metricsArea.appendChild(qrCardForMetrics);
 
     // ── 2. Hive Numbers ──
     const hiveNum=mkSec('📊','#eaf2ff','Hive Numbers','Colony counts, increases & losses');
