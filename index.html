@@ -12839,42 +12839,6 @@ async function bootApp(){
     localStorage.setItem('apiary_migrated_winter','1');
   }
 
-  // ── One-time backfill: create in_yard batches for existing cell_in diary entries ──
-  if(!localStorage.getItem('apiary_migrated_inyard_v1')){
-    try{
-      const allE=JSON.parse(localStorage.getItem('apiary_entries')||'{}');
-      const allS=loadNucYards();
-      let changed=false;
-      Object.entries(allE).forEach(([key,entries])=>{
-        // key format: op__site__round
-        const parts=key.split('__');
-        if(parts.length<3) return;
-        const op=parts[0];
-        const site=parts.slice(1,parts.length-1).join('__');
-        const nucKey='__nucs__'+op;
-        if(!allS[nucKey]) allS[nucKey]={name:'Splits',op,batches:[]};
-        (entries||[]).forEach(entry=>{
-          const count=parseInt(entry.cell_in)||0;
-          if(count<=0||!entry.date) return;
-          // Check if a diary-sourced in_yard batch already exists for this yard+date
-          const isDiary=b=>b._fromDiary&&b.dateAdded===entry.date&&(b.sourceYard===site||b.sourceYard.startsWith(site+' '));
-          const existing=allS[nucKey].batches.find(b=>isDiary(b)&&b.splitType==='in_yard');
-          if(existing) return;
-          // Create missing in_yard batch
-          const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
-          const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
-          const sameSite=allS[nucKey].batches.filter(b=>b.splitType==='in_yard'&&(b.sourceYard===site||b.sourceYard.startsWith(site+' ')));
-          const batchLabel=sameSite.length>0?site+' '+(sameSite.length+1):site;
-          const nucs=Array.from({length:count},(_,i)=>({id:nextId+i,status:'cell',cellDate:entry.date,virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
-          allS[nucKey].batches.push({id:Date.now()+Math.random(),sourceYard:batchLabel,sourceOp:op,dateAdded:entry.date,nucs,splitType:'in_yard',destYard:'',_fromDiary:true});
-          changed=true;
-        });
-      });
-      if(changed) saveNucYards(allS);
-    }catch(e){console.warn('in_yard backfill failed:',e);}
-    localStorage.setItem('apiary_migrated_inyard_v1','1');
-  }
-
   // Show app immediately with local data
   render();
 
@@ -12904,26 +12868,65 @@ async function bootApp(){
   if(_sbLoaded){
     try{
       window._sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-      // Capture local data BEFORE pull so we can push the full set after merge
-      const _preNucYards=loadNucYards();
       const _preYears=loadYears();
       await pullFromSupabase();
       subscribeRealtime();
       await flushPending();
-      // Re-merge pre-pull local data back in (protects against remote overwriting local batches)
-      // then push the combined result so other devices see everything
-      if(Object.keys(_preNucYards).length){
-        const afterPull=loadNucYards();const remerged={...afterPull};
-        Object.entries(_preNucYards).forEach(([key,ly])=>{
-          if(!remerged[key]){remerged[key]=ly;}
-          else{const byId={};(remerged[key].batches||[]).forEach(b=>{byId[String(b.id)]=b;});(ly.batches||[]).forEach(b=>{const sid=String(b.id);if(!byId[sid])byId[sid]=b;else if((b.nucs||[]).length>(byId[sid].nucs||[]).length)byId[sid]=b;});remerged[key]={...remerged[key],...ly,batches:Object.values(byId)};}
-        });
-        try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(remerged));}catch(e){}
-        pushToSupabase('nuc_yards',remerged).catch(()=>{});
-      }
+      // Push years so other devices can see season data
       const _localYears=loadYears();
       if(_preYears.length){const byY={};[..._localYears,..._preYears].forEach(y=>{byY[y.startYear]=y;});const mergedY=Object.values(byY).sort((a,b)=>b.startYear-a.startYear);try{localStorage.setItem('apiary_years',JSON.stringify(mergedY));}catch(e){} pushToSupabase('years',mergedY).catch(()=>{});}
       else if(_localYears.length) pushToSupabase('years',_localYears).catch(()=>{});
+      // Dedup + backfill in_yard batches AFTER pull so we see what remote already has
+      // This prevents two devices creating duplicate batches with different IDs
+      {
+        try{
+          const allE=JSON.parse(localStorage.getItem('apiary_entries')||'{}');
+          const allS=loadNucYards();
+          let changed=false;
+          // Step 1: collapse duplicate _fromDiary in_yard batches for the same yard+date
+          // (can happen if backfill ran on two devices before this fix)
+          Object.keys(allS).forEach(nucKey=>{
+            const grps={};
+            (allS[nucKey].batches||[]).forEach(b=>{
+              if(!b._fromDiary||b.splitType!=='in_yard') return;
+              const gk=(b.sourceYard||'').replace(/ \d+$/,'')+'|'+(b.dateAdded||'');
+              if(!grps[gk]) grps[gk]=[];
+              grps[gk].push(b);
+            });
+            Object.values(grps).forEach(dupes=>{
+              if(dupes.length<=1) return;
+              const keeper=dupes.reduce((best,b)=>(b.nucs||[]).length>=(best.nucs||[]).length?b:best,dupes[0]);
+              allS[nucKey].batches=allS[nucKey].batches.filter(b=>!dupes.includes(b)||b===keeper);
+              changed=true;
+            });
+          });
+          // Step 2: create any still-missing in_yard batches from diary entries
+          Object.entries(allE).forEach(([key,entries])=>{
+            const parts=key.split('__');
+            if(parts.length<3) return;
+            const op=parts[0];
+            const site=parts.slice(1,parts.length-1).join('__');
+            const nucKey='__nucs__'+op;
+            if(!allS[nucKey]) allS[nucKey]={name:'Splits',op,batches:[]};
+            (entries||[]).forEach(entry=>{
+              const count=parseInt(entry.cell_in)||0;
+              if(count<=0||!entry.date) return;
+              const existing=allS[nucKey].batches.find(b=>b._fromDiary&&b.splitType==='in_yard'&&b.dateAdded===entry.date&&(b.sourceYard===site||b.sourceYard.replace(/ \d+$/,'')=== site));
+              if(existing) return;
+              const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
+              const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
+              const nucs=Array.from({length:count},(_,i)=>({id:nextId+i,status:'cell',cellDate:entry.date,virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
+              allS[nucKey].batches.push({id:Date.now()+Math.random(),splitType:'in_yard',sourceYard:site,sourceOp:op,dateAdded:entry.date,nucs,destYard:'',_fromDiary:true});
+              changed=true;
+            });
+          });
+          if(changed){
+            try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(allS));}catch(e){}
+            pushToSupabase('nuc_yards',allS).catch(()=>{});
+            render();
+          }
+        }catch(e){console.warn('in_yard dedup/backfill failed:',e);}
+      }
       updateSyncDot('online');
     }catch(e){
       console.warn('Supabase init failed:',e);
