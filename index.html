@@ -2745,34 +2745,131 @@ function getAFBInquiry(op, site){
 function showCellSourceModal(op, nucYardKey, batchIdx, onSave){
   const all=loadNucYards();
   const batch=all[nucYardKey].batches[batchIdx];
-  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'16px'}});
-  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px'}});
-  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Cell source'));
-  box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'16px'}},batch.sourceYard+' — '+batch.nucs.length+' cell'+(batch.nucs.length!==1?'s':'')));
+  const nucs=batch.nucs||[];
 
-  // Breeder
-  box.appendChild(h('div',{style:{fontSize:'11px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'6px'}},'Breeder'));
-  const brPills=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px'}});
-  const refreshBr=()=>brPills.querySelectorAll('button').forEach(b=>{const a=b.textContent===(batch.breeder||'');b.style.background=a?'#1a6fb0':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#1a6fb0':'#ddd';});
+  // "Set all" selections (not saved until Apply is pressed)
+  let allBr='';
+  let allFi=[];
+  let expandedNucId=null;
+
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'flex-start',justifyContent:'center',zIndex:'200',padding:'16px',overflowY:'auto'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px',margin:'auto'}});
+
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'2px'}},'Cell source'));
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'16px'}},batch.sourceYard+' — '+nucs.length+' nuc'+(nucs.length!==1?'s':'')));
+
+  // ── SET ALL section ──────────────────────────
+  box.appendChild(h('div',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:'7px',fontWeight:'700'}},'Set all'));
+
+  // Set-all Breeder
+  const allBrPills=h('div',{style:{display:'flex',gap:'5px',marginBottom:'8px',flexWrap:'wrap'}});
+  const refreshAllBr=()=>allBrPills.querySelectorAll('button').forEach(b=>{const a=b.textContent===allBr;b.style.background=a?'#1a6fb0':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#1a6fb0':'#ddd';});
   ['B1','B2','B3','B4','B5'].forEach(opt=>{
-    const active=(batch.breeder||'')===opt;
-    brPills.appendChild(h('button',{style:{padding:'6px 13px',border:'1.5px solid '+(active?'#1a6fb0':'#ddd'),borderRadius:'20px',fontSize:'13px',fontWeight:'700',cursor:'pointer',background:active?'#1a6fb0':'#fff',color:active?'#fff':'#555',transition:'all .12s'},
-      onClick:()=>{batch.breeder=batch.breeder===opt?'':opt;saveNucYards(all);refreshBr();}},opt));
+    allBrPills.appendChild(h('button',{style:{padding:'5px 13px',border:'1.5px solid #ddd',borderRadius:'20px',fontSize:'13px',fontWeight:'700',cursor:'pointer',background:'#fff',color:'#555',transition:'all .12s'},
+      onClick:()=>{allBr=allBr===opt?'':opt;refreshAllBr();}},opt));
   });
-  box.appendChild(brPills);
+  box.appendChild(allBrPills);
 
-  // Finisher
-  box.appendChild(h('div',{style:{fontSize:'11px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'6px'}},'Finisher'));
-  const fiPills=h('div',{style:{display:'flex',gap:'6px',overflowX:'auto',paddingBottom:'4px',marginBottom:'18px',flexWrap:'wrap'}});
-  const refreshFi=()=>{const cur=asFinishers(batch.finisher);fiPills.querySelectorAll('button').forEach(b=>{const a=cur.includes(b.textContent);b.style.background=a?'#3d7a4f':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#3d7a4f':'#ddd';});};
+  // Set-all Finisher
+  const allFiPills=h('div',{style:{display:'flex',gap:'5px',marginBottom:'10px',flexWrap:'wrap'}});
+  const refreshAllFi=()=>allFiPills.querySelectorAll('button').forEach(b=>{const a=allFi.includes(b.textContent);b.style.background=a?'#3d7a4f':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#3d7a4f':'#ddd';});
   Array.from({length:19},(_,i)=>'F'+(i+1)).forEach(opt=>{
-    const active=asFinishers(batch.finisher).includes(opt);
-    fiPills.appendChild(h('button',{style:{padding:'6px 11px',border:'1.5px solid '+(active?'#3d7a4f':'#ddd'),borderRadius:'20px',fontSize:'13px',fontWeight:'700',cursor:'pointer',background:active?'#3d7a4f':'#fff',color:active?'#fff':'#555',flexShrink:'0',transition:'all .12s'},
-      onClick:()=>{const cur=asFinishers(batch.finisher);const idx=cur.indexOf(opt);batch.finisher=idx>-1?cur.filter(x=>x!==opt):[...cur,opt];saveNucYards(all);refreshFi();}},opt));
+    const p=h('button',{style:{padding:'4px 9px',border:'1.5px solid #ddd',borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',background:'#fff',color:'#555',flexShrink:'0',transition:'all .12s'},
+      onClick:()=>{const idx=allFi.indexOf(opt);allFi=idx>-1?allFi.filter(x=>x!==opt):[...allFi,opt];refreshAllFi();}},opt);
+    allFiPills.appendChild(p);
   });
-  box.appendChild(fiPills);
+  box.appendChild(allFiPills);
 
-  box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},
+  box.appendChild(h('button',{style:{width:'100%',padding:'9px',background:'#1a6fb011',border:'1.5px solid #1a6fb0',color:'#1a6fb0',borderRadius:'8px',fontSize:'13px',fontWeight:'700',cursor:'pointer',marginBottom:'14px'},
+    onClick:()=>{
+      if(allBr) batch.breeder=allBr;
+      if(allFi.length) batch.finisher=[...allFi];
+      // Apply to every nuc and clear per-nuc overrides so they inherit batch
+      nucs.forEach(n=>{
+        if(allBr) n.breeder=allBr; else delete n.breeder;
+        if(allFi.length) n.finisher=[...allFi]; else delete n.finisher;
+      });
+      saveNucYards(all);
+      renderNucList();
+      showToast('Applied to all '+nucs.length+' nuc'+(nucs.length!==1?'s':''));
+    }},'Apply to all '+nucs.length+' nuc'+(nucs.length!==1?'s':'')+' →'));
+
+  // Divider
+  const divEl=h('div',{style:{position:'relative',marginBottom:'14px'}});
+  divEl.appendChild(h('hr',{style:{border:'none',borderTop:'1px solid #eee',margin:'0'}}));
+  const lbl=h('span',{style:{position:'absolute',top:'-8px',left:'50%',transform:'translateX(-50%)',background:'#fff',padding:'0 8px',fontSize:'10px',color:'#bbb',whiteSpace:'nowrap',textTransform:'uppercase',letterSpacing:'.04em'}},'or set per nuc');
+  divEl.appendChild(lbl);
+  box.appendChild(divEl);
+
+  // ── PER-NUC LIST ──────────────────────────────
+  const nucListEl=h('div',null);
+  box.appendChild(nucListEl);
+
+  function effectiveSummary(nuc){
+    // show per-nuc if set, otherwise batch default
+    const br=nuc.breeder||(batch.breeder||'');
+    const fi=finisherStr(nuc.finisher)||finisherStr(batch.finisher)||'';
+    const parts=[];if(br)parts.push(br);if(fi)parts.push(fi);
+    return parts.length?parts.join(' · '):'—';
+  }
+  function hasNucOverride(nuc){return !!(nuc.breeder||(nuc.finisher&&nuc.finisher.length));}
+
+  function renderNucList(){
+    nucListEl.innerHTML='';
+    nucs.forEach((nuc)=>{
+      const isExp=expandedNucId===nuc.id;
+      const override=hasNucOverride(nuc);
+      const rowWrap=h('div',{style:{borderRadius:'8px',border:'1.5px solid '+(isExp?'#1a6fb0':'#eee'),marginBottom:'5px',overflow:'hidden'}});
+
+      // Header row
+      const hdr=h('div',{style:{display:'flex',alignItems:'center',padding:'8px 12px',cursor:'pointer',background:isExp?'#f0f7ff':'#fff',gap:'8px'}});
+      hdr.onclick=()=>{expandedNucId=isExp?null:nuc.id;renderNucList();};
+      hdr.appendChild(h('span',{style:{flex:'1',fontWeight:'600',fontSize:'13px',color:'#333'}},'Nuc #'+nuc.id));
+      const chip=h('span',{style:{fontSize:'11px',fontWeight:'700',borderRadius:'12px',padding:'2px 9px',background:override?'#e8f0fb':'#f0f0ee',color:override?'#1a6fb0':'#999'}},effectiveSummary(nuc));
+      if(!override&&(batch.breeder||batch.finisher)){
+        chip.title='Inherits batch default';
+      }
+      hdr.appendChild(chip);
+      hdr.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb'}},isExp?'▲':'▼'));
+      rowWrap.appendChild(hdr);
+
+      if(isExp){
+        const body=h('div',{style:{padding:'10px 12px',borderTop:'1px solid #eee',background:'#fafcff'}});
+
+        // Per-nuc Breeder
+        body.appendChild(h('div',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'5px'}},'Breeder'));
+        const nBrRow=h('div',{style:{display:'flex',gap:'5px',marginBottom:'9px',flexWrap:'wrap'}});
+        const rNBr=()=>nBrRow.querySelectorAll('button').forEach(b=>{const a=b.textContent===(nuc.breeder||'');b.style.background=a?'#1a6fb0':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#1a6fb0':'#ddd';});
+        ['B1','B2','B3','B4','B5'].forEach(opt=>{
+          nBrRow.appendChild(h('button',{style:{padding:'5px 12px',border:'1.5px solid '+(nuc.breeder===opt?'#1a6fb0':'#ddd'),borderRadius:'20px',fontSize:'13px',fontWeight:'700',cursor:'pointer',background:nuc.breeder===opt?'#1a6fb0':'#fff',color:nuc.breeder===opt?'#fff':'#555',transition:'all .12s'},
+            onClick:()=>{nuc.breeder=nuc.breeder===opt?undefined:opt;if(!nuc.breeder)delete nuc.breeder;saveNucYards(all);rNBr();chip.textContent=effectiveSummary(nuc);chip.style.color=hasNucOverride(nuc)?'#1a6fb0':'#999';chip.style.background=hasNucOverride(nuc)?'#e8f0fb':'#f0f0ee';}},opt));
+        });
+        body.appendChild(nBrRow);
+
+        // Per-nuc Finisher
+        body.appendChild(h('div',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:'5px'}},'Finisher'));
+        const nFiRow=h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap',marginBottom:'8px'}});
+        const rNFi=()=>{const cur=asFinishers(nuc.finisher);nFiRow.querySelectorAll('button').forEach(b=>{const a=cur.includes(b.textContent);b.style.background=a?'#3d7a4f':'#fff';b.style.color=a?'#fff':'#555';b.style.borderColor=a?'#3d7a4f':'#ddd';});};
+        Array.from({length:19},(_,i)=>'F'+(i+1)).forEach(opt=>{
+          const cur0=asFinishers(nuc.finisher);
+          nFiRow.appendChild(h('button',{style:{padding:'4px 8px',border:'1.5px solid '+(cur0.includes(opt)?'#3d7a4f':'#ddd'),borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',background:cur0.includes(opt)?'#3d7a4f':'#fff',color:cur0.includes(opt)?'#fff':'#555',flexShrink:'0',transition:'all .12s'},
+            onClick:()=>{const c=asFinishers(nuc.finisher);const i=c.indexOf(opt);nuc.finisher=i>-1?c.filter(x=>x!==opt):[...c,opt];if(!nuc.finisher.length)delete nuc.finisher;saveNucYards(all);rNFi();chip.textContent=effectiveSummary(nuc);chip.style.color=hasNucOverride(nuc)?'#1a6fb0':'#999';chip.style.background=hasNucOverride(nuc)?'#e8f0fb':'#f0f0ee';}},opt));
+        });
+        body.appendChild(nFiRow);
+
+        // Clear per-nuc
+        body.appendChild(h('button',{style:{fontSize:'11px',color:'#e24b4a',background:'none',border:'none',cursor:'pointer',padding:'2px 0'},
+          onClick:()=>{delete nuc.breeder;delete nuc.finisher;saveNucYards(all);renderNucList();}},'✕ Clear — use batch default'));
+
+        rowWrap.appendChild(body);
+      }
+      nucListEl.appendChild(rowWrap);
+    });
+  }
+
+  renderNucList();
+
+  box.appendChild(h('button',{style:{width:'100%',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer',marginTop:'10px'},
     onClick:()=>{overlay.remove();onSave();}},'Done'));
   overlay.appendChild(box);
   overlay.addEventListener('click',e=>{if(e.target===overlay){overlay.remove();onSave();}});
