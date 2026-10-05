@@ -9450,6 +9450,7 @@ function renderForm(){
         const yardList=allSitesFor(op).filter(s=>s!==site).sort();
         const sel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'14px',background:'#fff',boxSizing:'border-box',color:'#333',appearance:'auto'}});
         sel.appendChild(h('option',{value:''},'— not recorded —'));
+        sel.appendChild(h('option',{value:'In yard'},'Left in yard'));
         yardList.forEach(s=>{
           const opt=h('option',{value:s},s);
           if((vals[f.key]||'')=== s) opt.selected=true;
