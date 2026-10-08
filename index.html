@@ -12055,25 +12055,34 @@ function renderMovementsScreen(){
     if(STATE._returnMode&&STATE._returnPlan&&STATE._returnPlan.length){
       loadDirection.val='from_orchard';
       updateDirBtns();
+      const fixedDest=STATE._returnDest||null; // single destination yard (optional)
       // Group plan by orchard (source) — each orchard becomes a pickup
       const byOrchard={};
       STATE._returnPlan.forEach(p=>{
         if(!byOrchard[p.orchard])byOrchard[p.orchard]={orchard:p.orchard,pallets:0,singles:0,destinations:[],half_pallet:false,alive_hives:'',dead_hives:''};
         byOrchard[p.orchard].pallets+=parseInt(p.pallets)||0;
         byOrchard[p.orchard].singles+=parseInt(p.singles)||0;
-        byOrchard[p.orchard].destinations.push(p); // for auto-split
+        byOrchard[p.orchard].destinations.push(p);
       });
       Object.values(byOrchard).forEach(item=>{
         const pick={site:item.orchard,op:'',pallets:String(item.pallets),singles:String(item.singles),half_pallet:false,alive_hives:'',dead_hives:'',id:nextId++,splits:[]};
-        // Auto-assign splits back to source yards
-        item.destinations.forEach(dest=>{
-          const h=(parseInt(dest.pallets)||0)*4+(parseInt(dest.singles)||0);
-          if(h>0) pick.splits.push({dest:dest.site,dest_op:dest.op,hives:h,desc:(parseInt(dest.pallets)||0)+'p'+(parseInt(dest.singles)>0?' · '+dest.singles+' indiv':'')});
-        });
+        if(fixedDest){
+          // All hives from this orchard go to the chosen destination yard
+          const totalH=item.pallets*4+item.singles;
+          const desc=item.pallets+'p'+(item.singles>0?' · '+item.singles+' indiv':'');
+          if(totalH>0) pick.splits.push({dest:fixedDest.site,dest_op:fixedDest.op,hives:totalH,desc});
+        } else {
+          // Auto-assign splits back to each source yard
+          item.destinations.forEach(dest=>{
+            const h=(parseInt(dest.pallets)||0)*4+(parseInt(dest.singles)||0);
+            if(h>0) pick.splits.push({dest:dest.site,dest_op:dest.op,hives:h,desc:(parseInt(dest.pallets)||0)+'p'+(parseInt(dest.singles)>0?' · '+dest.singles+' indiv':'')});
+          });
+        }
         pickups.push(pick);
       });
       delete STATE._returnMode;
       delete STATE._returnPlan;
+      delete STATE._returnDest;
       showToast('Return trip loaded — review and save');
     }
 
@@ -12292,6 +12301,39 @@ function renderMovementsScreen(){
       }
       updateTruckTotal();
 
+      // Destination yard picker
+      let retDestSite='', retDestOp='';
+      const destCard=h('div',{style:{background:'#fff',borderRadius:'12px',border:'.5px solid #ddd',marginBottom:'12px',overflow:'hidden'}});
+      const destHdr=h('div',{style:{padding:'11px 14px',background:'#f8f8f6',borderBottom:'.5px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+      destHdr.appendChild(h('div',null,
+        h('div',{style:{fontWeight:'700',fontSize:'14px',color:'#1a1a1a'}},'Return to yard'),
+        h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},'Where are these hives going?')
+      ));
+      const destBadge=h('div',{style:{fontSize:'11px',color:'#aaa'}},'Optional');
+      destHdr.appendChild(destBadge);
+      destCard.appendChild(destHdr);
+      const destBody=h('div',{style:{padding:'10px 14px'}});
+      const destSearchArea=h('div');
+      const destSelDisplay=h('div',{style:{display:'none'}});
+      makeYardSearchGlobal(destSearchArea,(site,opName)=>{
+        retDestSite=site; retDestOp=opName;
+        destSearchArea.style.display='none';
+        destSelDisplay.style.display='block';
+        destSelDisplay.innerHTML='';
+        destSelDisplay.appendChild(h('div',{style:{background:'#f0eeff',border:'1px solid #9b59b6',borderRadius:'8px',padding:'8px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}},
+          h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#333'}},site+' · '+opName),
+          h('button',{style:{background:'none',border:'none',color:'#9b59b6',fontSize:'12px',cursor:'pointer',fontWeight:'600'},
+            onClick:()=>{retDestSite='';retDestOp='';destSelDisplay.style.display='none';destSelDisplay.innerHTML='';destSearchArea.style.display='block';destBadge.textContent='Optional';destBadge.style.color='#aaa';}
+          },'Change')
+        ));
+        destBadge.textContent='✓ Set';
+        destBadge.style.color='#9b59b6';
+      });
+      destBody.appendChild(destSearchArea);
+      destBody.appendChild(destSelDisplay);
+      destCard.appendChild(destBody);
+      screen.appendChild(destCard);
+
       // Build load button
       const buildBtn=h('button',{style:{width:'100%',padding:'13px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'10px',fontSize:'15px',fontWeight:'700',cursor:'pointer',marginBottom:'12px',opacity:'0.4',pointerEvents:'none'},
         onClick:()=>{
@@ -12305,6 +12347,7 @@ function renderMovementsScreen(){
           });
           if(!plan.length){showToast('Enter amounts to take for at least one yard');return;}
           STATE._returnPlan=plan;
+          if(retDestSite) STATE._returnDest={site:retDestSite,op:retDestOp};
           setState({tab:'movements',_returnMode:true});
         }
       },'Build load');
