@@ -3482,10 +3482,10 @@ function renderReportsScreen(){
     qrHT.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'700',color:'#333'}},'Queen Rearing'));
     qrHT.appendChild(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'2px'}},'Cell success · splits · nuc queens'));
     qrHdr.appendChild(qrHT);
-    const qrChev=h('span',{style:{fontSize:'10px',color:'#ccc',flexShrink:'0',marginLeft:'2px'}},'▲');
+    const qrChev=h('span',{style:{fontSize:'10px',color:'#ccc',flexShrink:'0',marginLeft:'2px'}},'▼');
     qrHdr.appendChild(qrChev);
     qrCard.appendChild(qrHdr);
-    const qrBody=h('div',{style:{display:'block',padding:'10px'}});
+    const qrBody=h('div',{style:{display:'none',padding:'10px'}});
     qrCard.appendChild(qrBody);
     qrHdr.addEventListener('click',()=>{const open=qrBody.style.display!=='none';qrBody.style.display=open?'none':'block';qrChev.textContent=open?'▼':'▲';});
     const qrSec=qrBody;
@@ -4344,7 +4344,7 @@ function renderReportsScreen(){
     }
 
     // ── 1. Quick Snapshot ──
-    const snap=mkSec('🐝','#edf7f0','Quick Snapshot','Season totals at a glance',true);
+    const snap=mkSec('🐝','#edf7f0','Quick Snapshot','Season totals at a glance',false);
     {
       const selYr=rf.yr?years.find(y=>y.startYear===rf.yr):years[0];
       const selSeason=rf.season;
