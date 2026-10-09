@@ -8166,6 +8166,17 @@ function renderSitesList(){
       '📅 Snapshot — showing yard state as of '+fmtDate(snapshotDate)));
   }
 
+  // Search bar
+  const searchWrap=h('div',{style:{position:'relative',marginBottom:'10px'}});
+  const searchInp=h('input',{type:'text',placeholder:'🔍  Search yards…',style:{display:'block',width:'100%',padding:'9px 12px',border:'1.5px solid #e0e0de',borderRadius:'9px',fontSize:'15px',background:'#fff',boxSizing:'border-box',outline:'none'}});
+  searchWrap.appendChild(searchInp);
+  wrap.appendChild(searchWrap);
+
+  const sitesContainer=h('div',null);
+  wrap.appendChild(sitesContainer);
+
+  const siteCards=[]; // {site, card}
+
   data.sites.forEach(site=>{
     // Gather all real entries across rounds, newest first — filtered to snapshotDate when set
     const allReal=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement&&(!snapshotDate||e.date<=snapshotDate)).map(e=>({...e,_rk:rk}))).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
@@ -8335,8 +8346,26 @@ function renderSitesList(){
     hLeft.addEventListener('click',()=>setState({site,diaryView:'entries'}));
 
     card.appendChild(body);
-    wrap.appendChild(card);
+    siteCards.push({site,card});
+    sitesContainer.appendChild(card);
   });
+
+  // Wire up search filtering
+  const noResultsMsg=h('div',{style:{display:'none',textAlign:'center',padding:'24px 16px',color:'#aaa',fontSize:'14px'}},'No yards match');
+  sitesContainer.appendChild(noResultsMsg);
+  searchInp.addEventListener('input',()=>{
+    const q=searchInp.value.trim().toLowerCase();
+    let visible=0;
+    siteCards.forEach(({site,card})=>{
+      const show=!q||site.toLowerCase().includes(q);
+      card.style.display=show?'':'none';
+      if(show) visible++;
+    });
+    noResultsMsg.style.display=visible===0?'block':'none';
+  });
+  // Hide search bar if very few yards (not needed)
+  if(data.sites.length<=5) searchWrap.style.display='none';
+
   return wrap;
 }
 
@@ -9687,7 +9716,8 @@ function renderForm(){
         fw.appendChild(inp);
       } else if(f.type==='yard_dest'){
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
-        const yardList=allSitesFor(op).filter(s=>s!==site).sort();
+        // All yards across all operations, deduplicated and sorted
+        const yardList=[...new Set(Object.keys(OPERATIONS).flatMap(opN=>allSitesFor(opN)))].filter(s=>s!==site).sort();
         const sel=h('select',{style:{width:'100%',padding:'8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'14px',background:'#fff',boxSizing:'border-box',color:'#333',appearance:'auto'}});
         sel.appendChild(h('option',{value:''},'— not recorded —'));
         sel.appendChild(h('option',{value:'In yard'},'Left in yard'));
