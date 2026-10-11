@@ -380,7 +380,11 @@ async function addMovement(mov){
   // business date the person picked, which can match a same-day diary entry's date exactly).
   // Needed so computeCurrentHivesForSite can tell whether a movement happened before or after
   // a same-day real diary entry, instead of only being able to compare calendar dates.
+  // recorded_at is the canonical movement timestamp; logged_at is written as an alias so
+  // any code that compares movement records against diary entries (which use logged_at/saved_at)
+  // finds a real timestamp rather than falling back to noon on the movement date.
   if(!mov.recorded_at) mov.recorded_at=new Date().toISOString();
+  if(!mov.logged_at) mov.logged_at=mov.recorded_at;
   const movements=[...(await getMergedRemoteMovements()),mov];
   saveMovements(movements);
   await pushToSupabase('hive_movements',movements);
