@@ -2190,7 +2190,7 @@ function anchoredHivesForSite(opName, site, cutoffDate){
   loadMovements().forEach(m=>{
     if(cutoffDate&&(m.date||'')>cutoffDate) return;
     const mDate=m.date||'';
-    const mTime=m.logged_at||m.saved_at||(mDate+'T12:00:00');
+    const mTime=m.recorded_at||m.logged_at||m.saved_at||(mDate+'T12:00:00');
     // Skip movements at or before the anchor
     if(mDate<anchorDate) return;
     if(mDate===anchorDate&&mTime<=anchorTime) return;
