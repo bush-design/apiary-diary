@@ -12286,7 +12286,11 @@ function renderMovementsScreen(){
   else if(STATE.tab==='return_trip'){
     const movements=loadMovements();
 
-    // Build per-orchard, per-source-yard net position
+    // Build per-orchard hive position.
+    // to_orchard movements: positive entries keyed by source yard (where they came FROM).
+    // from_orchard movements: negative entries keyed by destination yard (where they went TO).
+    // Net per orchard = sum of ALL entries (positive + negative).
+    // Display shows both sides so the full picture is visible.
     const orchardSites={};
     movements.forEach(m=>{
       if(m.direction==='to_orchard'&&m.from_site&&m.to_orchard){
@@ -12298,6 +12302,7 @@ function renderMovementsScreen(){
         orchardSites[m.to_orchard][m.from_site].singles+=mRaw>0?mSing:mHives;
       }
       if(m.direction==='from_orchard'&&m.to_site&&m.from_orchard){
+        // Negative entry keyed by the destination yard so we can show "returned to [yard]".
         if(!orchardSites[m.from_orchard])orchardSites[m.from_orchard]={};
         if(!orchardSites[m.from_orchard][m.to_site])orchardSites[m.from_orchard][m.to_site]={pallets:0,singles:0,op:m.to_op||''};
         const mPal=parseInt(m.pallets)||0,mSing=parseInt(m.singles)||0,mRaw=mPal*4+mSing;
@@ -12307,9 +12312,12 @@ function renderMovementsScreen(){
       }
     });
 
-    const activeOrchards=Object.entries(orchardSites).filter(([,sites])=>
-      Object.values(sites).some(s=>s.pallets>0||s.singles>0)
-    );
+    const activeOrchards=Object.entries(orchardSites).filter(([,sites])=>{
+      // Net across all entries — positive (sent from yard) + negative (returned to yard).
+      const netPal=Object.values(sites).reduce((a,s)=>a+s.pallets,0);
+      const netSing=Object.values(sites).reduce((a,s)=>a+s.singles,0);
+      return netPal>0||netSing>0;
+    });
 
     if(!activeOrchards.length){
       screen.appendChild(h('div',{className:'empty-msg'},'No hives currently in orchards'));
@@ -12400,9 +12408,14 @@ function renderMovementsScreen(){
 
       // Orchard cards
       activeOrchards.forEach(([orchard,sites])=>{
-        const activeSites=Object.entries(sites).filter(([,s])=>s.pallets>0||s.singles>0);
-        const orchTotalPal=activeSites.reduce((a,[,s])=>a+s.pallets,0);
-        const orchTotalSingles=activeSites.reduce((a,[,s])=>a+s.singles,0);
+        const allSites=Object.entries(sites);
+        // Positive = still in orchard (originally sent from that yard).
+        // Negative = returned to that yard already.
+        const sentSites=allSites.filter(([,s])=>s.pallets>0||s.singles>0);
+        const retSites=allSites.filter(([,s])=>s.pallets<0||s.singles<0);
+        // Net total shown in the orchard header.
+        const orchTotalPal=Math.max(0,allSites.reduce((a,[,s])=>a+s.pallets,0));
+        const orchTotalSingles=Math.max(0,allSites.reduce((a,[,s])=>a+s.singles,0));
         const orchHives=orchTotalPal*4+orchTotalSingles;
 
         const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid #ddd'}});
@@ -12416,12 +12429,11 @@ function renderMovementsScreen(){
         hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},(orchSub.join(' · ')||'0')+' · '+orchHives+' hives'));
         card.appendChild(hdr);
 
-        // Per-yard rows
-        activeSites.sort((a,b)=>(b[1].pallets*4+b[1].singles)-(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
+        // Sent-from-yard rows (positive) — show input fields to plan return
+        sentSites.sort((a,b)=>(b[1].pallets*4+b[1].singles)-(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
           const key=orchard+'__'+site;
           const row=h('div',{style:{padding:'10px 14px',borderBottom:'.5px solid #f5f5f3'}});
 
-          // Site name + what's in orchard
           const siteSub=[];
           if(data.pallets>0) siteSub.push(data.pallets+'p');
           if(data.singles>0) siteSub.push(data.singles+' ind.');
@@ -12430,7 +12442,6 @@ function renderMovementsScreen(){
           nameRow.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},(siteSub.join(' · ')||'0')+' in orchard'));
           row.appendChild(nameRow);
 
-          // Input row: pallets + individuals
           const inputRow=h('div',{style:{display:'flex',gap:'8px',alignItems:'center'}});
 
           function makeInput(placeholder,maxVal,field,label){
@@ -12459,6 +12470,21 @@ function renderMovementsScreen(){
           if(data.singles>0) inputRow.appendChild(makeInput('0',data.singles,'singles','ind.'));
 
           row.appendChild(inputRow);
+          card.appendChild(row);
+        });
+
+        // Returned-to-yard rows (negative) — read-only, shows where hives already went back
+        retSites.sort((a,b)=>Math.abs(b[1].pallets*4+b[1].singles)-Math.abs(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
+          const absPal=Math.abs(data.pallets), absSing=Math.abs(data.singles);
+          const retSub=[];
+          if(absPal>0) retSub.push(absPal+'p');
+          if(absSing>0) retSub.push(absSing+' ind.');
+          const row=h('div',{style:{padding:'9px 14px',borderBottom:'.5px solid #f5f5f3',background:'#f9fff9',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+          row.appendChild(h('div',null,
+            h('div',{style:{fontWeight:'600',fontSize:'13px',color:'#3d7a4f'}},site),
+            h('div',{style:{fontSize:'11px',color:'#7bbf8a',marginTop:'1px'}},(retSub.join(' · ')||'0')+' returned here')
+          ));
+          row.appendChild(h('div',{style:{fontSize:'11px',color:'#9dbfa4',fontStyle:'italic'}},'returned'));
           card.appendChild(row);
         });
 
