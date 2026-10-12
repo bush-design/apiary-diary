@@ -464,7 +464,11 @@ async function addMovement(mov){
     const lastDoubles=parseInt((mergeTarget||lastAny)?.doubles)||0;
     const lastSingles=parseInt((mergeTarget||lastAny)?.singles)||0;
     const lastLight=parseInt((mergeTarget||lastAny)?.light)||0;
-    const newHives = isDeduction ? Math.max(0,lastHives-aliveChange) : lastHives+aliveChange;
+    // anchoredHivesForSite is called AFTER saveMovements(), so loadMovements() inside it already
+    // includes this movement's delta. Using lastHives directly avoids counting the delta twice.
+    // (The old formula lastHives ± aliveChange was correct when the movement hadn't been saved
+    // yet; now that save-first is required for remote merge, the delta is already baked in.)
+    const newHives = Math.max(0, lastHives);
     const newDead = isDeduction ? Math.max(0,lastDead-deadChange) : lastDead+deadChange;
 
     // Doubles/singles/light — directly from the "Boxes in this load" fields (pre-filled from
