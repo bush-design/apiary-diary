@@ -346,6 +346,15 @@ function loadMovements(){try{return JSON.parse(localStorage.getItem('apiary_move
 function loadMovementsRaw(){try{return JSON.parse(localStorage.getItem('apiary_movements')||'[]');}catch(e){return[];}}
 function saveMovements(m){try{localStorage.setItem('apiary_movements',JSON.stringify(m));}catch(e){}}
 
+// ── Pallet helpers ────────────────────────────────────────────────────────────
+// ALWAYS use these instead of bare parseInt(m.pallets)||0 when displaying or
+// accumulating pallet counts.  half_pallet:true means an extra 0.5 pallets and
+// must never be silently dropped.
+function movPallets(m){ return (parseInt(m.pallets)||0)+(m.half_pallet?0.5:0); }
+// Format a pallet count for display:  0→'0p'  0.5→'½p'  1→'1p'  1.5→'1½p'  2.5→'2½p'
+function fmtPal(p){ return (p%1===0.5?(Math.floor(p)||'')+'½':p)+'p'; }
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Fetches the CURRENT remote movements list (not this device's possibly-stale local cache) and
 // merges it with the local list by id, tombstone-aware: if either side has a movement marked
 // deleted, the merged result keeps it deleted — a deletion is never silently undone by an older
@@ -749,7 +758,7 @@ function getOrchardTotals(){
   const totals={};
   getAllOrchards().forEach(o=>totals[o]={pallets:0,singles:0,hives:0});
   movements.forEach(m=>{
-    const pallets=parseInt(m.pallets)||0;
+    const pallets=movPallets(m); // includes half_pallet
     const singles=parseInt(m.singles)||0;
     // Use m.hives when present — it's the split-specific count assigned to this destination.
     // Without it, two orchards each receiving half of a pickup would both show the full pickup
@@ -12164,7 +12173,7 @@ function renderMovementsScreen(){
         if(m.direction==='to_orchard'&&m.to_orchard===o){
           const site=m.from_site;if(!site)return;
           if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,moves:[]};
-          const mPal=parseInt(m.pallets)||0, mSing=parseInt(m.singles)||0, mRaw=mPal*4+mSing;
+          const mPal=movPallets(m), mSing=parseInt(m.singles)||0, mRaw=mPal*4+mSing;
           const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
           // No pallet/singles breakdown — treat all as individuals (unpalletised)
           siteBreakdown[site].sent+=mRaw>0?mPal:0;
@@ -12174,7 +12183,7 @@ function renderMovementsScreen(){
         if(m.direction==='from_orchard'&&m.from_orchard===o){
           const site=m.to_site;if(!site)return;
           if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,moves:[]};
-          const mPal=parseInt(m.pallets)||0, mSing=parseInt(m.singles)||0, mRaw=mPal*4+mSing;
+          const mPal=movPallets(m), mSing=parseInt(m.singles)||0, mRaw=mPal*4+mSing;
           const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
           siteBreakdown[site].returned+=mRaw>0?mPal:0;
           siteBreakdown[site].retSingles+=mRaw>0?mSing:mHives;
@@ -12221,7 +12230,7 @@ function renderMovementsScreen(){
           const hdr=h('div',{style:{padding:'12px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'.5px solid #f0f0ee'}});
           const hdrLeft=h('div',null);
           hdrLeft.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},site));
-          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},netPal+'p'+(netSing?' · '+netSing+' indiv':'')+(hasReturns?' remaining':' in orchard')));
+          hdrLeft.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginTop:'2px'}},fmtPal(netPal)+(netSing?' · '+netSing+' indiv':'')+(hasReturns?' remaining':' in orchard')));
           hdr.appendChild(hdrLeft);
           hdr.appendChild(h('div',{style:{textAlign:'center',flexShrink:'0',marginLeft:'12px'}},
             h('div',{style:{fontSize:'24px',fontWeight:'800',color:'#2a1f3d',lineHeight:'1'}},netHives),
@@ -12239,9 +12248,9 @@ function renderMovementsScreen(){
             barWrap.appendChild(bar);
             body.appendChild(barWrap);
             body.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',fontSize:'11px',color:'#aaa'}},
-              h('span',null,data.sent+'p sent'),
-              h('span',null,data.returned+'p returned'),
-              h('span',{style:{color:'#9b59b6',fontWeight:'600'}},netPal+'p still here')
+              h('span',null,fmtPal(data.sent)+' sent'),
+              h('span',null,fmtPal(data.returned)+' returned'),
+              h('span',{style:{color:'#9b59b6',fontWeight:'600'}},fmtPal(netPal)+' still here')
             ));
             card.appendChild(body);
           }
@@ -12255,7 +12264,7 @@ function renderMovementsScreen(){
             const left=h('div',{style:{display:'flex',gap:'6px',alignItems:'center'}});
             left.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:isIn?'#ef9f27':'#3d7a4f',background:isIn?'#fff8e6':'#e6f2eb',borderRadius:'6px',padding:'2px 6px'}},isIn?'↓ In':'↑ Out'));
             left.appendChild(h('span',{style:{fontSize:'13px',color:'#444'}},
-              (parseInt(m.pallets)||0)+'p'+(parseInt(m.singles)>0?' · '+m.singles+' indiv':'')+(m.notes?' — '+m.notes:'')
+              fmtPal(movPallets(m))+(parseInt(m.singles)>0?' · '+m.singles+' indiv':'')+(m.notes?' — '+m.notes:'')
             ));
             row.appendChild(left);
             row.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb',flexShrink:'0',marginLeft:'8px'}},fmtDate(m.date)));
@@ -12312,7 +12321,7 @@ function renderMovementsScreen(){
       if(m.direction==='to_orchard'&&m.from_site&&m.to_orchard){
         if(!orchardSites[m.to_orchard])orchardSites[m.to_orchard]={};
         if(!orchardSites[m.to_orchard][m.from_site])orchardSites[m.to_orchard][m.from_site]={pallets:0,singles:0,op:m.from_op||''};
-        const mPal=parseInt(m.pallets)||0,mSing=parseInt(m.singles)||0,mRaw=mPal*4+mSing;
+        const mPal=movPallets(m),mSing=parseInt(m.singles)||0,mRaw=mPal*4+mSing;
         const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
         orchardSites[m.to_orchard][m.from_site].pallets+=mRaw>0?mPal:0;
         orchardSites[m.to_orchard][m.from_site].singles+=mRaw>0?mSing:mHives;
@@ -12321,7 +12330,7 @@ function renderMovementsScreen(){
         // Negative entry keyed by the destination yard so we can show "returned to [yard]".
         if(!orchardSites[m.from_orchard])orchardSites[m.from_orchard]={};
         if(!orchardSites[m.from_orchard][m.to_site])orchardSites[m.from_orchard][m.to_site]={pallets:0,singles:0,op:m.to_op||''};
-        const mPal=parseInt(m.pallets)||0,mSing=parseInt(m.singles)||0,mRaw=mPal*4+mSing;
+        const mPal=movPallets(m),mSing=parseInt(m.singles)||0,mRaw=mPal*4+mSing;
         const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
         orchardSites[m.from_orchard][m.to_site].pallets-=mRaw>0?mPal:0;
         orchardSites[m.from_orchard][m.to_site].singles-=mRaw>0?mSing:mHives;
@@ -12440,7 +12449,7 @@ function renderMovementsScreen(){
         const hdr=h('div',{style:{padding:'11px 14px',background:'#f8f8f6',borderBottom:'.5px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'center'}});
         hdr.appendChild(h('div',{style:{fontWeight:'700',fontSize:'15px',color:'#1a1a1a'}},orchard));
         const orchSub=[];
-        if(orchTotalPal>0) orchSub.push(orchTotalPal+'p');
+        if(orchTotalPal>0) orchSub.push(fmtPal(orchTotalPal));
         if(orchTotalSingles>0) orchSub.push(orchTotalSingles+' ind.');
         hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},(orchSub.join(' · ')||'0')+' · '+orchHives+' hives'));
         card.appendChild(hdr);
@@ -12451,7 +12460,7 @@ function renderMovementsScreen(){
           const row=h('div',{style:{padding:'10px 14px',borderBottom:'.5px solid #f5f5f3'}});
 
           const siteSub=[];
-          if(data.pallets>0) siteSub.push(data.pallets+'p');
+          if(data.pallets>0) siteSub.push(fmtPal(data.pallets));
           if(data.singles>0) siteSub.push(data.singles+' ind.');
           const nameRow=h('div',{style:{marginBottom:'8px'}});
           nameRow.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site));
@@ -12493,7 +12502,7 @@ function renderMovementsScreen(){
         retSites.sort((a,b)=>Math.abs(b[1].pallets*4+b[1].singles)-Math.abs(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
           const absPal=Math.abs(data.pallets), absSing=Math.abs(data.singles);
           const retSub=[];
-          if(absPal>0) retSub.push(absPal+'p');
+          if(absPal>0) retSub.push(fmtPal(absPal));
           if(absSing>0) retSub.push(absSing+' ind.');
           const row=h('div',{style:{padding:'9px 14px',borderBottom:'.5px solid #f5f5f3',background:'#f9fff9',display:'flex',justifyContent:'space-between',alignItems:'center'}});
           row.appendChild(h('div',null,
