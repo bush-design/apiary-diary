@@ -385,9 +385,15 @@ async function addMovement(mov){
   // finds a real timestamp rather than falling back to noon on the movement date.
   if(!mov.recorded_at) mov.recorded_at=new Date().toISOString();
   if(!mov.logged_at) mov.logged_at=mov.recorded_at;
-  const movements=[...(await getMergedRemoteMovements()),mov];
-  saveMovements(movements);
-  await pushToSupabase('hive_movements',movements);
+  // Merge remote state into local WITHOUT the new movement yet.
+  // logToSite (below) calls anchoredHivesForSite which calls loadMovements() — if we saved the
+  // new movement here, anchoredHivesForSite would already include its delta, and then logToSite's
+  // ±aliveChange would apply it a second time (double-count). By saving only the merged existing
+  // movements first, anchoredHivesForSite returns the pre-movement baseline, and the ±aliveChange
+  // in logToSite is the single correct application.
+  // The new movement is saved + pushed to Supabase AFTER the logToSite calls at the bottom.
+  const existingMovements=await getMergedRemoteMovements();
+  saveMovements(existingMovements);
   // Auto-log movement entries into yard site diaries.
   // Alive/dead and doubles/singles/light are taken directly from what's in the form — which is
   // now pre-filled from the source yard's own real current numbers the moment it's selected
@@ -464,11 +470,10 @@ async function addMovement(mov){
     const lastDoubles=parseInt((mergeTarget||lastAny)?.doubles)||0;
     const lastSingles=parseInt((mergeTarget||lastAny)?.singles)||0;
     const lastLight=parseInt((mergeTarget||lastAny)?.light)||0;
-    // anchoredHivesForSite is called AFTER saveMovements(), so loadMovements() inside it already
-    // includes this movement's delta. Using lastHives directly avoids counting the delta twice.
-    // (The old formula lastHives ± aliveChange was correct when the movement hadn't been saved
-    // yet; now that save-first is required for remote merge, the delta is already baked in.)
-    const newHives = Math.max(0, lastHives);
+    // anchoredHivesForSite is called BEFORE the new movement is saved (see addMovement above),
+    // so lastHives is the pre-movement baseline. Applying ±aliveChange here is the single correct
+    // application of this movement's delta.
+    const newHives = isDeduction ? Math.max(0,lastHives-aliveChange) : lastHives+aliveChange;
     const newDead = isDeduction ? Math.max(0,lastDead-deadChange) : lastDead+deadChange;
 
     // Doubles/singles/light — directly from the "Boxes in this load" fields (pre-filled from
@@ -729,6 +734,13 @@ async function addMovement(mov){
     await logToSite(mov.from_site, mov.from_op, true);   // deduct from source
     await logToSite(mov.to_site, mov.to_op, false);      // add to destination
   }
+
+  // Save the new movement and push to Supabase AFTER logToSite has finished.
+  // logToSite's anchoredHivesForSite must read the pre-movement baseline (existingMovements),
+  // so we defer this until all diary entry writes are complete.
+  const movements=[...existingMovements,mov];
+  saveMovements(movements);
+  await pushToSupabase('hive_movements',movements);
 }
 
 function getOrchardTotals(){
