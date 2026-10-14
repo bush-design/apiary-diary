@@ -12545,18 +12545,18 @@ function renderMovementsScreen(){
           card.appendChild(row);
         });
 
-        // Returned-to-yard rows (negative) — read-only, dulled so only what's still out stands out
+        // Returned-to-yard rows (negative) — read-only green, "returned to [yard]" label
         retSites.sort((a,b)=>Math.abs(b[1].pallets*4+b[1].singles)-Math.abs(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
           const absPal=Math.abs(data.pallets), absSing=Math.abs(data.singles);
-          const retSub=[];
-          if(absPal>0) retSub.push(fmtPal(absPal));
-          if(absSing>0) retSub.push(absSing+' ind.');
-          const row=h('div',{style:{padding:'9px 14px',borderBottom:'.5px solid #f0f0ee',background:'#f5f5f5',display:'flex',justifyContent:'space-between',alignItems:'center',opacity:'0.6',pointerEvents:'none'}});
+          const retQty=[];
+          if(absPal>0) retQty.push(fmtPal(absPal));
+          if(absSing>0) retQty.push(absSing+' ind.');
+          const row=h('div',{style:{padding:'9px 14px',borderBottom:'.5px solid #e8f5e9',background:'#f2fbf4',display:'flex',justifyContent:'space-between',alignItems:'center',pointerEvents:'none'}});
           row.appendChild(h('div',null,
-            h('div',{style:{fontWeight:'500',fontSize:'13px',color:'#888',textDecoration:'line-through'}},site),
-            h('div',{style:{fontSize:'11px',color:'#bbb',marginTop:'1px'}},(retSub.join(' · ')||'0')+' returned')
+            h('div',{style:{fontWeight:'500',fontSize:'13px',color:'#2e7a4e'}},'returned to '+site),
+            h('div',{style:{fontSize:'11px',color:'#7ab890',marginTop:'1px'}},(retQty.join(' · ')||'0'))
           ));
-          row.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb'}},'✓ done'));
+          row.appendChild(h('div',{style:{fontSize:'13px',color:'#7ab890'}},'✓'));
           card.appendChild(row);
         });
 
