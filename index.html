@@ -12501,8 +12501,24 @@ function renderMovementsScreen(){
         hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},(orchSub.join(' · ')||'0')+' · '+orchHives+' hives'));
         card.appendChild(hdr);
 
-        // Sent-from-yard rows (positive) — show input fields to plan return
-        sentSites.sort((a,b)=>(b[1].pallets*4+b[1].singles)-(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
+        // Absorb returned amounts into sent sites (type-matched, smallest first) so a site
+        // whose hives came back to a different yard doesn't keep showing an input box.
+        let absorbPal=retSites.reduce((a,[,s])=>a+Math.abs(s.pallets),0);
+        let absorbSing=retSites.reduce((a,[,s])=>a+Math.abs(s.singles),0);
+        const effectiveSent=sentSites
+          .slice().sort((a,b)=>(a[1].pallets*4+a[1].singles)-(b[1].pallets*4+b[1].singles)) // smallest first for absorption
+          .map(([site,data])=>{
+            const effPal=Math.max(0,data.pallets-absorbPal);
+            absorbPal=Math.max(0,absorbPal-data.pallets);
+            const effSing=Math.max(0,data.singles-absorbSing);
+            absorbSing=Math.max(0,absorbSing-data.singles);
+            return [site,{...data,pallets:effPal,singles:effSing}];
+          })
+          .filter(([,d])=>d.pallets>0||d.singles>0)
+          .sort((a,b)=>(b[1].pallets*4+b[1].singles)-(a[1].pallets*4+a[1].singles)); // largest first for display
+
+        // Sent-from-yard rows (positive, after absorbing returns) — show input fields to plan return
+        effectiveSent.forEach(([site,data])=>{
           const key=orchard+'__'+site;
           const row=h('div',{style:{padding:'10px 14px',borderBottom:'.5px solid #f5f5f3'}});
 
