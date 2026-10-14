@@ -8696,12 +8696,17 @@ function renderEntriesList(){
   topRow.appendChild(h('div',{className:'section-label',style:{marginBottom:'0'}},realEntries.length===0?'No entries':`${realEntries.length} entr${realEntries.length===1?'y':'ies'}`));
   topRow.appendChild(h('button',{style:{background:opData.color,color:'#fff',border:'none',borderRadius:'20px',padding:'7px 14px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
     onClick:()=>{
-        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');}); // includes movement entries — they now carry accurate hives/doubles/singles too
-        const lastE=lastEntries[0]||{};
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+        // Movement entries carry per-delivery counts (deltas), not yard totals (snapshots).
+        // Use only real diary entries as source for compositional fields.
+        const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
-          if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
+        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
+          if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
+        // hives: always use the live anchor+delta total so the form shows the correct running count
+        const _ah=anchoredHivesForSite(op,site,null);
+        if(_ah>0) prefill.hives=_ah;
         // Pick round based on current month (Southern Hemisphere)
         const _mo=new Date().getMonth()+1; // 1-12
         const _defaultRound=(_mo>=6&&_mo<=7)?'winter':(_mo>=8&&_mo<=11)?'spring':(_mo>=12||_mo<=3)?'clover':'queen';
@@ -10193,12 +10198,17 @@ function renderEntriesList(){
   topRow.appendChild(h('div',{className:'section-label',style:{marginBottom:'0'}},realEntries.length===0?'No entries':`${realEntries.length} entr${realEntries.length===1?'y':'ies'}`));
   topRow.appendChild(h('button',{style:{background:opData.color,color:'#fff',border:'none',borderRadius:'20px',padding:'7px 14px',fontSize:'13px',fontWeight:'700',cursor:'pointer'},
     onClick:()=>{
-        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');}); // includes movement entries — they now carry accurate hives/doubles/singles too
-        const lastE=lastEntries[0]||{};
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');return dc!==0?dc:(b.saved_at||'').localeCompare(a.saved_at||'');});
+        // Movement entries carry per-delivery counts (deltas), not yard totals (snapshots).
+        // Use only real diary entries as source for compositional fields.
+        const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
-          if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
+        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
+          if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
+        // hives: always use the live anchor+delta total so the form shows the correct running count
+        const _ah=anchoredHivesForSite(op,site,null);
+        if(_ah>0) prefill.hives=_ah;
         // Pick round based on current month (Southern Hemisphere)
         const _mo=new Date().getMonth()+1; // 1-12
         const _defaultRound=(_mo>=6&&_mo<=7)?'winter':(_mo>=8&&_mo<=11)?'spring':(_mo>=12||_mo<=3)?'clover':'queen';
@@ -10482,12 +10492,14 @@ function renderRoundPicker(){
   Object.entries(ROUNDS).forEach(([k,r])=>{
     const btn=h('button',{style:{width:'100%',padding:'14px 16px',background:'#fff',border:`.5px solid ${r.color}33`,borderLeft:`4px solid ${r.color}`,borderRadius:'10px',marginBottom:'10px',cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'},
       onClick:()=>{
-        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);}); // includes movement entries — they now carry accurate hives/doubles/singles too
-        const lastE=lastEntries[0]||{};
+        const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
+        const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        ['hives','dead','singles','doubles','weak','alive_hives','dead_hives'].forEach(key=>{
-          if(lastE[key]!==undefined&&lastE[key]!==null&&lastE[key]!=='') prefill[key]=lastE[key];
+        ['dead','singles','doubles','weak','alive_hives','dead_hives'].forEach(key=>{
+          if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
+        const _ah=anchoredHivesForSite(op,site,null);
+        if(_ah>0) prefill.hives=_ah;
         setState({round:k,diaryView:'form',editing:null,formVals:prefill});
       }});
     btn.appendChild(h('div',null,
