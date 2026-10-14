@@ -8561,6 +8561,18 @@ function renderEntriesList(){
       });
       summaryPanel.appendChild(hRow);
     }
+    // Movement math breakdown — visible on mobile without DevTools
+    if(currentHives>0){
+      let _movLine=null;
+      if(movementNet!==0&&latestReal){
+        const _anchorH=currentHives-movementNet;
+        const _sign=movementNet>0?'+':'-';
+        _movLine=`${_anchorH} (${fmtDate(latestReal.date)}) ${_sign}${Math.abs(movementNet)} moved = ${currentHives}`;
+      } else if(!latestReal){
+        _movLine='From movements only';
+      }
+      if(_movLine) summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.4)',marginTop:'-2px',marginBottom:'4px',paddingLeft:'2px'}},_movLine));
+    }
     // Boxes on row
     // These need to come from the SAME anchor entry as everything else on this tile, not
     // wherever a value happens to last appear (same bug class already fixed for Check, FD Harv,
@@ -10061,6 +10073,18 @@ function renderEntriesList(){
         ));
       });
       summaryPanel.appendChild(hRow);
+    }
+    // Movement math breakdown — visible on mobile without DevTools
+    if(currentHives>0){
+      let _movLine=null;
+      if(movementNet!==0&&latestReal){
+        const _anchorH=currentHives-movementNet;
+        const _sign=movementNet>0?'+':'-';
+        _movLine=`${_anchorH} (${fmtDate(latestReal.date)}) ${_sign}${Math.abs(movementNet)} moved = ${currentHives}`;
+      } else if(!latestReal){
+        _movLine='From movements only';
+      }
+      if(_movLine) summaryPanel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.4)',marginTop:'-2px',marginBottom:'4px',paddingLeft:'2px'}},_movLine));
     }
     // Boxes on row
     // These need to come from the SAME anchor entry as everything else on this tile, not
@@ -12521,18 +12545,18 @@ function renderMovementsScreen(){
           card.appendChild(row);
         });
 
-        // Returned-to-yard rows (negative) — read-only, shows where hives already went back
+        // Returned-to-yard rows (negative) — read-only, dulled so only what's still out stands out
         retSites.sort((a,b)=>Math.abs(b[1].pallets*4+b[1].singles)-Math.abs(a[1].pallets*4+a[1].singles)).forEach(([site,data])=>{
           const absPal=Math.abs(data.pallets), absSing=Math.abs(data.singles);
           const retSub=[];
           if(absPal>0) retSub.push(fmtPal(absPal));
           if(absSing>0) retSub.push(absSing+' ind.');
-          const row=h('div',{style:{padding:'9px 14px',borderBottom:'.5px solid #f5f5f3',background:'#f9fff9',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+          const row=h('div',{style:{padding:'9px 14px',borderBottom:'.5px solid #f0f0ee',background:'#f5f5f5',display:'flex',justifyContent:'space-between',alignItems:'center',opacity:'0.6',pointerEvents:'none'}});
           row.appendChild(h('div',null,
-            h('div',{style:{fontWeight:'600',fontSize:'13px',color:'#3d7a4f'}},site),
-            h('div',{style:{fontSize:'11px',color:'#7bbf8a',marginTop:'1px'}},(retSub.join(' · ')||'0')+' returned here')
+            h('div',{style:{fontWeight:'500',fontSize:'13px',color:'#888',textDecoration:'line-through'}},site),
+            h('div',{style:{fontSize:'11px',color:'#bbb',marginTop:'1px'}},(retSub.join(' · ')||'0')+' returned')
           ));
-          row.appendChild(h('div',{style:{fontSize:'11px',color:'#9dbfa4',fontStyle:'italic'}},'returned'));
+          row.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb'}},'✓ done'));
           card.appendChild(row);
         });
 
