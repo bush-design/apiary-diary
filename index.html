@@ -353,6 +353,15 @@ function saveMovements(m){try{localStorage.setItem('apiary_movements',JSON.strin
 function movPallets(m){ return (parseInt(m.pallets)||0)+(m.half_pallet?0.5:0); }
 // Format a pallet count for display:  0→'0p'  0.5→'½p'  1→'1p'  1.5→'1½p'  2.5→'2½p'
 function fmtPal(p){ return (p%1===0.5?(Math.floor(p)||'')+'½':p)+'p'; }
+// Returns the number of hives represented by a movement record.
+// Priority: alive_hives (explicit field count) → hives (split-assigned) → pallets*4+singles (inferred).
+// ALWAYS use this instead of bare parseInt(m.alive_hives)||0 or ad-hoc inline formulas.
+function movHives(m){
+  return (parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0
+    ?(parseInt(m.alive_hives)||0)
+    :parseInt(m.hives)>0?parseInt(m.hives)
+    :(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Fetches the CURRENT remote movements list (not this device's possibly-stale local cache) and
@@ -2226,15 +2235,17 @@ function anchoredHivesForSite(opName, site, cutoffDate){
 
     const fromHere=m.from_site===site&&(m.from_op===opName||!m.from_op);
     const toHere=m.to_site===site&&(m.to_op===opName||!m.to_op);
+    // Diagnostic: warn when a movement points at this site by to_site but to_op blocks it.
+    // Open browser dev tools → Console and filter for "HIVE DELTA SKIPPED" to diagnose.
+    if(!toHere&&m.to_site===site&&m.to_op&&m.to_op!==opName){
+      console.warn('[HIVE DELTA SKIPPED] site='+site+' opName='+opName+' movement to_site='+m.to_site+' to_op='+m.to_op+' direction='+m.direction+' date='+m.date);
+    }
     if(!fromHere&&!toHere) return;
 
     // Use the SAME hive-count formula as opPolHives / opHivesOut in the summary panels.
     // This ensures the yard-side deduction exactly cancels the orchard-side addition,
     // keeping the fleet total (s.hives + opHivesOut) stable across movements.
-    const mhCount=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0
-      ?(parseInt(m.alive_hives)||0)
-      :parseInt(m.hives)>0?parseInt(m.hives)
-      :(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+    const mhCount=movHives(m);
     if(m.direction==='yard_yard'){
       if(fromHere) delta-=mhCount;
       else if(toHere) delta+=mhCount;
@@ -2260,16 +2271,16 @@ function replayHivesFromMovements(opName, site, cutoffDate){
   });
   let count=0;
   for(const m of mvs){
-    const alive=parseInt(m.alive_hives)||0;
+    const mhCount=movHives(m);
     const fromHere=m.from_site===site&&(m.from_op===opName||!m.from_op);
     const toHere=m.to_site===site&&(m.to_op===opName||!m.to_op);
     if(m.direction==='yard_yard'){
-      if(fromHere) count=Math.max(0,count-alive);
-      else if(toHere) count+=alive;
+      if(fromHere) count=Math.max(0,count-mhCount);
+      else if(toHere) count+=mhCount;
     } else if(m.direction==='to_orchard'){
-      if(fromHere) count=Math.max(0,count-alive); // yard loses hives to orchard
+      if(fromHere) count=Math.max(0,count-mhCount); // yard loses hives to orchard
     } else if(m.direction==='from_orchard'){
-      if(toHere) count+=alive; // yard gains hives back from orchard
+      if(toHere) count+=mhCount; // yard gains hives back from orchard
     }
   }
   return Math.max(0,count);
@@ -2441,7 +2452,7 @@ function renderOpSelector(){
       const opSitesCard=Object.values(getYards(name)).flatMap(y=>y.sites);
       let opPolHives=0;
       loadMovements().forEach(m=>{
-        const mh=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+        const mh=movHives(m);
         if(m.direction==='to_orchard'&&opSitesCard.includes(m.from_site)) opPolHives+=mh;
         else if(m.direction==='from_orchard'&&opSitesCard.includes(m.to_site)) opPolHives-=mh;
       });
@@ -6716,7 +6727,7 @@ function showPollinationDetailModal(opName, cutoffDate){
   const byOrchard={}; // { orchardName: { net, sites: { siteName: hives }, returns } }
   const unmatchedReturns=[]; // from_orchard movements where to_site not in opSites
   loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
-    const mh=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+    const mh=movHives(m);
     if(!mh) return;
     if(m.direction==='to_orchard'&&opSites.includes(m.from_site)){
       const o=m.to_orchard||'Unknown orchard';
@@ -7048,7 +7059,7 @@ function renderSummaryPanel(opName, cutoffDate){
   const opSitesPan=Object.values(getYards(opName)).flatMap(y=>y.sites);
   let opHivesOut=0;
   loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
-    const mh=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+    const mh=movHives(m);
     if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) opHivesOut+=mh;
     else if(m.direction==='from_orchard'&&opSitesPan.includes(m.to_site)) opHivesOut-=mh;
   });
@@ -7057,7 +7068,7 @@ function renderSummaryPanel(opName, cutoffDate){
   {
     const dbgOut=[],dbgIn=[],dbgMissed=[];
     loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
-      const mh=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+      const mh=movHives(m);
       if(m.direction==='to_orchard'&&opSitesPan.includes(m.from_site)) dbgOut.push({date:m.date,from:m.from_site,to:m.to_orchard,hives:mh});
       else if(m.direction==='from_orchard'){
         if(opSitesPan.includes(m.to_site)) dbgIn.push({date:m.date,from:m.from_orchard,to:m.to_site,hives:mh});
@@ -8481,7 +8492,7 @@ function renderEntriesList(){
   let movementNet=0;
   allMovements.forEach(m=>{
     if(latestDiaryDate2&&m.date<latestDiaryDate2) return;
-    const hives=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+    const hives=movHives(m);
     if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
     else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
@@ -9983,7 +9994,7 @@ function renderEntriesList(){
   let movementNet=0;
   allMovements.forEach(m=>{
     if(latestDiaryDate2&&m.date<latestDiaryDate2) return;
-    const hives=(parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0));
+    const hives=movHives(m);
     if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
     else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
     else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
@@ -11724,14 +11735,14 @@ function renderMovementsScreen(){
               yardTotals[k].pallets+=parseInt(m.pallets)||0;
               yardTotals[k].singles+=parseInt(m.singles)||0;
               yardTotals[k].half+=(m.half_pallet?1:0);
-              yardTotals[k].hives+=((parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0)));
+              yardTotals[k].hives+=movHives(m);
             }
             if(m.direction==='from_orchard'&&m.from_orchard===orchardName){
               const k=m.to_site;if(!k)return;
               if(!yardTotals[k])yardTotals[k]={pallets:0,singles:0,half:0,hives:0,op:m.to_op};
               yardTotals[k].pallets-=parseInt(m.pallets)||0;
               yardTotals[k].singles-=parseInt(m.singles)||0;
-              yardTotals[k].hives-=((parseInt(m.alive_hives)||0)+(parseInt(m.dead_hives)||0)>0?(parseInt(m.alive_hives)||0):parseInt(m.hives)>0?parseInt(m.hives):(parseInt(m.pallets)||0)*4+(m.half_pallet?2:0)+Math.max(parseInt(m.singles)||0,(parseInt(m.doubles)||0)+(parseInt(m.singles_boxes)||0),(parseInt(m.pol_singles_count)||0)+(parseInt(m.pol_doubles_count)||0)));
+              yardTotals[k].hives-=movHives(m);
             }
           });
           const activeYards=Object.entries(yardTotals).filter(([,v])=>v.pallets>0||v.singles>0||v.hives>0);
