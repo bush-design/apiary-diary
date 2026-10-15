@@ -12501,6 +12501,11 @@ function renderMovementsScreen(){
         hdr.appendChild(h('div',{style:{fontSize:'12px',color:'#888'}},(orchSub.join(' · ')||'0')+' · '+orchHives+' hives'));
         card.appendChild(hdr);
 
+        // Dismissed orchard-site pairs — stored in localStorage so no movement data is touched.
+        // Key format: "orchard__site"
+        let dismissedRet={};
+        try{dismissedRet=JSON.parse(localStorage.getItem('apiary_return_dismissed')||'{}');}catch(e){}
+
         // Absorb returned amounts into sent sites (type-matched, smallest first) so a site
         // whose hives came back to a different yard doesn't keep showing an input box.
         let absorbPal=retSites.reduce((a,[,s])=>a+Math.abs(s.pallets),0);
@@ -12515,6 +12520,7 @@ function renderMovementsScreen(){
             return [site,{...data,pallets:effPal,singles:effSing}];
           })
           .filter(([,d])=>d.pallets>0||d.singles>0)
+          .filter(([site])=>!dismissedRet[orchard+'__'+site]) // hide dismissed entries
           .sort((a,b)=>(b[1].pallets*4+b[1].singles)-(a[1].pallets*4+a[1].singles)); // largest first for display
 
         // Sent-from-yard rows (positive, after absorbing returns) — show input fields to plan return
@@ -12525,9 +12531,24 @@ function renderMovementsScreen(){
           const siteSub=[];
           if(data.pallets>0) siteSub.push(fmtPal(data.pallets));
           if(data.singles>0) siteSub.push(data.singles+' ind.');
-          const nameRow=h('div',{style:{marginBottom:'8px'}});
-          nameRow.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site));
-          nameRow.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},(siteSub.join(' · ')||'0')+' in orchard'));
+          const nameRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'8px'}});
+          const nameLeft=h('div');
+          nameLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#333'}},site));
+          nameLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'2px'}},(siteSub.join(' · ')||'0')+' in orchard'));
+          nameRow.appendChild(nameLeft);
+          // Dismiss button — hides this entry without touching movement records
+          const dismissBtn=h('button',{type:'button',style:{background:'none',border:'none',padding:'2px 4px',cursor:'pointer',color:'#ccc',fontSize:'16px',lineHeight:'1',flexShrink:'0'}},
+            '×'
+          );
+          dismissBtn.addEventListener('click',()=>{
+            try{
+              const d=JSON.parse(localStorage.getItem('apiary_return_dismissed')||'{}');
+              d[key]=true;
+              localStorage.setItem('apiary_return_dismissed',JSON.stringify(d));
+            }catch(e){}
+            setState({tab:'return_trip'});
+          });
+          nameRow.appendChild(dismissBtn);
           row.appendChild(nameRow);
 
           const inputRow=h('div',{style:{display:'flex',gap:'8px',alignItems:'center'}});
