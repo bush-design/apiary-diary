@@ -11050,7 +11050,7 @@ function renderMovementsScreen(){
   // ── Log Movement tab ──
   if(STATE.tab==='movements'){
     const loadDate={val:todayStr()};
-    const loadDirection={val:'to_orchard'};
+    const loadDirection={val:STATE._loadDirection||'to_orchard'};
     const loadNotes={val:''};
     const loadDriver={val:''};
     const loadVehicle={val:''};
@@ -11084,6 +11084,7 @@ function renderMovementsScreen(){
           const prevSrcIsYard=['to_orchard','yard_yard'].includes(loadDirection.val);
           const newSrcIsYard=['to_orchard','yard_yard'].includes(val);
           loadDirection.val=val;
+          STATE._loadDirection=val;
           pickups.length=0;
           if(!['to_orchard','from_orchard','orchard_orchard'].includes(val))loadCrop.val='';
           // Clear source site only when flipping between yard-source and orchard-source
@@ -11571,6 +11572,7 @@ function renderMovementsScreen(){
                 }
               }
               showToast(`${totalSplits} movement${totalSplits!==1?'s':''} saved`);
+              delete STATE._loadDirection;
               setState({tab:'orchards'});
               } finally {
                 isSubmittingMovement=false;
@@ -12160,6 +12162,7 @@ function renderMovementsScreen(){
     // ── Return trip mode: pre-populate from plan ──
     if(STATE._returnMode&&STATE._returnPlan&&STATE._returnPlan.length){
       loadDirection.val='from_orchard';
+      STATE._loadDirection='from_orchard';
       updateDirBtns();
       const fixedDest=STATE._returnDest||null; // single destination yard (optional)
       // Group plan by orchard (source) — each orchard becomes a pickup
