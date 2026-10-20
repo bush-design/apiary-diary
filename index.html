@@ -11553,6 +11553,7 @@ function renderMovementsScreen(){
                     from_yards:isOOMov?(p.from_yards||[]):[],
                     to_site:(!isOutMov&&!isOOMov)?s.dest:'',
                     to_op:(!isOutMov&&!isOOMov)?s.dest_op:'',
+                    source_yard:s.source_yard||'',
                     pallets:String(splitPallets),
                     singles:String(splitSingles),
                     half_pallet:splitFrac>=1?(p.half_pallet||false):false,
@@ -12176,15 +12177,17 @@ function renderMovementsScreen(){
       Object.values(byOrchard).forEach(item=>{
         const pick={site:item.orchard,op:'',pallets:String(item.pallets),singles:String(item.singles),half_pallet:false,alive_hives:'',dead_hives:'',id:nextId++,splits:[]};
         if(fixedDest){
-          // All hives from this orchard go to the chosen destination yard
-          const totalH=item.pallets*4+item.singles;
-          const desc=item.pallets+'p'+(item.singles>0?' · '+item.singles+' indiv':'');
-          if(totalH>0) pick.splits.push({dest:fixedDest.site,dest_op:fixedDest.op,hives:totalH,desc});
+          // One split per source yard, all going to fixedDest — preserves source_yard for exact cancellation
+          item.destinations.forEach(dest=>{
+            const h=(parseInt(dest.pallets)||0)*4+(parseInt(dest.singles)||0);
+            const desc=(parseInt(dest.pallets)||0)+'p'+(parseInt(dest.singles)>0?' · '+dest.singles+' indiv':'');
+            if(h>0) pick.splits.push({dest:fixedDest.site,dest_op:fixedDest.op,hives:h,source_yard:dest.site,desc});
+          });
         } else {
           // Auto-assign splits back to each source yard
           item.destinations.forEach(dest=>{
             const h=(parseInt(dest.pallets)||0)*4+(parseInt(dest.singles)||0);
-            if(h>0) pick.splits.push({dest:dest.site,dest_op:dest.op,hives:h,desc:(parseInt(dest.pallets)||0)+'p'+(parseInt(dest.singles)>0?' · '+dest.singles+' indiv':'')});
+            if(h>0) pick.splits.push({dest:dest.site,dest_op:dest.op,hives:h,source_yard:dest.site,desc:(parseInt(dest.pallets)||0)+'p'+(parseInt(dest.singles)>0?' · '+dest.singles+' indiv':'')});
           });
         }
         pickups.push(pick);
@@ -12377,13 +12380,14 @@ function renderMovementsScreen(){
         orchardSites[m.to_orchard][m.from_site].singles+=mRaw>0?mSing:mHives;
       }
       if(m.direction==='from_orchard'&&m.to_site&&m.from_orchard){
-        // Negative entry keyed by the destination yard so we can show "returned to [yard]".
+        // Key by source_yard when available (direct cancellation), else by to_site (legacy absorption).
+        const retKey=m.source_yard||m.to_site;
         if(!orchardSites[m.from_orchard])orchardSites[m.from_orchard]={};
-        if(!orchardSites[m.from_orchard][m.to_site])orchardSites[m.from_orchard][m.to_site]={pallets:0,singles:0,op:m.to_op||''};
+        if(!orchardSites[m.from_orchard][retKey])orchardSites[m.from_orchard][retKey]={pallets:0,singles:0,op:m.to_op||''};
         const mPal=movPallets(m),mSing=parseInt(m.singles)||0,mRaw=mPal*4+mSing;
         const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
-        orchardSites[m.from_orchard][m.to_site].pallets-=mRaw>0?mPal:0;
-        orchardSites[m.from_orchard][m.to_site].singles-=mRaw>0?mSing:mHives;
+        orchardSites[m.from_orchard][retKey].pallets-=mRaw>0?mPal:0;
+        orchardSites[m.from_orchard][retKey].singles-=mRaw>0?mSing:mHives;
       }
     });
 
