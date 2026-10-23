@@ -2032,7 +2032,7 @@ function calcSummary(opName, cutoffDate){
     // pol_singles/pol_bc can reach 0 after hives move out — an explicit '0' on a movement
     // entry should stop the search (meaning "none left here"), not be skipped in favour of an
     // older diary entry that still shows the pre-movement count.
-    const NON_ZERO_FIELDS=['lids_floors','pol_singles','pol_bc','pol_doubles'];
+    const NON_ZERO_FIELDS=['lids_floors','pol_singles','pol_bc','pol_doubles','fd_on','on_34','honeycomb_fd','honeycomb_hd'];
     // hives/dead/singles/doubles/light/weak/alive_hives/dead_hives must all come from the SAME
     // visit — picking each independently (whichever entry most recently happened to record that
     // one field) lets them drift apart when a visit records hives but skips the box count, which
@@ -8249,7 +8249,8 @@ function renderSitesList(){
         const v=parseInt(raw);
         if(!isNaN(v)){
           if(v>0) return v;
-          if(k==='pol_singles') return 0; // explicit 0 = cleared — stop, don't reach back to stale value
+          // explicit 0 = cleared — stop, don't reach back to stale value
+          if(['pol_singles','fd_on','on_34','honeycomb_fd','honeycomb_hd'].includes(k)) return 0;
         }
       }
       return 0;
@@ -8713,7 +8714,8 @@ function renderEntriesList(){
         // Use only real diary entries as source for compositional fields.
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
+        // fd_on/on_34/honeycomb_fd/honeycomb_hd carry forward until a harvest entry clears them
+        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','on_34','honeycomb_fd','honeycomb_hd'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
         // hives: always use the live anchor+delta total so the form shows the correct running count
@@ -10227,7 +10229,8 @@ function renderEntriesList(){
         // Use only real diary entries as source for compositional fields.
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders'].forEach(key=>{
+        // fd_on/on_34/honeycomb_fd/honeycomb_hd carry forward until a harvest entry clears them
+        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','on_34','honeycomb_fd','honeycomb_hd'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
         // hives: always use the live anchor+delta total so the form shows the correct running count
@@ -10519,7 +10522,7 @@ function renderRoundPicker(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        ['dead','singles','doubles','weak','alive_hives','dead_hives'].forEach(key=>{
+        ['dead','singles','doubles','weak','alive_hives','dead_hives','fd_on','on_34','honeycomb_fd','honeycomb_hd'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
         const _ah=anchoredHivesForSite(op,site,null);
