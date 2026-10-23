@@ -2498,8 +2498,24 @@ function renderOpSelector(){
   // ── Hive Movements card ──
   const movCard=h('button',{style:{width:'100%',maxWidth:'360px',marginBottom:'14px',padding:'16px 18px 14px',borderRadius:'14px',cursor:'pointer',textAlign:'left',border:'none',background:'#2a1f3d',borderTop:'3px solid #9b59b6'},
     onClick:()=>setState({op:'__movements__',tab:'movements'})});
-  const movTotals=getOrchardTotals();
-  const totalInOrchards=Object.values(movTotals).reduce((a,o)=>a+o.hives,0);
+  // Use pallets×4+singles net arithmetic (same as Return Trip tab) — avoids drift when the
+  // stored `hives` field on a movement doesn't match the pallets/singles breakdown exactly.
+  const _orchSites={};
+  loadMovements().forEach(m=>{
+    if(m.direction==='to_orchard'&&m.from_site&&m.to_orchard){
+      if(!_orchSites[m.to_orchard])_orchSites[m.to_orchard]={p:0,s:0};
+      const mp=movPallets(m),ms=parseInt(m.singles)||0,mr=mp*4+ms;
+      const mh=parseInt(m.hives)>0?parseInt(m.hives):mr;
+      _orchSites[m.to_orchard].p+=mr>0?mp:0;_orchSites[m.to_orchard].s+=mr>0?ms:mh;
+    }
+    if(m.direction==='from_orchard'&&m.to_site&&m.from_orchard){
+      if(!_orchSites[m.from_orchard])_orchSites[m.from_orchard]={p:0,s:0};
+      const mp=movPallets(m),ms=parseInt(m.singles)||0,mr=mp*4+ms;
+      const mh=parseInt(m.hives)>0?parseInt(m.hives):mr;
+      _orchSites[m.from_orchard].p-=mr>0?mp:0;_orchSites[m.from_orchard].s-=mr>0?ms:mh;
+    }
+  });
+  const totalInOrchards=Object.values(_orchSites).reduce((a,v)=>a+Math.max(0,v.p*4+v.s),0);
   // "Movements" resets each beekeeping year (Jun 1) — matches how every other stat in the app
   // scopes to the current season. "In orchards" stays as a live current-state count, not scoped.
   const _now=new Date();
@@ -9884,7 +9900,7 @@ function renderForm(){
         const nucKey='__nucs__'+op;
         const allS=loadNucYards();
         if(!allS[nucKey])allS[nucKey]={name:'Splits',op,batches:[]};
-        const isDiary=b=>b._fromDiary&&b.dateAdded===entry.date&&(b.sourceYard===site||b.sourceYard.startsWith(site+' '));
+        const isDiary=b=>b._fromDiary&&b.dateAdded===entry.date&&(b.sourceYard===site||(b.sourceYard.startsWith(site+' ')&&/^\d+$/.test(b.sourceYard.slice(site.length+1))));
         const desired=[
           {splitType:'top',  count:parseInt(entry.tops)||0,       destYard:entry.tops_dest||''},
           {splitType:'box',  count:parseInt(entry.splits)||0,     destYard:entry.splits_dest||''},
@@ -9911,7 +9927,7 @@ function renderForm(){
           } else {
             const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
             const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
-            const sameSite=allS[nucKey].batches.filter(b=>b.splitType===splitType&&(b.sourceYard===site||b.sourceYard.startsWith(site+' ')));
+            const sameSite=allS[nucKey].batches.filter(b=>b.splitType===splitType&&(b.sourceYard===site||(b.sourceYard.startsWith(site+' ')&&/^\d+$/.test(b.sourceYard.slice(site.length+1)))));
             const batchLabel=sameSite.length>0?site+' '+(sameSite.length+1):site;
             const initStatus=splitType==='in_yard'?'cell':'waiting';
             const nucs=Array.from({length:count},(_,i)=>({id:nextId+i,status:initStatus,cellDate:splitType==='in_yard'?entry.date:'',virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
