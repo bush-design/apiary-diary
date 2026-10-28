@@ -8731,9 +8731,13 @@ function renderEntriesList(){
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
         // fd_on/on_34/honeycomb_fd/honeycomb_hd carry forward until a harvest entry clears them
-        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','on_34','honeycomb_fd','honeycomb_hd'].forEach(key=>{
+        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','on_34','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
+        // tops carry forward when no destination set (still in yard); clears when dest is filled or count hits 0
+        if((parseInt(lastRealE.tops)||0)>0&&!(lastRealE.tops_dest||'').trim()){
+          prefill.tops=lastRealE.tops;
+        }
         // hives: always use the live anchor+delta total so the form shows the correct running count
         const _ah=anchoredHivesForSite(op,site,null);
         if(_ah>0) prefill.hives=_ah;
@@ -10246,9 +10250,13 @@ function renderEntriesList(){
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
         // fd_on/on_34/honeycomb_fd/honeycomb_hd carry forward until a harvest entry clears them
-        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','on_34','honeycomb_fd','honeycomb_hd'].forEach(key=>{
+        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','on_34','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
+        // tops carry forward when no destination set (still in yard); clears when dest is filled or count hits 0
+        if((parseInt(lastRealE.tops)||0)>0&&!(lastRealE.tops_dest||'').trim()){
+          prefill.tops=lastRealE.tops;
+        }
         // hives: always use the live anchor+delta total so the form shows the correct running count
         const _ah=anchoredHivesForSite(op,site,null);
         if(_ah>0) prefill.hives=_ah;
@@ -10538,9 +10546,13 @@ function renderRoundPicker(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        ['dead','singles','doubles','weak','alive_hives','dead_hives','fd_on','on_34','honeycomb_fd','honeycomb_hd'].forEach(key=>{
+        ['dead','singles','doubles','weak','alive_hives','dead_hives','fd_on','on_34','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
+        // tops carry forward when no destination set (still in yard); clears when dest is filled or count hits 0
+        if((parseInt(lastRealE.tops)||0)>0&&!(lastRealE.tops_dest||'').trim()){
+          prefill.tops=lastRealE.tops;
+        }
         const _ah=anchoredHivesForSite(op,site,null);
         if(_ah>0) prefill.hives=_ah;
         setState({round:k,diaryView:'form',editing:null,formVals:prefill});
