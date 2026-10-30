@@ -2081,13 +2081,13 @@ function calcSummary(opName, cutoffDate){
     hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');weak+=lastVal('weak');lidsFloors+=lastVal('lids_floors');
     // died = event field; sum all entries from season start forward for this season's death tally
     allSiteEntries.forEach(e=>{if(e.date&&e.date>=DIED_SEASON_START){const v=parseInt(e.died);if(!isNaN(v)&&v>0)diedThisSeason+=v;}});
-    // Treatments — only the most recent entry's treatment counts as "currently in hive".
-    // Once a newer visit exists (whatever treatment it used, or none), an older treatment
-    // is no longer current and shouldn't show in the fleet summary.
-    const mostRecentEntryForTx=allSiteEntries[0]||null;
-    if(mostRecentEntryForTx&&mostRecentEntryForTx.treatment){
+    // Treatments — the most recent real diary entry (skip _movement records, which don't record
+    // treatments) is the current state. If that entry has a treatment value, add this site to the
+    // map. If it has no treatment (blank = cleared this visit), nothing is added for this site.
+    const mostRecentRealEntry=allSiteEntries.find(e=>!e._movement)||null;
+    if(mostRecentRealEntry&&mostRecentRealEntry.treatment&&mostRecentRealEntry.treatment.trim()){
       const siteHivesForTx=lastVal('hives');
-      mostRecentEntryForTx.treatment.split(',').map(s=>s.trim()).filter(Boolean).forEach(txRaw=>{
+      mostRecentRealEntry.treatment.split(',').map(t=>t.trim()).filter(Boolean).forEach(txRaw=>{
         // "Formic Pro · N" → normalize name to "Formic Pro"
         const txName=txRaw.replace(/\s*·\s*\d+\s*$/, '').trim();
         if(!txName) return;
@@ -7103,9 +7103,7 @@ function showDiedThisSeasonModal(opName, cutoffDate){
     box.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'No deaths recorded this season'));
   } else {
     results.forEach(r=>{
-      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'10px 0',borderBottom:'1px solid #f0f0ee',cursor:'pointer'}},
-        onClick:()=>{overlay.remove();setState({screen:'diary',opName,site:r.site});}
-      );
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'10px 0',borderBottom:'1px solid #f0f0ee',cursor:'pointer'},onClick:()=>{overlay.remove();setState({screen:'diary',opName,site:r.site});}});
       const left=h('div',null);
       left.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'700',color:'#333'}},r.site));
       left.appendChild(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'2px'}},r.date.split('-').reverse().join('/')+(r.diseases?' · '+r.diseases:'')));
