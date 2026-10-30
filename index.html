@@ -7265,11 +7265,12 @@ function renderSummaryPanel(opName, cutoffDate){
     const boxDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
     boxDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Boxes on hives'));
     const boxGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'6px'}});
-    [{l:'FD on',v:s.fdOn},{l:'3/4 on',v:s.on34},{l:'HC FD',v:s.hcFdOn},{l:'HC 1/2',v:s.hcHdOn}].forEach(st=>{
-      boxGrid.appendChild(h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center'}},
-        h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},st.v),
-        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l)
-      ));
+    [{l:'FD on',v:s.fdOn,k:'fd_on'},{l:'3/4 on',v:s.on34,k:'on_34'},{l:'HC FD',v:s.hcFdOn,k:'honeycomb_fd'},{l:'HC 1/2',v:s.hcHdOn,k:'honeycomb_hd'}].forEach(st=>{
+      const tile=h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center',cursor:st.v>0?'pointer':'default',WebkitTapHighlightColor:'rgba(0,0,0,0)'}});
+      tile.appendChild(h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#fff',lineHeight:'1.1'}},st.v));
+      tile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l+(st.v>0?' ↗':'')));
+      if(st.v>0) tile.addEventListener('click',()=>showStatModal(opName,st.k,st.l,'#fff',cutoffDate));
+      boxGrid.appendChild(tile);
     });
     boxDiv.appendChild(boxGrid);
     panel.appendChild(boxDiv);
@@ -7279,11 +7280,12 @@ function renderSummaryPanel(opName, cutoffDate){
     const qrDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
     qrDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Queen raising'));
     const qrGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px'}});
-    [{l:'QR',v:s.qr,show:s.qr>0},{l:'Virgin',v:s.virgin,show:s.virgin>0},{l:'Cell Needed',v:s.cellNeeded,show:s.cellNeeded>0}].filter(x=>x.show).forEach(st=>{
-      qrGrid.appendChild(h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center'}},
-        h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#c39bd3',lineHeight:'1.1'}},st.v),
-        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l)
-      ));
+    [{l:'QR',v:s.qr,k:'qr'},{l:'Virgin',v:s.virgin,k:'virgin'},{l:'Cell Needed',v:s.cellNeeded,k:'cell_needed'}].filter(x=>x.v>0).forEach(st=>{
+      const tile=h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)'}});
+      tile.appendChild(h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#c39bd3',lineHeight:'1.1'}},st.v));
+      tile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l+' ↗'));
+      tile.addEventListener('click',()=>showStatModal(opName,st.k,st.l,'#7a4fa8',cutoffDate));
+      qrGrid.appendChild(tile);
     });
     qrDiv.appendChild(qrGrid);
     panel.appendChild(qrDiv);
