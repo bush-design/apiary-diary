@@ -1575,7 +1575,7 @@ async function maybeQuarterlyBackup(){
 function buildExportRows(opName){
   const sites=allSitesFor(opName);
   const yards=OPERATIONS[opName].yards;
-  const header=['Operation','Batch','Site','Round','Date','Hives','Singles (BC)','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indiv.','POL Singles (BC)','POL Doubles (BC)','QR','Virgin','Cell In','Cell Needed','Tops','Top Splits Dest','Carrot Pallets','Carrot Score','Splits','Box Splits Dest','Nuc Splits','Nuc Splits Dest','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Treatment','Comments'];
+  const header=['Operation','Batch','Site','Round','Date','Hives','Singles (BC)','Doubles','Light','Dead','Check','Score0','Score1','Score2','Score3','Score4','Score5','Score6','AvgScore','POL Pallet','Part Pallet','POL Indiv.','POL Singles (BC)','POL Doubles (BC)','QR','Virgin','Cell In','Cell Needed','Tops','Top Splits Dest','Carrot Pallets','Carrot Score','Splits','Box Splits Dest','Nuc Splits','Nuc Splits Dest','FD Harv','3/4 Harv','3/4 on','FD on','Honeycomb FD','Honeycomb HD','Died Since Last Visit','Disease Checked','Treatment','Comments'];
   const dataRows=[];
   sites.forEach(site=>{
     const batch=Object.entries(yards).find(([,d])=>d.sites.includes(site))?.[0]||'';
@@ -1585,7 +1585,7 @@ function buildExportRows(opName){
         const bd=e.score_breakdown||{};
         let st=0,sc=0;[0,1,2,3,4,5,6].forEach(n=>{const v=parseInt(bd[n]);if(!isNaN(v)&&v>0){st+=n*v;sc+=v;}});
         const avg=sc>0?(st/sc).toFixed(1):'';
-        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.pol_bc||'',e.pol_doubles||'',e.qr||'',e.virgin||'',e.cell_in||'',e.cell_needed||'',e.tops||'',e.tops_dest||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.splits_dest||'',e.nuc_splits||'',e.nuc_splits_dest||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.treatment||'',e.comments||'']);
+        dataRows.push([opName,batch,site,ROUNDS[rk].label,e.date||'',e.hives||'',e.singles||'',e.doubles||'',e.light||'',e.dead||'',e.check||'',bd[0]||'',bd[1]||'',bd[2]||'',bd[3]||'',bd[4]||'',bd[5]||'',bd[6]||'',avg,e.pol_pallet||'',e.part_pallet||'',e.pol_singles||'',e.pol_bc||'',e.pol_doubles||'',e.qr||'',e.virgin||'',e.cell_in||'',e.cell_needed||'',e.tops||'',e.tops_dest||'',e.carrot||'',e.carrot_score||'',e.splits||'',e.splits_dest||'',e.nuc_splits||'',e.nuc_splits_dest||'',e.fd_harv||'',e.harv_34||'',e.on_34||'',e.fd_on||'',e.honeycomb_fd||'',e.honeycomb_hd||'',e.died||'',e.disease_checked?'Yes':'',e.treatment||'',e.comments||'']);
       });
     });
   });
@@ -2009,6 +2009,8 @@ function calcSummary(opName, cutoffDate){
   const breederSites=[],finisherSites=[],swabSites=[],polSinglesSites=[],polBcSites=[],polDoublesSites=[],polPalletSites=[],partPalletSites=[],carrotSites=[];
   const siteScoreEntries={};
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
+  let diedThisSeason=0;
+  const DIED_SEASON_START='2026-10-30';
   let st=0,sc=0,logged=0,flagged=0;
   sites.forEach(site=>{
     // Find the single most recent entry across ALL rounds for this site
@@ -2035,7 +2037,11 @@ function calcSummary(opName, cutoffDate){
     // qr/virgin/cell_needed: hunt back through entries but stop on explicit 0 — a visit that
     // leaves the field blank means "didn't update it this visit", not "resolved". Entering 0
     // explicitly (or tapping ✓ resolve in the fleet modal) clears the value going forward.
-    const NON_ZERO_FIELDS=['lids_floors','pol_singles','pol_bc','pol_doubles','fd_on','on_34','honeycomb_fd','honeycomb_hd','qr','virgin','cell_needed'];
+    const NON_ZERO_FIELDS=['lids_floors','pol_singles','pol_bc','pol_doubles','qr','virgin','cell_needed'];
+    // BOX_FIELDS: only read from the most recent entry — a newer visit without these means
+    // boxes came off. Don't reach back to a stale season's box count.
+    const BOX_FIELDS=['fd_on','on_34','honeycomb_fd','honeycomb_hd'];
+    const mostRecentEntry=allSiteEntries[0]||null;
     // hives/dead/singles/doubles/light/weak/alive_hives/dead_hives must all come from the SAME
     // visit — picking each independently (whichever entry most recently happened to record that
     // one field) lets them drift apart when a visit records hives but skips the box count, which
@@ -2049,6 +2055,12 @@ function calcSummary(opName, cutoffDate){
         if(k==='hives') return anchoredHivesForSite(opName,site,cutoffDate);
         if(!mostRecentWithHives) return 0;
         const raw=mostRecentWithHives[k];
+        return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
+      }
+      if(BOX_FIELDS.includes(k)){
+        // Only use the most recent entry — gaps mean boxes came off this season
+        if(!mostRecentEntry) return 0;
+        const raw=mostRecentEntry[k];
         return (raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
       }
       for(const e of allSiteEntries){
@@ -2066,6 +2078,8 @@ function calcSummary(opName, cutoffDate){
       return 0;
     };
     hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');weak+=lastVal('weak');lidsFloors+=lastVal('lids_floors');
+    // died = event field; sum all entries from season start forward for this season's death tally
+    allSiteEntries.forEach(e=>{if(e.date&&e.date>=DIED_SEASON_START){const v=parseInt(e.died);if(!isNaN(v)&&v>0)diedThisSeason+=v;}});
     // Formic Pro — only counts if the site's MOST RECENT entry mentions it, not any entry ever
     // that happened to. Once a newer visit exists (whatever treatment it used, or none), an old
     // Formic Pro dose is no longer current and shouldn't keep showing in the fleet total.
@@ -2107,7 +2121,7 @@ function calcSummary(opName, cutoffDate){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(siteScoreEntries[site]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,qr,virgin,cellNeeded,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polDoublesSites,polPalletSites,partPalletSites,carrotSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,qr,virgin,cellNeeded,diedThisSeason,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polDoublesSites,polPalletSites,partPalletSites,carrotSites};
 }
 
 // ── Shared: current breeder count for a site — most recent entry (any round) that actually
@@ -6796,12 +6810,17 @@ function showStatModal(opName, fieldKey, label, color, cutoffDate){
     // but an explicit 0 means "checked and all done" — stop there and return 0, don't reach back.
     const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
     // NON_ZERO_FIELDS: skip blank entries but stop on explicit 0 (cleared), not hunt for non-zero.
-    // qr/virgin/cell_needed included: a blank visit means "didn't update", explicit 0 means "resolved".
+    // qr/virgin/cell_needed: a blank visit means "didn't update", explicit 0 means "resolved".
     const MODAL_NON_ZERO_FIELDS=['lids_floors','qr','virgin','cell_needed'];
+    // BOX_FIELDS: only read from the most recent entry — a newer visit without these means boxes came off.
+    const MODAL_BOX_FIELDS=['fd_on','on_34','honeycomb_fd','honeycomb_hd'];
     let val=0;
     if(HIVE_FIELDS.includes(fieldKey)){
       const anchor=allE.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
       if(anchor){const raw=anchor[fieldKey];val=(raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);}
+    } else if(MODAL_BOX_FIELDS.includes(fieldKey)){
+      const raw=(allE[0]||{})[fieldKey];
+      val=(raw===undefined||raw===null||raw==='')?0:(parseInt(raw)||0);
     } else if(MODAL_NON_ZERO_FIELDS.includes(fieldKey)){
       for(const e of allE){
         const raw=e[fieldKey];
@@ -7049,6 +7068,48 @@ function showScoreModal(opName, cutoffDate){
     });
   }
   box.appendChild(list);
+  box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
+function showDiedThisSeasonModal(opName, cutoffDate){
+  const DIED_SEASON_START='2026-10-30';
+  const sites=Object.values(getYards(opName)).flatMap(y=>y.sites);
+  // Gather all entries with a died value from season start
+  const results=[];
+  sites.forEach(site=>{
+    Object.keys(ROUNDS).forEach(rk=>{
+      const arr=STATE.entries[eKey(opName,site,rk)]||[];
+      arr.forEach(e=>{
+        if(!e._movement&&e.date&&e.date>=DIED_SEASON_START&&(!cutoffDate||e.date<=cutoffDate)){
+          const v=parseInt(e.died);
+          if(!isNaN(v)&&v>0) results.push({site,date:e.date,died:v,diseases:e.diseases||'',cause:e.died_cause||''});
+        }
+      });
+    });
+  });
+  results.sort((a,b)=>b.date.localeCompare(a.date));
+  const total=results.reduce((a,r)=>a+r.died,0);
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.45)',zIndex:'9999',display:'flex',alignItems:'flex-end',justifyContent:'center'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px 16px 0 0',padding:'20px 16px',width:'100%',maxWidth:'460px',maxHeight:'80vh',overflowY:'auto',boxSizing:'border-box'}});
+  box.appendChild(h('div',{style:{fontSize:'17px',fontWeight:'800',color:'#c0392b',marginBottom:'4px'}},'Died this season'));
+  box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},'From '+DIED_SEASON_START.split('-').reverse().join('/')+(cutoffDate?' to '+cutoffDate.split('-').reverse().join('/'):'')+'  ·  '+total+' total'));
+  if(!results.length){
+    box.appendChild(h('div',{style:{color:'#bbb',padding:'10px'}},'No deaths recorded this season'));
+  } else {
+    results.forEach(r=>{
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'10px 0',borderBottom:'1px solid #f0f0ee',cursor:'pointer'}},
+        onClick:()=>{overlay.remove();setState({screen:'diary',opName,site:r.site});}
+      );
+      const left=h('div',null);
+      left.appendChild(h('div',{style:{fontSize:'14px',fontWeight:'700',color:'#333'}},r.site));
+      left.appendChild(h('div',{style:{fontSize:'11px',color:'#999',marginTop:'2px'}},r.date.split('-').reverse().join('/')+(r.diseases?' · '+r.diseases:'')));
+      row.appendChild(left);
+      row.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'800',color:'#c0392b',lineHeight:'1',flexShrink:'0',marginTop:'2px'}},r.died));
+      box.appendChild(row);
+    });
+  }
   box.appendChild(h('button',{style:{marginTop:'14px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
   overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
@@ -7314,7 +7375,7 @@ function renderSummaryPanel(opName, cutoffDate){
   const trueFleetTotal=s.hives+opHivesOut;
   const g2=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
   // "Alive hives" = total fleet (in-yard + orchards). Breakdown shown below when orchards exist.
-  [{l:'Alive hives',v:trueFleetTotal,key:'hives',color:'#1a2e1a'},{l:'Dead',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
+  [{l:'Alive hives',v:trueFleetTotal,key:'hives',color:'#1a2e1a'},{l:'Dead (gear)',v:s.dead,key:'dead',color:'#c0392b',red:true}].forEach(st=>{
     const clickable=st.v>0;
     const box2=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}33`}:{}});
     box2.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:st.red&&st.v>0?'#c0392b':'#1a2e1a',lineHeight:'1.1'}},st.v));
@@ -7323,6 +7384,16 @@ function renderSummaryPanel(opName, cutoffDate){
     g2.appendChild(box2);
   });
   panel.appendChild(g2);
+  // "Died this season" tile — cumulative deaths from season start, separate from dead gear
+  if(s.diedThisSeason>0){
+    const diedRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr',gap:'7px',marginBottom:'7px'}});
+    const diedBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #e24b4a44'}});
+    diedBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#c0392b',lineHeight:'1.1'}},s.diedThisSeason));
+    diedBox.appendChild(h('div',{className:'stat-lbl'},'Died this season ↗'));
+    diedBox.addEventListener('click',()=>showDiedThisSeasonModal(opName,cutoffDate));
+    diedRow.appendChild(diedBox);
+    panel.appendChild(diedRow);
+  }
   if(s.alive>0||s.deadHives>0){
     const galiveDead=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'7px',marginBottom:'7px'}});
     [{l:'Alive hives',v:s.alive,key:'alive_hives',color:'#3d7a4f'},{l:'Dead hives',v:s.deadHives,key:'dead_hives',color:'#c0392b'}].forEach(st=>{
@@ -9195,6 +9266,7 @@ function renderEntriesList(){
       {key:'harvest_pct',label:'% Full'},{key:'honeycomb_fd',label:'HC FD'},
       {key:'honeycomb_hd',label:'HC ½'},{key:'best_hive_boxes',label:'Best Hive'},
       // Disease/mites
+      {key:'died',label:'Died since last visit'},{key:'disease_checked',label:'Disease checked'},
       {key:'mites_found',label:'Mites Found'},{key:'mites_tested',label:'Hives Tested'},
       {key:'diseases',label:'Diseases'},
     ];
@@ -9206,8 +9278,8 @@ function renderEntriesList(){
         const val=Array.isArray(raw)?raw.join(' / '):typeof raw==='boolean'?'Yes':String(raw);
         grid.appendChild(h('div',null,
           h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
-          h('div',{style:{fontWeight:'600',fontSize:'14px',color:f.key==='dead'&&parseInt(val)>0?'#e24b4a':'#1a1a1a'}},
-            f.key==='harvest_pct'?val+'%':val)
+          h('div',{style:{fontWeight:'600',fontSize:'14px',color:(f.key==='dead'||f.key==='died')&&parseInt(val)>0?'#e24b4a':f.key==='disease_checked'&&val==='1'?'#3d7a4f':'#1a1a1a'}},
+            f.key==='harvest_pct'?val+'%':f.key==='disease_checked'?(val==='1'?'✓ Yes':'No'):val)
         ));
       });
       body.appendChild(grid);
@@ -9953,6 +10025,36 @@ function renderForm(){
         const DISEASES=['Varroa','AFB','Sacbrood','Chalkbrood','HMS','Nosema'];
         const existing=(vals.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
         const found=new Set(existing);
+
+        // ── "Died since last visit" + "Disease checked" row ──
+        const diedSection=h('div',{style:{background:'#fef6f6',borderRadius:'8px',padding:'10px',border:'.5px solid #e24b4a33',marginBottom:'12px'}});
+        diedSection.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#c0392b',marginBottom:'8px'}},'Died since last visit'));
+        const diedRow=h('div',{style:{display:'flex',alignItems:'center',gap:'10px'}});
+        // Stepper for died count
+        const diedInp=h('input',{type:'number',inputmode:'numeric',min:'0',placeholder:'0',style:{width:'64px',padding:'7px 8px',border:'.5px solid #e24b4a66',borderRadius:'6px',fontSize:'18px',fontWeight:'700',background:'#fff',textAlign:'center',boxSizing:'border-box'}});
+        diedInp.value=vals.died||'';
+        diedInp.addEventListener('input',e=>STATE.formVals.died=e.target.value);
+        const diedMinus=h('button',{type:'button',style:{width:'32px',height:'32px',flexShrink:'0',borderRadius:'6px',border:'.5px solid #ccc',background:'#fff',color:'#555',fontSize:'16px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:'0'},
+          onClick:()=>{const cur=parseInt(diedInp.value)||0;const next=Math.max(0,cur-1);diedInp.value=String(next);STATE.formVals.died=String(next);}
+        },'−');
+        const diedPlus=h('button',{type:'button',style:{width:'32px',height:'32px',flexShrink:'0',borderRadius:'6px',border:'.5px solid #ccc',background:'#fff',color:'#555',fontSize:'16px',fontWeight:'700',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',padding:'0'},
+          onClick:()=>{const cur=parseInt(diedInp.value)||0;const next=cur+1;diedInp.value=String(next);STATE.formVals.died=String(next);}
+        },'+');
+        diedRow.appendChild(diedMinus);
+        diedRow.appendChild(diedInp);
+        diedRow.appendChild(diedPlus);
+        // "Disease checked" checkbox
+        const dchkId='dchk_'+Date.now();
+        const dchkWrap=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',marginLeft:'10px'}});
+        const dchkBox=h('input',{type:'checkbox',id:dchkId,style:{width:'18px',height:'18px',accentColor:'#c0392b',cursor:'pointer',flexShrink:'0'}});
+        dchkBox.checked=!!(vals.disease_checked);
+        dchkBox.addEventListener('change',e=>STATE.formVals.disease_checked=e.target.checked?'1':'');
+        dchkWrap.appendChild(dchkBox);
+        dchkWrap.appendChild(h('label',{for:dchkId,style:{fontSize:'12px',fontWeight:'600',color:'#c0392b',cursor:'pointer'}},'Disease checked'));
+        diedRow.appendChild(dchkWrap);
+        diedSection.appendChild(diedRow);
+        fw.appendChild(diedSection);
+
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'8px'}},'Diseases found'));
         const diseaseList=h('div',{style:{display:'flex',flexDirection:'column',gap:'8px'}});
 
@@ -10717,6 +10819,7 @@ function renderEntriesList(){
       {key:'harvest_pct',label:'% Full'},{key:'honeycomb_fd',label:'HC FD'},
       {key:'honeycomb_hd',label:'HC ½'},{key:'best_hive_boxes',label:'Best Hive'},
       // Disease/mites
+      {key:'died',label:'Died since last visit'},{key:'disease_checked',label:'Disease checked'},
       {key:'mites_found',label:'Mites Found'},{key:'mites_tested',label:'Hives Tested'},
       {key:'diseases',label:'Diseases'},
     ];
@@ -10728,8 +10831,8 @@ function renderEntriesList(){
         const val=Array.isArray(raw)?raw.join(' / '):typeof raw==='boolean'?'Yes':String(raw);
         grid.appendChild(h('div',null,
           h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
-          h('div',{style:{fontWeight:'600',fontSize:'14px',color:f.key==='dead'&&parseInt(val)>0?'#e24b4a':'#1a1a1a'}},
-            f.key==='harvest_pct'?val+'%':val)
+          h('div',{style:{fontWeight:'600',fontSize:'14px',color:(f.key==='dead'||f.key==='died')&&parseInt(val)>0?'#e24b4a':f.key==='disease_checked'&&val==='1'?'#3d7a4f':'#1a1a1a'}},
+            f.key==='harvest_pct'?val+'%':f.key==='disease_checked'?(val==='1'?'✓ Yes':'No'):val)
         ));
       });
       body.appendChild(grid);
