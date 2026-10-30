@@ -2005,7 +2005,7 @@ async function exportSinceLastExport(){
 function calcSummary(opName, cutoffDate){
   const sites=allSitesFor(opName);
   // include custom yards
-  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0;
+  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0,qr=0,virgin=0,cellNeeded=0;
   const breederSites=[],finisherSites=[],swabSites=[],polSinglesSites=[],polBcSites=[],polDoublesSites=[],polPalletSites=[],partPalletSites=[],carrotSites=[];
   const siteScoreEntries={};
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
@@ -2078,6 +2078,7 @@ function calcSummary(opName, cutoffDate){
     on34+=lastVal('on_34');
     hcFdOn+=lastVal('honeycomb_fd');
     hcHdOn+=lastVal('honeycomb_hd');
+    qr+=lastVal('qr');virgin+=lastVal('virgin');cellNeeded+=lastVal('cell_needed');
     // Breeders — most recent entry in ANY round, not just Spring, so a breeder logged in
     // Summer (or any other season) still counts toward the fleet total.
     const breederCount=getSiteBreederCount(opName,site,cutoffDate);
@@ -2103,7 +2104,7 @@ function calcSummary(opName, cutoffDate){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(siteScoreEntries[site]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polDoublesSites,polPalletSites,partPalletSites,carrotSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,qr,virgin,cellNeeded,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polDoublesSites,polPalletSites,partPalletSites,carrotSites};
 }
 
 // ── Shared: current breeder count for a site — most recent entry (any round) that actually
@@ -7044,8 +7045,61 @@ function showDeadHivesModal(opName){
   document.body.appendChild(overlay);
 }
 
+// ── Fleet summary display preferences ──────────────────────────────────────────
+const FLEET_PREFS_KEY='fleetSummaryPrefs_v1';
+function loadFleetPrefs(){
+  const d={pol:true,boxes:true,queen:true,lids:true,formic:true,hiveStatus:true,score:true,breeder:true,swab:true};
+  try{const s=JSON.parse(localStorage.getItem(FLEET_PREFS_KEY)||'{}');return Object.assign({},d,s);}
+  catch(e){return d;}
+}
+function saveFleetPrefs(p){try{localStorage.setItem(FLEET_PREFS_KEY,JSON.stringify(p));}catch(e){}}
+function showFleetCustomiseModal(prefs){
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:'300',padding:'0'}});
+  const box=h('div',{style:{background:'#1a2e1a',borderRadius:'16px 16px 0 0',padding:'20px 18px 32px',width:'100%',maxWidth:'430px',maxHeight:'85vh',overflowY:'auto',boxSizing:'border-box'}});
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',color:'#fff',marginBottom:'4px'}},'Customise Fleet Summary'));
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.5)',marginBottom:'20px'}},'Choose which sections to show'));
+  const SECTIONS=[
+    {key:'hiveStatus', label:'Hive status (Singles, Doubles, Light, Weak)'},
+    {key:'boxes',      label:'Boxes on hives (FD on, 3/4, Honeycomb)'},
+    {key:'queen',      label:'Queen raising (QR, Virgin, Cell Needed)'},
+    {key:'lids',       label:'Lids & Floors'},
+    {key:'formic',     label:'Formic Pro treatment'},
+    {key:'pol',        label:'Pollination (POL pallet, POL singles, etc.)'},
+    {key:'score',      label:'Spring score'},
+    {key:'breeder',    label:'Breeders & Finishers'},
+    {key:'swab',       label:'To Swab'},
+  ];
+  const np={...prefs};
+  SECTIONS.forEach(sec=>{
+    const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:'.5px solid rgba(255,255,255,0.1)'}});
+    row.appendChild(h('span',{style:{fontSize:'14px',fontWeight:'600',color:'rgba(255,255,255,0.85)',flex:'1',paddingRight:'16px'}},sec.label));
+    const tog=h('div',{style:{width:'44px',height:'24px',borderRadius:'12px',background:np[sec.key]?'#3d7a4f':'rgba(255,255,255,0.2)',transition:'background .2s',cursor:'pointer',position:'relative',flexShrink:'0'}});
+    const knob=h('div',{style:{width:'18px',height:'18px',borderRadius:'9px',background:'#fff',position:'absolute',top:'3px',left:np[sec.key]?'23px':'3px',transition:'left .2s'}});
+    tog.appendChild(knob);
+    tog.addEventListener('click',()=>{
+      np[sec.key]=!np[sec.key];
+      tog.style.background=np[sec.key]?'#3d7a4f':'rgba(255,255,255,0.2)';
+      knob.style.left=np[sec.key]?'23px':'3px';
+    });
+    row.appendChild(tog);
+    box.appendChild(row);
+  });
+  const saveBtn=h('button',{style:{marginTop:'20px',width:'100%',padding:'13px',background:'#3d7a4f',color:'#fff',border:'none',borderRadius:'10px',fontSize:'15px',fontWeight:'700',cursor:'pointer',boxSizing:'border-box'}});
+  saveBtn.textContent='Save';
+  saveBtn.addEventListener('click',()=>{saveFleetPrefs(np);overlay.remove();setState({});});
+  box.appendChild(saveBtn);
+  const cancelBtn=h('button',{style:{marginTop:'8px',width:'100%',padding:'11px',background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.7)',border:'none',borderRadius:'10px',fontSize:'13px',fontWeight:'600',cursor:'pointer',boxSizing:'border-box'}});
+  cancelBtn.textContent='Cancel';
+  cancelBtn.addEventListener('click',()=>overlay.remove());
+  box.appendChild(cancelBtn);
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
+}
+
 function renderSummaryPanel(opName, cutoffDate){
   const s=calcSummary(opName, cutoffDate);
+  const prefs=loadFleetPrefs();
   const panel=h('div',{style:{background:'#1a2e1a',borderRadius:'12px',padding:'13px 14px 14px',marginBottom:'18px'}});
   // Date picker row — inside the dark panel
   {
@@ -7069,7 +7123,13 @@ function renderSummaryPanel(opName, cutoffDate){
       panel.appendChild(h('div',{style:{fontSize:'11px',color:'#f0c04a',fontWeight:'600',marginBottom:'8px',paddingBottom:'8px',borderBottom:'1px solid rgba(255,255,255,0.08)'}},'📅 Snapshot as of '+fmtDate(cutoffDate)));
     }
   }
-  panel.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:'10px'}},`Fleet summary · ${s.logged}/${s.total} sites logged`));
+  {const hdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}});
+  hdr.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.08em'}},`Fleet summary · ${s.logged}/${s.total} sites logged`));
+  const custBtn=h('button',{style:{background:'rgba(255,255,255,0.12)',border:'none',borderRadius:'6px',color:'rgba(255,255,255,0.65)',fontSize:'12px',padding:'3px 9px',cursor:'pointer',flexShrink:'0',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+  custBtn.textContent='⚙ Edit';
+  custBtn.addEventListener('click',()=>showFleetCustomiseModal(prefs));
+  hdr.appendChild(custBtn);
+  panel.appendChild(hdr);}
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
   // Compute orchard hives first so "Alive hives" can show the true fleet total (yards + orchards)
   const opSitesPan=Object.values(getYards(opName)).flatMap(y=>y.sites);
@@ -7127,7 +7187,7 @@ function renderSummaryPanel(opName, cutoffDate){
     });
     panel.appendChild(galiveDead);
   }
-  const g3=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
+  if(prefs.hiveStatus){const g3=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'7px',marginBottom:'7px'}});
   [{l:'Singles',v:s.singles,key:'singles',color:'#555'},{l:'Doubles',v:s.doubles,key:'doubles',color:'#555'},{l:'Light',v:s.light,key:'light',color:'#ef9f27'},{l:'Weak',v:s.weak,key:'weak',color:'#9b59b6'}].forEach(st=>{
     const clickable=st.v>0;
     const box3=h('div',{className:'stat-box',style:clickable?{cursor:'pointer',outline:`1.5px solid ${st.color}44`}:{}});
@@ -7136,17 +7196,17 @@ function renderSummaryPanel(opName, cutoffDate){
     if(clickable) box3.addEventListener('click',()=>showStatModal(opName,st.key,st.l,st.color,cutoffDate));
     g3.appendChild(box3);
   });
-  panel.appendChild(g3);
-  if(s.lidsFloors>0||s.formicTotal>0){
-    const lfRow=h('div',{style:{display:'grid',gridTemplateColumns:s.lidsFloors>0&&s.formicTotal>0?'1fr 1fr':'1fr',gap:'7px',marginBottom:'7px'}});
-    if(s.lidsFloors>0){
+  panel.appendChild(g3);}
+  if((prefs.lids&&s.lidsFloors>0)||(prefs.formic&&s.formicTotal>0)){
+    const lfRow=h('div',{style:{display:'grid',gridTemplateColumns:(prefs.lids&&s.lidsFloors>0)&&(prefs.formic&&s.formicTotal>0)?'1fr 1fr':'1fr',gap:'7px',marginBottom:'7px'}});
+    if(prefs.lids&&s.lidsFloors>0){
       const lfBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #1a6fb044'}});
       lfBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#1a6fb0',lineHeight:'1.1'}},s.lidsFloors));
       lfBox.appendChild(h('div',{className:'stat-lbl'},'Lids & Floors ↗'));
       lfBox.addEventListener('click',()=>showStatModal(opName,'lids_floors','Lids & Floors','#1a6fb0',cutoffDate));
       lfRow.appendChild(lfBox);
     }
-    if(s.formicTotal>0){
+    if(prefs.formic&&s.formicTotal>0){
       const fBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #e0a06a44'}});
       fBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#b05a1a',lineHeight:'1.1'}},s.formicTotal));
       fBox.appendChild(h('div',{className:'stat-lbl'},'Formic Pro ↗'));
@@ -7156,7 +7216,7 @@ function renderSummaryPanel(opName, cutoffDate){
     panel.appendChild(lfRow);
   }
   // POL Pallet, POL Indiv., POL Singles BC, Part Pallet, Carrot — all expandable per-yard pills
-  {
+  if(prefs.pol){
     const polPills=[
       {sites:s.polPalletSites, label:'POL Pallet',     color:'#ef9f27', bg:'rgba(239,159,39,0.12)'},
       {sites:s.polSinglesSites,label:'⚠ POL Indiv.',   color:'#ef9f27', bg:'rgba(239,159,39,0.12)'},
@@ -7196,7 +7256,7 @@ function renderSummaryPanel(opName, cutoffDate){
     }
   }
   // Boxes on hives
-  if(s.fdOn+s.on34+s.hcFdOn+s.hcHdOn>0){
+  if(prefs.boxes&&s.fdOn+s.on34+s.hcFdOn+s.hcHdOn>0){
     const boxDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
     boxDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Boxes on hives'));
     const boxGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:'6px'}});
@@ -7209,8 +7269,22 @@ function renderSummaryPanel(opName, cutoffDate){
     boxDiv.appendChild(boxGrid);
     panel.appendChild(boxDiv);
   }
+  // Queen raising section
+  if(prefs.queen&&(s.qr+s.virgin+s.cellNeeded>0)){
+    const qrDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
+    qrDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Queen raising'));
+    const qrGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px'}});
+    [{l:'QR',v:s.qr,show:s.qr>0},{l:'Virgin',v:s.virgin,show:s.virgin>0},{l:'Cell Needed',v:s.cellNeeded,show:s.cellNeeded>0}].filter(x=>x.show).forEach(st=>{
+      qrGrid.appendChild(h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center'}},
+        h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#c39bd3',lineHeight:'1.1'}},st.v),
+        h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l)
+      ));
+    });
+    qrDiv.appendChild(qrGrid);
+    panel.appendChild(qrDiv);
+  }
   // Breeders / Finishers section
-  if(s.swabSites.length>0){
+  if(prefs.swab&&s.swabSites.length>0){
     const totalSw=s.swabSites.reduce((a,b)=>a+b.count,0);
     const wholeYardCount=s.swabSites.filter(sw=>sw.whole).length;
     const swabPill=h('button',{style:{width:'100%',padding:'8px 14px',borderRadius:'10px',background:'rgba(26,111,176,0.15)',border:'1.5px solid #6ab0e0',color:'#6ab0e0',fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}});
@@ -7242,7 +7316,7 @@ function renderSummaryPanel(opName, cutoffDate){
     panel.appendChild(swabPill);
     panel.appendChild(swabList);
   }
-  if(s.breederSites.length>0||s.finisherSites.length>0){
+  if(prefs.breeder&&(s.breederSites.length>0||s.finisherSites.length>0)){
     const qyRow=h('div',{style:{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'4px',marginBottom:'4px'}});
     if(s.breederSites.length>0){
       const totalB=s.breederSites.reduce((a,b)=>a+b.count,0);
@@ -7303,7 +7377,7 @@ function renderSummaryPanel(opName, cutoffDate){
     orchDiv.appendChild(polBox);
     panel.appendChild(orchDiv);
   }
-  if(s.avgScore){
+  if(prefs.score&&s.avgScore){
     const sw=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',cursor:'pointer'},
       onClick:()=>showScoreModal(opName,cutoffDate)
     },h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'12px'}},`Spring score — avg across ${s.scoreHives} hives ↗`));
