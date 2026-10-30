@@ -2005,7 +2005,8 @@ async function exportSinceLastExport(){
 function calcSummary(opName, cutoffDate){
   const sites=allSitesFor(opName);
   // include custom yards
-  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,formicTotal=0,pol=0,part=0,carrot=0,qr=0,virgin=0,cellNeeded=0;
+  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,pol=0,part=0,carrot=0,qr=0,virgin=0,cellNeeded=0;
+  const treatmentSites={}; // {treatmentName: [{site, hives, raw}]}
   const breederSites=[],finisherSites=[],swabSites=[],polSinglesSites=[],polBcSites=[],polDoublesSites=[],polPalletSites=[],partPalletSites=[],carrotSites=[];
   const siteScoreEntries={};
   let fdOn=0,on34=0,hcFdOn=0,hcHdOn=0;
@@ -2080,14 +2081,19 @@ function calcSummary(opName, cutoffDate){
     hives+=lastVal('hives');dead+=lastVal('dead');singles+=lastVal('singles');doubles+=lastVal('doubles');weak+=lastVal('weak');lidsFloors+=lastVal('lids_floors');
     // died = event field; sum all entries from season start forward for this season's death tally
     allSiteEntries.forEach(e=>{if(e.date&&e.date>=DIED_SEASON_START){const v=parseInt(e.died);if(!isNaN(v)&&v>0)diedThisSeason+=v;}});
-    // Formic Pro — only counts if the site's MOST RECENT entry mentions it, not any entry ever
-    // that happened to. Once a newer visit exists (whatever treatment it used, or none), an old
-    // Formic Pro dose is no longer current and shouldn't keep showing in the fleet total.
+    // Treatments — only the most recent entry's treatment counts as "currently in hive".
+    // Once a newer visit exists (whatever treatment it used, or none), an older treatment
+    // is no longer current and shouldn't show in the fleet summary.
     const mostRecentEntryForTx=allSiteEntries[0]||null;
-    if(mostRecentEntryForTx&&(mostRecentEntryForTx.treatment||'').includes('Formic Pro')){
-      const fm=mostRecentEntryForTx.treatment.match(/Formic Pro\s*·\s*(\d+)/);
-      if(fm) formicTotal+=parseInt(fm[1])||0;
-      else if(mostRecentEntryForTx._formic_count) formicTotal+=parseInt(mostRecentEntryForTx._formic_count)||0;
+    if(mostRecentEntryForTx&&mostRecentEntryForTx.treatment){
+      const siteHivesForTx=lastVal('hives');
+      mostRecentEntryForTx.treatment.split(',').map(s=>s.trim()).filter(Boolean).forEach(txRaw=>{
+        // "Formic Pro · N" → normalize name to "Formic Pro"
+        const txName=txRaw.replace(/\s*·\s*\d+\s*$/, '').trim();
+        if(!txName) return;
+        if(!treatmentSites[txName]) treatmentSites[txName]=[];
+        treatmentSites[txName].push({site, hives:siteHivesForTx, raw:txRaw});
+      });
     }
     alive+=lastVal('alive_hives');deadHives+=lastVal('dead_hives');
     light+=lastVal('light');pol+=lastVal('pol_pallet');part+=lastVal('part_pallet');carrot+=lastVal('carrot');
@@ -2121,7 +2127,7 @@ function calcSummary(opName, cutoffDate){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(siteScoreEntries[site]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,formicTotal,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,qr,virgin,cellNeeded,diedThisSeason,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polDoublesSites,polPalletSites,partPalletSites,carrotSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,treatmentSites,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,qr,virgin,cellNeeded,diedThisSeason,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polDoublesSites,polPalletSites,partPalletSites,carrotSites};
 }
 
 // ── Shared: current breeder count for a site — most recent entry (any round) that actually
@@ -7249,7 +7255,7 @@ function showDeadHivesModal(opName){
 
 // ── Fleet summary display preferences ──────────────────────────────────────────
 function loadFleetPrefs(opName){
-  const d={pol:true,boxes:true,queen:true,lids:true,formic:true,hiveStatus:true,score:true,breeder:true,swab:true};
+  const d={pol:true,boxes:true,queen:true,lids:true,treatments:true,hiveStatus:true,score:true,breeder:true,swab:true};
   try{const s=JSON.parse(localStorage.getItem('fleetSummaryPrefs_v1_'+(opName||''))||'{}');return Object.assign({},d,s);}
   catch(e){return d;}
 }
@@ -7264,7 +7270,7 @@ function showFleetCustomiseModal(opName,prefs){
     {key:'boxes',      label:'Boxes on hives (FD on, 3/4, Honeycomb)'},
     {key:'queen',      label:'Queen raising (QR, Virgin, Cell Needed)'},
     {key:'lids',       label:'Lids & Floors'},
-    {key:'formic',     label:'Formic Pro treatment'},
+    {key:'treatments', label:'Treatments (active in hives)'},
     {key:'pol',        label:'Pollination (POL pallet, POL singles, etc.)'},
     {key:'score',      label:'Spring score'},
     {key:'breeder',    label:'Breeders & Finishers'},
@@ -7304,7 +7310,7 @@ function renderSummaryPanel(opName, cutoffDate){
   // display preferences hide information that was relevant at the time being viewed.
   const _savedPrefs=loadFleetPrefs(opName);
   const prefs=cutoffDate
-    ? {pol:true,boxes:true,queen:true,lids:true,formic:true,hiveStatus:true,score:true,breeder:true,swab:true}
+    ? {pol:true,boxes:true,queen:true,lids:true,treatments:true,hiveStatus:true,score:true,breeder:true,swab:true}
     : _savedPrefs;
   const panel=h('div',{style:{background:'#1a2e1a',borderRadius:'12px',padding:'13px 14px 14px',marginBottom:'18px'}});
   // Date picker row — inside the dark panel
@@ -7414,23 +7420,67 @@ function renderSummaryPanel(opName, cutoffDate){
     g3.appendChild(box3);
   });
   panel.appendChild(g3);}
-  if((prefs.lids&&s.lidsFloors>0)||(prefs.formic&&s.formicTotal>0)){
-    const lfRow=h('div',{style:{display:'grid',gridTemplateColumns:(prefs.lids&&s.lidsFloors>0)&&(prefs.formic&&s.formicTotal>0)?'1fr 1fr':'1fr',gap:'7px',marginBottom:'7px'}});
-    if(prefs.lids&&s.lidsFloors>0){
-      const lfBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #1a6fb044'}});
-      lfBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#1a6fb0',lineHeight:'1.1'}},s.lidsFloors));
-      lfBox.appendChild(h('div',{className:'stat-lbl'},'Lids & Floors ↗'));
-      lfBox.addEventListener('click',()=>showStatModal(opName,'lids_floors','Lids & Floors','#1a6fb0',cutoffDate));
-      lfRow.appendChild(lfBox);
-    }
-    if(prefs.formic&&s.formicTotal>0){
-      const fBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #e0a06a44'}});
-      fBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#b05a1a',lineHeight:'1.1'}},s.formicTotal));
-      fBox.appendChild(h('div',{className:'stat-lbl'},'Formic Pro ↗'));
-      fBox.addEventListener('click',()=>showFormicModal(opName,cutoffDate));
-      lfRow.appendChild(fBox);
-    }
+  if(prefs.lids&&s.lidsFloors>0){
+    const lfRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr',gap:'7px',marginBottom:'7px'}});
+    const lfBox=h('div',{className:'stat-box',style:{cursor:'pointer',outline:'1.5px solid #1a6fb044'}});
+    lfBox.appendChild(h('div',{style:{fontSize:'20px',fontWeight:'700',color:'#1a6fb0',lineHeight:'1.1'}},s.lidsFloors));
+    lfBox.appendChild(h('div',{className:'stat-lbl'},'Lids & Floors ↗'));
+    lfBox.addEventListener('click',()=>showStatModal(opName,'lids_floors','Lids & Floors','#1a6fb0',cutoffDate));
+    lfRow.appendChild(lfBox);
     panel.appendChild(lfRow);
+  }
+  // Treatments — expandable pills, one per active treatment type
+  if(prefs.treatments&&Object.keys(s.treatmentSites).length>0){
+    const txDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
+    txDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Treatments'));
+    const txNames=Object.keys(s.treatmentSites);
+    txNames.forEach(txName=>{
+      const txSites=s.treatmentSites[txName];
+      if(!txSites||!txSites.length) return;
+      const totalHives=txSites.reduce((a,b)=>a+(b.hives||0),0);
+      const color='#9b59b6';
+      const bg='rgba(155,89,182,0.12)';
+      const pill=h('button',{style:{width:'100%',padding:'8px 14px',borderRadius:'10px',background:bg,border:'1.5px solid '+color,color,fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px',textAlign:'left',boxSizing:'border-box',WebkitTapHighlightColor:'rgba(0,0,0,0)'}});
+      const pillLeft=h('span',{style:{display:'flex',alignItems:'center',gap:'8px'}});
+      pillLeft.appendChild(h('span',null,txName));
+      pillLeft.appendChild(h('span',{style:{background:color,color:'#fff',borderRadius:'10px',padding:'1px 8px',fontSize:'12px',fontWeight:'800'}},txSites.length+' site'+(txSites.length===1?'':'s')+(totalHives?' · '+totalHives+' hive'+(totalHives===1?'':'s'):'')));
+      pill.appendChild(pillLeft);
+      const chevron=h('span',{style:{fontSize:'12px',color,opacity:'0.7'}},'▾');
+      pill.appendChild(chevron);
+      // Build yard-grouped list
+      const list=h('div',{style:{display:'none',background:bg,borderRadius:'8px',padding:'8px',marginBottom:'6px'}});
+      // Group sites by yard
+      const byYard={};
+      const yardsMap=getYards(opName);
+      txSites.forEach(si=>{
+        let yardName=si.site;
+        Object.entries(yardsMap).forEach(([yk,yd])=>{if(yd.sites.includes(si.site))yardName=yk;});
+        if(!byYard[yardName]) byYard[yardName]=[];
+        byYard[yardName].push(si);
+      });
+      Object.entries(byYard).forEach(([yardName,ySites])=>{
+        if(Object.keys(byYard).length>1){
+          list.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',fontWeight:'700',textTransform:'uppercase',letterSpacing:'.05em',padding:'4px 6px 2px'}},yardName));
+        }
+        ySites.forEach(si=>{
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 10px',cursor:'pointer',borderRadius:'7px',WebkitTapHighlightColor:'rgba(0,0,0,0)'},
+            onClick:()=>{Object.entries(yardsMap).forEach(([batch,data])=>{if(data.sites.includes(si.site))setState({op:opName,tab:'diary',run:batch,site:si.site,diaryView:'entries'});});}});
+          row.appendChild(h('span',{style:{fontWeight:'600',fontSize:'14px',color:'#f0e8d0'}},si.site));
+          const rightSpan=h('span',{style:{fontWeight:'700',fontSize:'13px',color}});
+          rightSpan.textContent=(si.hives?si.hives+' hive'+(si.hives===1?'':'s'):'')+(si.raw&&si.raw!==txName?' ('+si.raw+')':'');
+          row.appendChild(rightSpan);
+          list.appendChild(row);
+        });
+      });
+      pill.addEventListener('click',()=>{
+        const open=list.style.display!=='none';
+        list.style.display=open?'none':'block';
+        chevron.textContent=open?'▾':'▴';
+      });
+      txDiv.appendChild(pill);
+      txDiv.appendChild(list);
+    });
+    panel.appendChild(txDiv);
   }
   // POL Pallet, POL Indiv., POL Singles BC, Part Pallet, Carrot — all expandable per-yard pills
   if(prefs.pol){
