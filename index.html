@@ -8232,6 +8232,7 @@ function renderSitesList(){
   wrap.appendChild(sitesContainer);
 
   const siteCards=[]; // {site, card}
+  const siteStats=[]; // per-site field values for batch tally
 
   data.sites.forEach(site=>{
     // Gather all real entries across rounds, newest first — filtered to snapshotDate when set
@@ -8431,6 +8432,34 @@ function renderSitesList(){
     // Clicking the site name / left side navigates
     hLeft.addEventListener('click',()=>setState({site,diaryView:'entries'}));
 
+    // Collect values for batch tally
+    siteStats.push({
+      site,
+      hives:currentHives||0,
+      dead:lv('dead_hives')||lv('dead'),
+      singles:lv('singles'),
+      doubles:lv('doubles'),
+      light:lv('light'),
+      fdOn:lv('fd_on'),
+      on34:lv('on_34'),
+      hcFd:lv('honeycomb_fd'),
+      hcHd:lv('honeycomb_hd'),
+      fdHarv:lv('fd_harv'),
+      harv34:lv('harv_34'),
+      lidsFloors:lv('lids_floors'),
+      splits:sumRound2('splits'),
+      tops:lv('tops'),
+      nucSplits:sumRound2('nuc_splits'),
+      cellIn:sumRound2('cell_in'),
+      cellNeeded:anchoredVal2('cell_needed'),
+      qr:lv('qr'),
+      virgin:lv('virgin'),
+      breeders:getSiteBreederCount(op,site),
+      polPallet:lv('pol_pallet'),
+      partPallet:lv('part_pallet'),
+      carrot:lv('carrot'),
+    });
+
     card.appendChild(body);
     siteCards.push({site,card});
     sitesContainer.appendChild(card);
@@ -8451,6 +8480,69 @@ function renderSitesList(){
   });
   // Hide search bar if very few yards (not needed)
   if(data.sites.length<=5) searchWrap.style.display='none';
+
+  // ── Batch tally ──
+  // Sum each field across all sites in this batch
+  const tallyFields=[
+    {key:'hives',   label:'Hives',        color:'#333',   bg:'#f5f5f3'},
+    {key:'dead',    label:'Dead',         color:'#c0392b',bg:'#fde8e8'},
+    {key:'doubles', label:'Doubles',      color:'#555',   bg:'#f5f5f3'},
+    {key:'singles', label:'Singles',      color:'#555',   bg:'#f5f5f3'},
+    {key:'light',   label:'Light',        color:'#b07800',bg:'#fff8e6'},
+    {key:'fdOn',    label:'FD on',        color:'#555',   bg:'#f0f0ee'},
+    {key:'on34',    label:'3/4 on',       color:'#555',   bg:'#f0f0ee'},
+    {key:'hcFd',    label:'HC FD',        color:'#555',   bg:'#f0f0ee'},
+    {key:'hcHd',    label:'HC ½',         color:'#555',   bg:'#f0f0ee'},
+    {key:'fdHarv',  label:'FD Harv',      color:'#b05a1a',bg:'#faeeda'},
+    {key:'harv34',  label:'3/4 Harv',     color:'#b05a1a',bg:'#faeeda'},
+    {key:'lidsFloors',label:'Lids & Floors',color:'#555',bg:'#f0f0ee'},
+    {key:'splits',  label:'Box Splits',   color:'#555',   bg:'#f0f0ee'},
+    {key:'tops',    label:'Top Splits',   color:'#555',   bg:'#f0f0ee'},
+    {key:'nucSplits',label:'Nuc Splits',  color:'#555',   bg:'#f0f0ee'},
+    {key:'cellIn',  label:'Cell In',      color:'#7a4fa8',bg:'#f3e8ff'},
+    {key:'cellNeeded',label:'Cell Needed',color:'#c0392b',bg:'#fde8e8'},
+    {key:'qr',      label:'QR',           color:'#7a4fa8',bg:'#f3e8ff'},
+    {key:'virgin',  label:'Virgin',       color:'#7a4fa8',bg:'#f3e8ff'},
+    {key:'breeders',label:'Breeders',     color:'#7a4fa8',bg:'#f3e8ff'},
+    {key:'polPallet',label:'POL pallet',  color:'#555',   bg:'#f0f0ee'},
+    {key:'partPallet',label:'Part pallet',color:'#555',   bg:'#f0f0ee'},
+    {key:'carrot',  label:'Carrot pal',   color:'#555',   bg:'#f0f0ee'},
+  ].map(f=>({...f,total:siteStats.reduce((s,ss)=>s+(ss[f.key]||0),0)}))
+   .filter(f=>f.total>0);
+
+  if(tallyFields.length){
+    const tallyCard=h('div',{style:{background:'#fff',border:'1.5px solid #e0e0de',borderRadius:'12px',padding:'12px 14px',marginTop:'12px'}});
+    tallyCard.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:'#888',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'10px'}},'Batch Tally — '+batch));
+    const chips=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'7px'}});
+    tallyFields.forEach(f=>{
+      const chip=h('div',{style:{display:'flex',alignItems:'center',gap:'5px',background:f.bg,borderRadius:'8px',padding:'5px 10px',cursor:'pointer',border:'1px solid transparent',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+      chip.appendChild(h('span',{style:{fontSize:'15px',fontWeight:'800',color:f.color,lineHeight:'1'}},String(f.total)));
+      chip.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:f.color,opacity:'0.75'}},f.label));
+      // Breakdown modal on tap
+      chip.addEventListener('click',()=>{
+        const rows=siteStats.filter(ss=>(ss[f.key]||0)>0).sort((a,b)=>(b[f.key]||0)-(a[f.key]||0));
+        const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.55)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:'200',padding:'0'}});
+        const box=h('div',{style:{background:'#fff',borderRadius:'16px 16px 0 0',padding:'20px 18px 32px',width:'100%',maxWidth:'430px',maxHeight:'70vh',overflowY:'auto'}});
+        box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'2px'}},f.label+' — '+batch));
+        box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'16px',textTransform:'uppercase',letterSpacing:'.05em'}},f.total+' total across '+rows.length+' yard'+(rows.length!==1?'s':'')));
+        rows.forEach(ss=>{
+          const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:'.5px solid #eee',cursor:'pointer'}},
+            h('span',{style:{fontWeight:'600',fontSize:'15px',color:'#1a1a1a'}},ss.site),
+            h('span',{style:{fontSize:'15px',fontWeight:'700',color:f.color,background:f.bg,borderRadius:'6px',padding:'2px 9px'}},ss[f.key])
+          );
+          row.addEventListener('click',()=>{overlay.remove();setState({site:ss.site,diaryView:'entries'});});
+          box.appendChild(row);
+        });
+        box.appendChild(h('button',{style:{marginTop:'16px',width:'100%',padding:'11px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'600',cursor:'pointer'},onClick:()=>overlay.remove()},'Close'));
+        overlay.appendChild(box);
+        overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+        document.body.appendChild(overlay);
+      });
+      chips.appendChild(chip);
+    });
+    tallyCard.appendChild(chips);
+    wrap.appendChild(tallyCard);
+  }
 
   return wrap;
 }
