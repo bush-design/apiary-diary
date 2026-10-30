@@ -6850,14 +6850,23 @@ function showStatModal(opName, fieldKey, label, color, cutoffDate){
   const RESOLVABLE_FIELDS=['cell_needed'];
   const canResolve=RESOLVABLE_FIELDS.includes(fieldKey);
   function resolveForSite(site){
-    // Collect ALL non-movement entries across every round, sorted most-recent-first
-    const allEntries=Object.keys(ROUNDS).flatMap(rk=>STATE.entries[eKey(opName,site,rk)]||[])
-      .filter(e=>!e._movement)
-      .sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
+    // Collect ALL non-movement entries across every round, keeping track of which round
+    // each entry came from so we can push the right key to Supabase after clearing.
+    const allEntries=Object.keys(ROUNDS).flatMap(rk=>
+      (STATE.entries[eKey(opName,site,rk)]||[]).filter(e=>!e._movement).map(e=>({e,rk}))
+    ).sort((a,b)=>{const dc=(b.e.date||'').localeCompare(a.e.date||'');if(dc!==0)return dc;return(b.e.logged_at||b.e.saved_at||'').localeCompare(a.e.logged_at||a.e.saved_at||'');});
     // Prefer the most recent entry that actually holds a non-zero value; fall back to the
     // absolute most recent entry (adding an explicit 0 blocks any further hunt-back)
-    const target=allEntries.find(e=>{const v=parseInt(e[fieldKey]);return !isNaN(v)&&v>0;})||allEntries[0];
-    if(target){target[fieldKey]=0;saveLocal(STATE.entries);overlay.remove();setState({});}
+    const found=allEntries.find(({e})=>{const v=parseInt(e[fieldKey]);return !isNaN(v)&&v>0;})||allEntries[0];
+    if(found){
+      const {e:target,rk:targetRk}=found;
+      target[fieldKey]=0;
+      target.saved_at=new Date().toISOString(); // bump timestamp so sync pull doesn't clobber this
+      saveLocal(STATE.entries);
+      // Push to Supabase — without this, the next pull restores the old value from remote
+      pushToSupabase(eKey(opName,site,targetRk),STATE.entries[eKey(opName,site,targetRk)]).catch(e=>console.warn('Resolve sync failed:',e));
+      overlay.remove();setState({});
+    }
   }
   if(!results.length){
     list.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No data recorded'));
