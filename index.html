@@ -8272,6 +8272,12 @@ function renderSitesList(){
       return 0;
     };
 
+    // Extra helper lookups — string search and current-round accumulator for requeening fields
+    const lvStr2=k=>{for(const e of allReal){const r=e[k];if(r&&r.trim&&r.trim())return r.trim();}return '';};
+    const anchoredVal2=k=>{if(!mostRecentWithHives2)return 0;const r=mostRecentWithHives2[k];return(r===undefined||r===null||r==='')?0:(parseInt(r)||0);};
+    const _crE2=(STATE.entries[eKey(op,site,STATE.round)]||[]).filter(e=>!e._movement);
+    const sumRound2=k=>_crE2.reduce((acc,e)=>acc+(parseInt(e[k])||0),0);
+
     // Spring score — most recent entry in ANY round with score data, not just the "spring"
     // bucket, since the Hive Strength section can be filled in on an entry logged under any
     // season (same fix already applied to the fleet-wide summary).
@@ -8357,6 +8363,29 @@ function renderSitesList(){
         if(br>0)qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#7a4fa8',background:'#f3e8ff',borderRadius:'6px',padding:'2px 8px'}},br+' Breeder'+(br!==1?'s':'')));
         if(fi>0)qRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#3d7a4f',background:'#e6f2eb',borderRadius:'6px',padding:'2px 8px'}},fi+' Finisher'+(fi!==1?'s':'')));
         body.appendChild(qRow);
+      }
+      // Extras pills — lids & floors, POL, requeening fields, feed, etc.
+      const extraPills=[
+        {l:'Lids & Floors',v:lv('lids_floors'),show:lv('lids_floors')>0},
+        {l:'POL pallet',v:lv('pol_pallet'),show:lv('pol_pallet')>0},
+        {l:'Part pallet',v:lv('part_pallet'),show:lv('part_pallet')>0},
+        {l:'Carrot pal',v:lv('carrot'),show:lv('carrot')>0},
+        {l:'Check',v:anchoredVal2('check'),show:anchoredVal2('check')>0},
+        {l:'QR',v:lv('qr'),show:lv('qr')>0},
+        {l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
+        {l:'Box Splits'+(lvStr2('splits_dest')?' → '+lvStr2('splits_dest'):''),v:sumRound2('splits'),show:sumRound2('splits')>0},
+        {l:'Top Splits'+(lvStr2('tops_dest')?' → '+lvStr2('tops_dest'):''),v:lv('tops'),show:lv('tops')>0},
+        {l:'Nuc Splits'+(lvStr2('nuc_splits_dest')?' → '+lvStr2('nuc_splits_dest'):''),v:sumRound2('nuc_splits'),show:sumRound2('nuc_splits')>0},
+        {l:'Cell In',v:sumRound2('cell_in'),show:sumRound2('cell_in')>0},
+        {l:'Cell Needed',v:anchoredVal2('cell_needed'),show:anchoredVal2('cell_needed')>0},
+        {l:'Pollen fed',v:anchoredVal2('pollen_hives_fed'),show:anchoredVal2('pollen_hives_fed')>0},
+        {l:'Hives Fed',v:anchoredVal2('hives_fed'),show:anchoredVal2('hives_fed')>0},
+        {l:'Litres Fed',v:anchoredVal2('litres_fed'),show:anchoredVal2('litres_fed')>0},
+      ].filter(x=>x.show);
+      if(extraPills.length){
+        const xRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
+        extraPills.forEach(f=>xRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'2px 7px'}},f.v+' '+f.l)));
+        body.appendChild(xRow);
       }
       // Diseases found — from the most recent real entry
       const diseasesFound=(latest?.diseases||'').split(',').map(s=>s.trim()).filter(Boolean);
