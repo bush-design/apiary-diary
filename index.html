@@ -7099,7 +7099,12 @@ function showFleetCustomiseModal(prefs){
 
 function renderSummaryPanel(opName, cutoffDate){
   const s=calcSummary(opName, cutoffDate);
-  const prefs=loadFleetPrefs();
+  // When viewing a historical date, show all sections that have data — don't let live
+  // display preferences hide information that was relevant at the time being viewed.
+  const _savedPrefs=loadFleetPrefs();
+  const prefs=cutoffDate
+    ? {pol:true,boxes:true,queen:true,lids:true,formic:true,hiveStatus:true,score:true,breeder:true,swab:true}
+    : _savedPrefs;
   const panel=h('div',{style:{background:'#1a2e1a',borderRadius:'12px',padding:'13px 14px 14px',marginBottom:'18px'}});
   // Date picker row — inside the dark panel
   {
@@ -7125,9 +7130,10 @@ function renderSummaryPanel(opName, cutoffDate){
   }
   {const hdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'10px'}});
   hdr.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.45)',textTransform:'uppercase',letterSpacing:'.08em'}},`Fleet summary · ${s.logged}/${s.total} sites logged`));
-  const custBtn=h('button',{style:{background:'rgba(255,255,255,0.12)',border:'none',borderRadius:'6px',color:'rgba(255,255,255,0.65)',fontSize:'12px',padding:'3px 9px',cursor:'pointer',flexShrink:'0',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
-  custBtn.textContent='⚙ Edit';
-  custBtn.addEventListener('click',()=>showFleetCustomiseModal(prefs));
+  const custBtn=h('button',{style:{background:'rgba(255,255,255,0.12)',border:'none',borderRadius:'6px',color:cutoffDate?'rgba(255,255,255,0.25)':'rgba(255,255,255,0.65)',fontSize:'12px',padding:'3px 9px',cursor:cutoffDate?'default':'pointer',flexShrink:'0',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+  custBtn.textContent=cutoffDate?'⚙ Edit':'⚙ Edit';
+  custBtn.title=cutoffDate?'Return to live view to edit display preferences':'Customise which sections are shown';
+  if(!cutoffDate) custBtn.addEventListener('click',()=>showFleetCustomiseModal(_savedPrefs));
   hdr.appendChild(custBtn);
   panel.appendChild(hdr);}
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
