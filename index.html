@@ -2032,7 +2032,10 @@ function calcSummary(opName, cutoffDate){
     // pol_singles/pol_bc can reach 0 after hives move out — an explicit '0' on a movement
     // entry should stop the search (meaning "none left here"), not be skipped in favour of an
     // older diary entry that still shows the pre-movement count.
-    const NON_ZERO_FIELDS=['lids_floors','pol_singles','pol_bc','pol_doubles','fd_on','on_34','honeycomb_fd','honeycomb_hd'];
+    // qr/virgin/cell_needed: hunt back through entries but stop on explicit 0 — a visit that
+    // leaves the field blank means "didn't update it this visit", not "resolved". Entering 0
+    // explicitly (or tapping ✓ resolve in the fleet modal) clears the value going forward.
+    const NON_ZERO_FIELDS=['lids_floors','pol_singles','pol_bc','pol_doubles','fd_on','on_34','honeycomb_fd','honeycomb_hd','qr','virgin','cell_needed'];
     // hives/dead/singles/doubles/light/weak/alive_hives/dead_hives must all come from the SAME
     // visit — picking each independently (whichever entry most recently happened to record that
     // one field) lets them drift apart when a visit records hives but skips the box count, which
@@ -6675,8 +6678,9 @@ function showStatModal(opName, fieldKey, label, color, cutoffDate){
     // For lids_floors: an empty field means "not checked this visit" (skip, look back further),
     // but an explicit 0 means "checked and all done" — stop there and return 0, don't reach back.
     const HIVE_FIELDS=['hives','dead','singles','doubles','light','alive_hives','dead_hives'];
-    // NON_ZERO_FIELDS: skip blank entries but stop on explicit 0 (cleared), not hunt for non-zero
-    const MODAL_NON_ZERO_FIELDS=['lids_floors'];
+    // NON_ZERO_FIELDS: skip blank entries but stop on explicit 0 (cleared), not hunt for non-zero.
+    // qr/virgin/cell_needed included: a blank visit means "didn't update", explicit 0 means "resolved".
+    const MODAL_NON_ZERO_FIELDS=['lids_floors','qr','virgin','cell_needed'];
     let val=0;
     if(HIVE_FIELDS.includes(fieldKey)){
       const anchor=allE.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
@@ -6701,23 +6705,45 @@ function showStatModal(opName, fieldKey, label, color, cutoffDate){
   box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},label+' — '+opName+(cutoffDate?' (as of '+fmtDate(cutoffDate)+')':'')));
   box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},total+' total across '+results.length+' site'+(results.length!==1?'s':'')));
   const list=h('div',{style:{overflowY:'auto',flex:'1'}});
+  const RESOLVABLE_FIELDS=['qr','virgin','cell_needed'];
+  const canResolve=RESOLVABLE_FIELDS.includes(fieldKey);
+  function resolveForSite(site){
+    // Find the most recent non-movement entry for this site across all rounds and set fieldKey=0
+    let resolved=false;
+    Object.keys(ROUNDS).forEach(rk=>{
+      if(resolved) return;
+      const arr=STATE.entries[eKey(opName,site,rk)]||[];
+      const sorted=arr.slice().sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
+      const entry=sorted.find(e=>!e._movement);
+      if(entry){entry[fieldKey]=0;resolved=true;}
+    });
+    if(resolved){saveLocal(STATE.entries);overlay.remove();setState({});}
+  }
   if(!results.length){
     list.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No data recorded'));
   } else {
     results.forEach(({site,val,date})=>{
-      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',borderBottom:'.5px solid #f0f0ee',cursor:'pointer'},
-        onClick:()=>{overlay.remove();
-          Object.entries(getYards(opName)).forEach(([batch,data])=>{
-            if(data.sites.includes(site)) setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});
-          });
-        }});
+      const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 12px',borderBottom:'.5px solid #f0f0ee'}});
+      const leftWrap=h('div',{style:{flex:'1',cursor:'pointer',minWidth:'0'}});
+      leftWrap.addEventListener('click',()=>{overlay.remove();
+        Object.entries(getYards(opName)).forEach(([batch,data])=>{
+          if(data.sites.includes(site)) setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});
+        });
+      });
       const left=h('div',null);
       left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},site));
       left.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginTop:'2px'}},fmtDate(date)));
-      const right=h('div',{style:{display:'flex',alignItems:'center',gap:'6px'}});
-      right.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:color||'#333',lineHeight:'1'}},val));
-      right.appendChild(h('span',{style:{color:'#ddd',fontSize:'16px'}},'›'));
-      row.appendChild(left);row.appendChild(right);
+      leftWrap.appendChild(left);
+      const right=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flexShrink:'0'}});
+      right.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:color||'#333',lineHeight:'1',cursor:'pointer'},onClick:()=>{overlay.remove();Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(site))setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});});}},val));
+      if(canResolve){
+        const resolveBtn=h('button',{style:{fontSize:'11px',fontWeight:'600',color:'#4a9e6e',background:'rgba(74,158,110,0.1)',border:'1px solid rgba(74,158,110,0.3)',borderRadius:'6px',padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)'}},'✓ Done');
+        resolveBtn.addEventListener('click',e=>{e.stopPropagation();resolveForSite(site);});
+        right.appendChild(resolveBtn);
+      } else {
+        right.appendChild(h('span',{style:{color:'#ddd',fontSize:'16px'}},'›'));
+      }
+      row.appendChild(leftWrap);row.appendChild(right);
       list.appendChild(row);
     });
   }
