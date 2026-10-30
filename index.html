@@ -6841,19 +6841,17 @@ function showStatModal(opName, fieldKey, label, color, cutoffDate){
   box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'4px'}},label+' — '+opName+(cutoffDate?' (as of '+fmtDate(cutoffDate)+')':'')));
   box.appendChild(h('div',{style:{fontSize:'13px',color:'#888',marginBottom:'14px'}},total+' total across '+results.length+' site'+(results.length!==1?'s':'')));
   const list=h('div',{style:{overflowY:'auto',flex:'1'}});
-  const RESOLVABLE_FIELDS=['qr','virgin','cell_needed'];
+  const RESOLVABLE_FIELDS=['cell_needed'];
   const canResolve=RESOLVABLE_FIELDS.includes(fieldKey);
   function resolveForSite(site){
-    // Find the most recent non-movement entry for this site across all rounds and set fieldKey=0
-    let resolved=false;
-    Object.keys(ROUNDS).forEach(rk=>{
-      if(resolved) return;
-      const arr=STATE.entries[eKey(opName,site,rk)]||[];
-      const sorted=arr.slice().sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
-      const entry=sorted.find(e=>!e._movement);
-      if(entry){entry[fieldKey]=0;resolved=true;}
-    });
-    if(resolved){saveLocal(STATE.entries);overlay.remove();setState({});}
+    // Collect ALL non-movement entries across every round, sorted most-recent-first
+    const allEntries=Object.keys(ROUNDS).flatMap(rk=>STATE.entries[eKey(opName,site,rk)]||[])
+      .filter(e=>!e._movement)
+      .sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;return(b.logged_at||b.saved_at||'').localeCompare(a.logged_at||a.saved_at||'');});
+    // Prefer the most recent entry that actually holds a non-zero value; fall back to the
+    // absolute most recent entry (adding an explicit 0 blocks any further hunt-back)
+    const target=allEntries.find(e=>{const v=parseInt(e[fieldKey]);return !isNaN(v)&&v>0;})||allEntries[0];
+    if(target){target[fieldKey]=0;saveLocal(STATE.entries);overlay.remove();setState({});}
   }
   if(!results.length){
     list.appendChild(h('div',{style:{textAlign:'center',padding:'20px 0',color:'#bbb',fontSize:'14px'}},'No data recorded'));
