@@ -6871,11 +6871,14 @@ function showStatModal(opName, fieldKey, label, color, cutoffDate){
         });
       });
       const left=h('div',null);
-      left.appendChild(h('div',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},site));
+      const nameRow=h('div',{style:{display:'flex',alignItems:'center',gap:'7px'}});
+      nameRow.appendChild(h('span',{style:{fontWeight:'600',fontSize:'15px',color:'#333'}},site));
+      const mc=(!color||color==='#fff')?'#2c5f2e':color;
+      nameRow.appendChild(h('span',{style:{fontWeight:'800',fontSize:'14px',color:mc,background:mc+'22',borderRadius:'8px',padding:'1px 8px',flexShrink:'0'}},String(val)));
+      left.appendChild(nameRow);
       left.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginTop:'2px'}},fmtDate(date)));
       leftWrap.appendChild(left);
       const right=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flexShrink:'0'}});
-      right.appendChild(h('div',{style:{fontSize:'22px',fontWeight:'800',color:color||'#333',lineHeight:'1',cursor:'pointer'},onClick:()=>{overlay.remove();Object.entries(getYards(opName)).forEach(([batch,data])=>{if(data.sites.includes(site))setState({op:opName,tab:'diary',run:batch,site,diaryView:'entries'});});}},val));
       if(canResolve){
         const resolveBtn=h('button',{style:{fontSize:'11px',fontWeight:'600',color:'#4a9e6e',background:'rgba(74,158,110,0.1)',border:'1px solid rgba(74,158,110,0.3)',borderRadius:'6px',padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap',WebkitTapHighlightColor:'rgba(0,0,0,0)'}},'✓ Done');
         resolveBtn.addEventListener('click',e=>{e.stopPropagation();resolveForSite(site);});
