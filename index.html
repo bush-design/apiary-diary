@@ -7046,14 +7046,13 @@ function showDeadHivesModal(opName){
 }
 
 // ── Fleet summary display preferences ──────────────────────────────────────────
-const FLEET_PREFS_KEY='fleetSummaryPrefs_v1';
-function loadFleetPrefs(){
+function loadFleetPrefs(opName){
   const d={pol:true,boxes:true,queen:true,lids:true,formic:true,hiveStatus:true,score:true,breeder:true,swab:true};
-  try{const s=JSON.parse(localStorage.getItem(FLEET_PREFS_KEY)||'{}');return Object.assign({},d,s);}
+  try{const s=JSON.parse(localStorage.getItem('fleetSummaryPrefs_v1_'+(opName||''))||'{}');return Object.assign({},d,s);}
   catch(e){return d;}
 }
-function saveFleetPrefs(p){try{localStorage.setItem(FLEET_PREFS_KEY,JSON.stringify(p));}catch(e){}}
-function showFleetCustomiseModal(prefs){
+function saveFleetPrefs(opName,p){try{localStorage.setItem('fleetSummaryPrefs_v1_'+(opName||''),JSON.stringify(p));}catch(e){}}
+function showFleetCustomiseModal(opName,prefs){
   const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:'300',padding:'0'}});
   const box=h('div',{style:{background:'#1a2e1a',borderRadius:'16px 16px 0 0',padding:'20px 18px 32px',width:'100%',maxWidth:'430px',maxHeight:'85vh',overflowY:'auto',boxSizing:'border-box'}});
   box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',color:'#fff',marginBottom:'4px'}},'Customise Fleet Summary'));
@@ -7086,7 +7085,7 @@ function showFleetCustomiseModal(prefs){
   });
   const saveBtn=h('button',{style:{marginTop:'20px',width:'100%',padding:'13px',background:'#3d7a4f',color:'#fff',border:'none',borderRadius:'10px',fontSize:'15px',fontWeight:'700',cursor:'pointer',boxSizing:'border-box'}});
   saveBtn.textContent='Save';
-  saveBtn.addEventListener('click',()=>{saveFleetPrefs(np);overlay.remove();setState({});});
+  saveBtn.addEventListener('click',()=>{saveFleetPrefs(opName,np);overlay.remove();setState({});});
   box.appendChild(saveBtn);
   const cancelBtn=h('button',{style:{marginTop:'8px',width:'100%',padding:'11px',background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.7)',border:'none',borderRadius:'10px',fontSize:'13px',fontWeight:'600',cursor:'pointer',boxSizing:'border-box'}});
   cancelBtn.textContent='Cancel';
@@ -7101,7 +7100,7 @@ function renderSummaryPanel(opName, cutoffDate){
   const s=calcSummary(opName, cutoffDate);
   // When viewing a historical date, show all sections that have data — don't let live
   // display preferences hide information that was relevant at the time being viewed.
-  const _savedPrefs=loadFleetPrefs();
+  const _savedPrefs=loadFleetPrefs(opName);
   const prefs=cutoffDate
     ? {pol:true,boxes:true,queen:true,lids:true,formic:true,hiveStatus:true,score:true,breeder:true,swab:true}
     : _savedPrefs;
@@ -7133,7 +7132,7 @@ function renderSummaryPanel(opName, cutoffDate){
   const custBtn=h('button',{style:{background:'rgba(255,255,255,0.12)',border:'none',borderRadius:'6px',color:cutoffDate?'rgba(255,255,255,0.25)':'rgba(255,255,255,0.65)',fontSize:'12px',padding:'3px 9px',cursor:cutoffDate?'default':'pointer',flexShrink:'0',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
   custBtn.textContent=cutoffDate?'⚙ Edit':'⚙ Edit';
   custBtn.title=cutoffDate?'Return to live view to edit display preferences':'Customise which sections are shown';
-  if(!cutoffDate) custBtn.addEventListener('click',()=>showFleetCustomiseModal(_savedPrefs));
+  if(!cutoffDate) custBtn.addEventListener('click',()=>showFleetCustomiseModal(opName,_savedPrefs));
   hdr.appendChild(custBtn);
   panel.appendChild(hdr);}
   if(s.logged===0){panel.appendChild(h('div',{style:{color:'rgba(255,255,255,0.35)',fontSize:'13px',textAlign:'center',padding:'12px 0'}},'No data yet — start logging visits'));return panel;}
