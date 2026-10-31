@@ -3212,8 +3212,8 @@ function renderNucsScreen(){
 
       // Individual cells
       cells.forEach((cell,ci)=>{
-        const sc=cell.status==='failed'?'#e24b4a':cell.status==='mated'||cell.transferredTo?'#3d7a4f':cell.status==='dl'?'#1a6fb0':cell.status==='virgin'?'#9b59b6':cell.status==='cell'?'#ef9f27':'#aaa';
-        const sl=cell.transferredTo?'QR ✓':cell.status==='failed'?'Failed':cell.status==='mated'?'Mated ✓':cell.status==='dl'?'DL':cell.status==='virgin'?'Virgin':cell.status==='cell'?'Cell in':'Waiting';
+        const sc=cell.status==='failed'?'#e24b4a':cell.status==='mated'||cell.transferredTo?'#3d7a4f':cell.status==='dl'?'#1a6fb0':cell.status==='virgin'?'#9b59b6':cell.status==='cell'?'#ef9f27':'#b07800';
+        const sl=cell.transferredTo?'QR ✓':cell.status==='failed'?'Failed':cell.status==='mated'?'Mated ✓':cell.status==='dl'?'DL':cell.status==='virgin'?'Virgin':cell.status==='cell'?'Cell in':'Need cell ⚠';
         const cRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
           onClick:()=>showNucModal(selectedOp,key,bi,ci,()=>{STATE._nucOp=selectedOp;STATE._expandedInYard=expandKey;setState({op:'__nucs__'});})});
         const cRowLeft=h('div',null);
@@ -3326,8 +3326,8 @@ function renderNucsScreen(){
         }
         srcItems.forEach(({batch,nuc,ni,key,bi})=>{
           const isTransferred=!!nuc.transferredTo;
-          const sc=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#aaa';
-          const sl=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Recheck';
+          const sc=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#b07800';
+          const sl=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Need cell ⚠';
           const srcGroupKey='grp|'+batch.sourceYard+'|'+(batch.dateAdded||'');
           const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
             onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=srcGroupKey;STATE._nucViewMode='source';setState({op:'__nucs__'});})});
@@ -3437,10 +3437,12 @@ function renderNucsScreen(){
           }
         });
 
-        const card=h('div',{style:{background:'#fff',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid #ddd'}});
+        const primaryMeta=SPLIT_TYPE_META[items[0].batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
+        const totalNeedsCell=items.reduce((sum,{batch})=>sum+(batch.nucs||[]).filter(n=>!n.cellDate&&n.status!=='failed'&&!n.transferredTo).length,0);
+        const card=h('div',{style:{background:primaryMeta.color+'07',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid '+primaryMeta.color+'40',borderLeft:'4px solid '+primaryMeta.color}});
 
         // Card header: yard name + type badges, tappable to expand
-        const bHdr=h('div',{style:{padding:'11px 14px',background:'#f8f8f6',borderBottom:'.5px solid #eee',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}});
+        const bHdr=h('div',{style:{padding:'11px 14px',background:primaryMeta.color+'12',borderBottom:'.5px solid '+primaryMeta.color+'30',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}});
         const bLeft=h('div',null);
         const bTopRow=h('div',{style:{display:'flex',alignItems:'center',gap:'6px',flexWrap:'wrap'}});
         bTopRow.appendChild(h('span',{style:{fontWeight:'700',fontSize:'15px'}},firstBatch.sourceYard));
@@ -3448,8 +3450,9 @@ function renderNucsScreen(){
           const meta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
           bTopRow.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:meta.color,background:meta.color+'18',borderRadius:'8px',padding:'2px 7px'}},meta.label));
         });
+        if(totalNeedsCell>0) bTopRow.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'800',color:'#b07800',background:'#ef9f2722',borderRadius:'8px',padding:'2px 7px'}},'⚠ '+totalNeedsCell+' need cell'));
         bLeft.appendChild(bTopRow);
-        bLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',marginTop:'3px'}},'Added '+fmtDate(firstBatch.dateAdded)));
+        bLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#777',marginTop:'3px'}},'Added '+fmtDate(firstBatch.dateAdded)));
         bHdr.appendChild(bLeft);
         const bChev=h('span',{style:{color:'#aaa',fontSize:'16px'}},isExpanded?'▲':'▼');
         bHdr.appendChild(bChev);
@@ -3462,10 +3465,12 @@ function renderNucsScreen(){
           const meta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
           const mated=nucs.filter(n=>n.status==='mated'||n.transferredTo).length;
           const failed=nucs.filter(n=>n.status==='failed').length;
+          const needsCellSub=nucs.filter(n=>!n.cellDate&&n.status!=='failed'&&!n.transferredTo).length;
           const countLabel=batch.splitType==='in_yard'?(nucs.length+' cell'+(nucs.length!==1?'s':'')+' in yard'):(nucs.length+' split'+(nucs.length!==1?'s':''));
           const sr=h('div',{style:{display:'flex',alignItems:'center',gap:'5px',marginBottom:'2px',fontSize:'12px',flexWrap:'wrap'}});
           sr.appendChild(h('span',{style:{fontWeight:'700',color:meta.color}},countLabel));
           if(batch.destYard) sr.appendChild(h('span',{style:{color:'#888'}},'→ '+batch.destYard));
+          if(needsCellSub) sr.appendChild(h('span',{style:{color:'#b07800',fontWeight:'700'}},'· ⚠ '+needsCellSub+' need cell'));
           if(mated) sr.appendChild(h('span',{style:{color:'#3d7a4f'}},'· '+mated+' mated'));
           if(failed) sr.appendChild(h('span',{style:{color:'#e24b4a'}},'· '+failed+' failed'));
           {
@@ -3508,8 +3513,8 @@ function renderNucsScreen(){
           }
           nucs.forEach((nuc,ni)=>{
             const isTransferred=!!nuc.transferredTo;
-            const sc=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#aaa';
-            const sl=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Recheck';
+            const sc=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#b07800';
+            const sl=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Need cell ⚠';
             const nRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
               onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=groupExpandKey;setState({op:'__nucs__'});})});
             const nLeft=h('div',null);
