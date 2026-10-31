@@ -8738,7 +8738,19 @@ function renderSitesList(){
       ].filter(x=>x.show);
       if(extraPills.length){
         const xRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
-        extraPills.forEach(f=>xRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'2px 7px'}},f.v+' '+f.l)));
+        const _splitLabelMap={'Box Splits':'box','Top Splits':'top','Nuc Splits':'nuc','Cell In':'in_yard'};
+        extraPills.forEach(f=>{
+          const splitKey=Object.keys(_splitLabelMap).find(k=>f.l===k||f.l.startsWith(k));
+          if(splitKey){
+            const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#9b59b6',background:'rgba(155,89,182,0.08)',border:'1px solid rgba(155,89,182,0.3)',borderRadius:'6px',padding:'2px 7px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},f.v+' '+f.l+' ↗');
+            const typeFilter=_splitLabelMap[splitKey];
+            const onTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;setState({op:'__nucs__'});};
+            pill.addEventListener('touchend',onTap,{passive:false});pill.addEventListener('click',onTap);
+            xRow.appendChild(pill);
+          } else {
+            xRow.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'2px 7px'}},f.v+' '+f.l));
+          }
+        });
         body.appendChild(xRow);
       }
       // Diseases found — from the most recent real entry
@@ -9163,6 +9175,15 @@ function renderEntriesList(){
           btn.addEventListener('touchend',doDismiss,{passive:false});
           btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
+        } else if(['splits','tops','nuc_splits','cell_in'].includes(f.k)){
+          // Tappable pill — navigates straight to Splits page, filtered by type
+          const _splitTypeMap={splits:'box',tops:'top',nuc_splits:'nuc',cell_in:'in_yard'};
+          const typeFilter=_splitTypeMap[f.k];
+          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#c39bd3',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.35)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',gap:'3px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+          pill.appendChild(document.createTextNode(f.v+' '+f.l+' ↗'));
+          const onTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;if(typeFilter!=='in_yard')STATE._expandedNucBatch='grp|'+site+'|'+(allSiteEntries[0]?.date||'');setState({op:'__nucs__'});};
+          pill.addEventListener('touchend',onTap,{passive:false});pill.addEventListener('click',onTap);
+          eRow.appendChild(pill);
         } else {
           const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
           const showNormal=()=>{
@@ -9331,14 +9352,26 @@ function renderEntriesList(){
     const visFields=ALL_FIELDS.filter(f=>{const v=entry[f.key];if(v===undefined||v===null||v==='')return false;if(Array.isArray(v))return v.length>0;if(typeof v==='boolean')return v===true;return true;});
     if(visFields.length){
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});
+      const _splitTypeMapCard={splits:'box',tops:'top',nuc_splits:'nuc',cell_in:'in_yard'};
       visFields.forEach(f=>{
         const raw=entry[f.key];
         const val=Array.isArray(raw)?raw.join(' / '):typeof raw==='boolean'?'Yes':String(raw);
-        grid.appendChild(h('div',null,
-          h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
-          h('div',{style:{fontWeight:'600',fontSize:'14px',color:(f.key==='dead'||f.key==='died')&&parseInt(val)>0?'#e24b4a':f.key==='disease_checked'&&val==='1'?'#3d7a4f':'#1a1a1a'}},
-            f.key==='harvest_pct'?val+'%':f.key==='disease_checked'?(val==='1'?'✓ Yes':'No'):val)
-        ));
+        const isSplitNav=_splitTypeMapCard[f.key]&&parseInt(val)>0;
+        const cellDiv=h('div',null,
+          h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label)
+        );
+        if(isSplitNav){
+          const typeFilter=_splitTypeMapCard[f.key];
+          const grpKey='grp|'+site+'|'+entry.date;
+          const valEl=h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#9b59b6',display:'flex',alignItems:'center',gap:'3px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},val,' ↗');
+          const onTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;if(typeFilter!=='in_yard')STATE._expandedNucBatch=grpKey;setState({op:'__nucs__'});};
+          valEl.addEventListener('touchend',onTap,{passive:false});valEl.addEventListener('click',onTap);
+          cellDiv.appendChild(valEl);
+        } else {
+          cellDiv.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:(f.key==='dead'||f.key==='died')&&parseInt(val)>0?'#e24b4a':f.key==='disease_checked'&&val==='1'?'#3d7a4f':'#1a1a1a'}},
+            f.key==='harvest_pct'?val+'%':f.key==='disease_checked'?(val==='1'?'✓ Yes':'No'):val));
+        }
+        grid.appendChild(cellDiv);
       });
       body.appendChild(grid);
     }
@@ -10716,6 +10749,15 @@ function renderEntriesList(){
           btn.addEventListener('touchend',doDismiss,{passive:false});
           btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
+        } else if(['splits','tops','nuc_splits','cell_in'].includes(f.k)){
+          // Tappable pill — navigates straight to Splits page, filtered by type
+          const _splitTypeMap={splits:'box',tops:'top',nuc_splits:'nuc',cell_in:'in_yard'};
+          const typeFilter=_splitTypeMap[f.k];
+          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#c39bd3',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.35)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',gap:'3px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+          pill.appendChild(document.createTextNode(f.v+' '+f.l+' ↗'));
+          const onTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;if(typeFilter!=='in_yard')STATE._expandedNucBatch='grp|'+site+'|'+(allSiteEntries[0]?.date||'');setState({op:'__nucs__'});};
+          pill.addEventListener('touchend',onTap,{passive:false});pill.addEventListener('click',onTap);
+          eRow.appendChild(pill);
         } else {
           const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
           const showNormal=()=>{
@@ -10884,14 +10926,26 @@ function renderEntriesList(){
     const visFields=ALL_FIELDS.filter(f=>{const v=entry[f.key];if(v===undefined||v===null||v==='')return false;if(Array.isArray(v))return v.length>0;if(typeof v==='boolean')return v===true;return true;});
     if(visFields.length){
       const grid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px 12px',marginTop:'10px'}});
+      const _splitTypeMapCard={splits:'box',tops:'top',nuc_splits:'nuc',cell_in:'in_yard'};
       visFields.forEach(f=>{
         const raw=entry[f.key];
         const val=Array.isArray(raw)?raw.join(' / '):typeof raw==='boolean'?'Yes':String(raw);
-        grid.appendChild(h('div',null,
-          h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label),
-          h('div',{style:{fontWeight:'600',fontSize:'14px',color:(f.key==='dead'||f.key==='died')&&parseInt(val)>0?'#e24b4a':f.key==='disease_checked'&&val==='1'?'#3d7a4f':'#1a1a1a'}},
-            f.key==='harvest_pct'?val+'%':f.key==='disease_checked'?(val==='1'?'✓ Yes':'No'):val)
-        ));
+        const isSplitNav=_splitTypeMapCard[f.key]&&parseInt(val)>0;
+        const cellDiv=h('div',null,
+          h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.03em'}},f.label)
+        );
+        if(isSplitNav){
+          const typeFilter=_splitTypeMapCard[f.key];
+          const grpKey='grp|'+site+'|'+entry.date;
+          const valEl=h('div',{style:{fontWeight:'600',fontSize:'14px',color:'#9b59b6',display:'flex',alignItems:'center',gap:'3px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}},val,' ↗');
+          const onTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;if(typeFilter!=='in_yard')STATE._expandedNucBatch=grpKey;setState({op:'__nucs__'});};
+          valEl.addEventListener('touchend',onTap,{passive:false});valEl.addEventListener('click',onTap);
+          cellDiv.appendChild(valEl);
+        } else {
+          cellDiv.appendChild(h('div',{style:{fontWeight:'600',fontSize:'14px',color:(f.key==='dead'||f.key==='died')&&parseInt(val)>0?'#e24b4a':f.key==='disease_checked'&&val==='1'?'#3d7a4f':'#1a1a1a'}},
+            f.key==='harvest_pct'?val+'%':f.key==='disease_checked'?(val==='1'?'✓ Yes':'No'):val));
+        }
+        grid.appendChild(cellDiv);
       });
       body.appendChild(grid);
     }
