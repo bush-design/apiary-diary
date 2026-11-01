@@ -6865,11 +6865,31 @@ function showStatModal(opName, fieldKey, label, color, cutoffDate){
     const found=allEntries.find(({e})=>{const v=parseInt(e[fieldKey]);return !isNaN(v)&&v>0;})||allEntries[0];
     if(found){
       const {e:target,rk:targetRk}=found;
+      const resolvedCount=parseInt(target[fieldKey])||0; // capture before clearing
       target[fieldKey]=0;
       target.saved_at=new Date().toISOString(); // bump timestamp so sync pull doesn't clobber this
       saveLocal(STATE.entries);
       // Push to Supabase — without this, the next pull restores the old value from remote
       pushToSupabase(eKey(opName,site,targetRk),STATE.entries[eKey(opName,site,targetRk)]).catch(e=>console.warn('Resolve sync failed:',e));
+
+      // For cell_needed: log those cells as in-yard splits on the Splits page,
+      // exactly as if cell_in had been entered in a diary entry.
+      if(fieldKey==='cell_needed'&&resolvedCount>0){
+        const today=new Date().toISOString().slice(0,10);
+        const nucKey='__nucs__'+opName;
+        const allS=loadNucYards();
+        if(!allS[nucKey]) allS[nucKey]={name:'Splits',op:opName,batches:[]};
+        const allItems=allS[nucKey].batches.flatMap(b=>b.nucs||[]);
+        const nextId=allItems.length>0?Math.max(...allItems.map(n=>n.id))+1:1;
+        // If multiple batches already exist for this site, label as "Site 2", "Site 3" etc.
+        const sameSite=allS[nucKey].batches.filter(b=>b.splitType==='in_yard'&&(b.sourceYard===site||(b.sourceYard.startsWith(site+' ')&&/^\d+$/.test(b.sourceYard.slice(site.length+1)))));
+        const batchLabel=sameSite.length>0?site+' '+(sameSite.length+1):site;
+        const nucs=Array.from({length:resolvedCount},(_,i)=>({id:nextId+i,status:'cell',cellDate:today,virginDate:'',dlDate:'',matedDate:'',failedDate:'',transferredTo:'',transferredDate:'',notes:''}));
+        allS[nucKey].batches.push({id:Date.now()+Math.random(),sourceYard:batchLabel,sourceOp:opName,dateAdded:today,nucs,splitType:'in_yard',destYard:'',_fromResolve:true});
+        saveNucYards(allS); // also syncs to Supabase
+        showToast(resolvedCount+' cell'+(resolvedCount!==1?'s':'')+' in '+site+' added to Splits');
+      }
+
       overlay.remove();setState({});
     }
   }
