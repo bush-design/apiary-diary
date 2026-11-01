@@ -10526,8 +10526,8 @@ function renderForm(){
         // Create new or update existing batch for each desired type
         desired.forEach(({splitType,count,destYard})=>{
           if(count<=0) return;
-          // top/box/nuc require a destYard to appear on Splits page; in_yard does not
-          if(splitType!=='in_yard'&&!destYard) return;
+          // All split types appear on the Splits page regardless of whether a destination
+          // yard has been set — destination is optional extra info, not a gate.
           const existing=allS[nucKey].batches.find(b=>isDiary(b)&&b.splitType===splitType);
           if(existing){
             if(existing.destYard!==destYard){existing.destYard=destYard;changed=true;}
