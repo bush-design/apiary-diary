@@ -97,6 +97,23 @@ input,select,textarea,button{font-family:inherit;}
 .name-prompt{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:100;padding:20px;}
 .name-prompt-card{background:#fff;border-radius:16px;padding:24px;width:100%;max-width:320px;}
 </style>
+<script>
+// ── Offline self-caching ──────────────────────────────────────────────────────
+// This runs BEFORE the main app. If offline and localStorage has a newer saved
+// version of the page, we rehydrate from that copy immediately.
+var _APP_VER = '2026-11-08T12:00:00Z';
+(function(){
+  if (!navigator.onLine) {
+    try {
+      var sv = localStorage.getItem('apiary_cache_v');
+      var sh = localStorage.getItem('apiary_cache_h');
+      if (sh && sv && sv > _APP_VER) {
+        document.open(); document.write(sh); document.close();
+      }
+    } catch(e) {}
+  }
+})();
+</script>
 </head>
 <body>
 <div id="offline-bar" class="offline-bar">No signal — entries will sync when back online</div>
@@ -111,6 +128,26 @@ const EMAILJS_PUBLIC = 'SvCw22e4tNAnE7I7G';
 const EMAILJS_SERVICE = 'service_nv7016t';
 const EMAILJS_TEMPLATE = 'template_zmtu5bd';
 const REPORT_EMAIL = 'diaryapiary@gmail.com';
+
+// ── Auto-save for offline use ─────────────────────────────────────────────────
+// When online, silently cache the page HTML to localStorage so it's available
+// if the user opens the app while out of reception. Only writes when this
+// version is newer than what's already stored (avoids the ~900KB write every load).
+(function(){
+  if (!navigator.onLine) return;
+  try {
+    var stored = localStorage.getItem('apiary_cache_v') || '';
+    if (_APP_VER > stored) {
+      // Defer slightly so the DOM is fully ready
+      setTimeout(function(){
+        try {
+          localStorage.setItem('apiary_cache_h', document.documentElement.outerHTML);
+          localStorage.setItem('apiary_cache_v', _APP_VER);
+        } catch(e) {}
+      }, 2000);
+    }
+  } catch(e) {}
+})();
 
 // ── Supabase ──────────────────────────────────────────────────────────────────
 // sb and emailjs initialised lazily in loadLibraries()
@@ -2613,6 +2650,23 @@ function renderOpSelector(){
     h('div',{style:{fontSize:'22px',color:'#7ecb8f',opacity:'0.8'}},'›')
   ));
   wrap.appendChild(notesCard);
+
+  // Save offline copy button
+  const saveOfflineBtn=h('button',{style:{marginTop:'18px',padding:'11px 20px',background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:'10px',color:'rgba(255,255,255,0.55)',fontSize:'13px',fontWeight:'600',cursor:'pointer',width:'100%',textAlign:'center'},
+    onClick:()=>{
+      try{
+        const html=document.documentElement.outerHTML;
+        const blob=new Blob([html],{type:'text/html'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url;a.download='apiary_diary.html';
+        document.body.appendChild(a);a.click();
+        setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},200);
+        showToast('Saved — open from Files to use offline');
+      }catch(e){showToast('Could not save: '+e.message);}
+    }},'⬇ Save offline copy');
+  wrap.appendChild(saveOfflineBtn);
+
   return wrap;
 }
 
@@ -3068,21 +3122,26 @@ function renderNucsScreen(){
 
   // Operation toggle
   const ops=Object.keys(OPERATIONS);
-  let selectedOp=STATE._nucOp||ops[0];
+  // Multi-select ops — empty Set = all ops shown
+  let selectedOps=new Set(STATE._nucOps||(STATE._nucOp?[STATE._nucOp]:[]));
   const opToggle=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px',flexWrap:'wrap'}});
+  const refreshOpBtns=()=>{
+    opToggle.querySelectorAll('button').forEach((b,i)=>{
+      if(i===0){const a=selectedOps.size===0;b.style.border='1.5px solid '+(a?'#444':'#ddd');b.style.background=a?'#44444418':'#fff';b.style.color=a?'#222':'#888';}
+      else{const o=ops[i-1];const a=selectedOps.size===0||selectedOps.has(o);b.style.border='1.5px solid '+(a?OPERATIONS[o].color:'#ddd');b.style.background=a?OPERATIONS[o].color+'18':'#fff';b.style.color=a?OPERATIONS[o].color:'#888';}
+    });
+  };
+  const allOpBtn=h('button',{type:'button',style:{padding:'6px 14px',borderRadius:'20px',border:'1.5px solid '+(selectedOps.size===0?'#444':'#ddd'),background:selectedOps.size===0?'#44444418':'#fff',color:selectedOps.size===0?'#222':'#888',fontSize:'13px',fontWeight:'700',cursor:'pointer'}},'All');
+  allOpBtn.addEventListener('click',()=>{selectedOps=new Set();STATE._nucOps=null;refreshOpBtns();renderBatches();});
+  opToggle.appendChild(allOpBtn);
   ops.forEach(op=>{
-    const btn=h('button',{type:'button',style:{padding:'6px 14px',borderRadius:'20px',border:'1.5px solid '+(selectedOp===op?OPERATIONS[op].color:'#ddd'),background:selectedOp===op?OPERATIONS[op].color+'18':'#fff',color:selectedOp===op?OPERATIONS[op].color:'#888',fontSize:'13px',fontWeight:'700',cursor:'pointer'}},op);
+    const a=selectedOps.size===0||selectedOps.has(op);
+    const btn=h('button',{type:'button',style:{padding:'6px 14px',borderRadius:'20px',border:'1.5px solid '+(a?OPERATIONS[op].color:'#ddd'),background:a?OPERATIONS[op].color+'18':'#fff',color:a?OPERATIONS[op].color:'#888',fontSize:'13px',fontWeight:'700',cursor:'pointer'}},op);
     btn.addEventListener('click',()=>{
-      STATE._nucOp=op;
-      selectedOp=op;
-      renderBatches();
-      // Update toggle buttons
-      opToggle.querySelectorAll('button').forEach((b,i)=>{
-        const o=ops[i];
-        b.style.border='1.5px solid '+(selectedOp===o?OPERATIONS[o].color:'#ddd');
-        b.style.background=selectedOp===o?OPERATIONS[o].color+'18':'#fff';
-        b.style.color=selectedOp===o?OPERATIONS[o].color:'#888';
-      });
+      if(selectedOps.has(op)){if(selectedOps.size===1)selectedOps=new Set();else selectedOps.delete(op);}
+      else{if(selectedOps.size===0)selectedOps=new Set([op]);else selectedOps.add(op);}
+      STATE._nucOps=selectedOps.size>0?[...selectedOps]:null;
+      refreshOpBtns();renderBatches();
     });
     opToggle.appendChild(btn);
   });
@@ -3109,19 +3168,30 @@ function renderNucsScreen(){
   });
   screen.appendChild(viewToggle);
 
-  // Type filter toggle
-  const TYPE_FILTERS=[{k:'all',l:'All'},{k:'top',l:'Tops'},{k:'box',l:'Box'},{k:'nuc',l:'Nucs'},{k:'in_yard',l:'In Yard'}];
-  let selectedType=STATE._nucTypeFilter||'all';
-  const typeToggle=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px'}});
+  // Multi-select type filter — empty Set = all types shown
+  const TYPE_FILTERS=[{k:'top',l:'Tops'},{k:'box',l:'Box'},{k:'nuc',l:'Nucs'},{k:'in_yard',l:'In Yard'}];
+  let selectedTypes=new Set(STATE._nucTypes||(STATE._nucTypeFilter&&STATE._nucTypeFilter!=='all'?[STATE._nucTypeFilter]:[]));
+  const typeToggle=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px',flexWrap:'wrap'}});
+  const refreshTypeBtns=()=>{
+    typeToggle.querySelectorAll('button').forEach((b,i)=>{
+      const isAll=i===0;const a=isAll?selectedTypes.size===0:selectedTypes.has(TYPE_FILTERS[i-1].k);
+      b.style.border='1.5px solid '+(a?'#7a4fa8':'#ddd');b.style.background=a?'#7a4fa818':'#fff';b.style.color=a?'#7a4fa8':'#888';
+    });
+  };
+  const allTypeBtn=h('button',{type:'button',style:{padding:'5px 14px',borderRadius:'20px',border:'1.5px solid '+(selectedTypes.size===0?'#7a4fa8':'#ddd'),background:selectedTypes.size===0?'#7a4fa818':'#fff',color:selectedTypes.size===0?'#7a4fa8':'#888',fontSize:'13px',fontWeight:'700',cursor:'pointer'}},'All');
+  allTypeBtn.addEventListener('click',()=>{selectedTypes=new Set();STATE._nucTypes=null;STATE._nucTypeFilter='all';refreshTypeBtns();renderBatches();});
+  typeToggle.appendChild(allTypeBtn);
   TYPE_FILTERS.forEach(tf=>{
-    const active=selectedType===tf.k;
+    const active=selectedTypes.size===0||selectedTypes.has(tf.k);
     const btn=h('button',{type:'button',style:{padding:'5px 14px',borderRadius:'20px',border:'1.5px solid '+(active?'#7a4fa8':'#ddd'),background:active?'#7a4fa818':'#fff',color:active?'#7a4fa8':'#888',fontSize:'13px',fontWeight:'700',cursor:'pointer'}},tf.l);
     btn.addEventListener('click',()=>{
-      STATE._nucTypeFilter=tf.k;
-      selectedType=tf.k;
-      renderBatches();
+      if(selectedTypes.has(tf.k)){if(selectedTypes.size===1)selectedTypes=new Set();else selectedTypes.delete(tf.k);}
+      else{if(selectedTypes.size===0)selectedTypes=new Set([tf.k]);else selectedTypes.add(tf.k);}
+      STATE._nucTypes=selectedTypes.size>0?[...selectedTypes]:null;
+      STATE._nucTypeFilter=selectedTypes.size===1?[...selectedTypes][0]:'all';
+      refreshTypeBtns();renderBatches();
       typeToggle.querySelectorAll('button').forEach((b,i)=>{
-        const isA=TYPE_FILTERS[i].k===selectedType;
+        const isAll2=i===0;const isA=isAll2?selectedTypes.size===0:selectedTypes.has(TYPE_FILTERS[i-1].k);
         b.style.border='1.5px solid '+(isA?'#7a4fa8':'#ddd');
         b.style.background=isA?'#7a4fa818':'#fff';
         b.style.color=isA?'#7a4fa8':'#888';
@@ -3169,7 +3239,7 @@ function renderNucsScreen(){
     const all=loadNucYards();
     const inYardBatches=[];
     Object.entries(all).forEach(([key,yard])=>{
-      if(yard.op===selectedOp){
+      if(selectedOps.size===0||selectedOps.has(yard.op)){
         (yard.batches||[]).forEach((batch,bi)=>{
           if((batch.splitType||'nuc')==='in_yard') inYardBatches.push({key,yard,batch,bi});
         });
@@ -3215,7 +3285,7 @@ function renderNucsScreen(){
         const sc=cell.status==='failed'?'#e24b4a':cell.status==='mated'||cell.transferredTo?'#3d7a4f':cell.status==='dl'?'#1a6fb0':cell.status==='virgin'?'#9b59b6':cell.status==='cell'?'#ef9f27':'#b07800';
         const sl=cell.transferredTo?'QR ✓':cell.status==='failed'?'Failed':cell.status==='mated'?'Mated ✓':cell.status==='dl'?'DL':cell.status==='virgin'?'Virgin':cell.status==='cell'?'Cell in':'Need cell ⚠';
         const cRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
-          onClick:()=>showNucModal(selectedOp,key,bi,ci,()=>{STATE._nucOp=selectedOp;STATE._expandedInYard=expandKey;setState({op:'__nucs__'});})});
+          onClick:()=>showNucModal(yard.op,key,bi,ci,()=>{STATE._nucOp=yard.op;STATE._expandedInYard=expandKey;setState({op:'__nucs__'});})});
         const cRowLeft=h('div',null);
         cRowLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' cell '+(ci+1)));
         if(cell.cellDate) cRowLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'In: '+fmtDate(cell.cellDate)));
@@ -3227,11 +3297,11 @@ function renderNucsScreen(){
       // Batch actions
       const actRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',padding:'10px 14px',borderTop:'.5px solid #f0f0ee'}});
       actRow.appendChild(h('button',{style:{padding:'8px',background:'#b0780011',border:'1px solid #b07800',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#b07800',cursor:'pointer'},
-        onClick:()=>showBatchUpdateModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;STATE._expandedInYard=expandKey;setState({op:'__nucs__'});})},'Update batch'));
+        onClick:()=>showBatchUpdateModal(yard.op,key,bi,()=>{STATE._nucOp=yard.op;STATE._expandedInYard=expandKey;setState({op:'__nucs__'});})},'Update batch'));
       actRow.appendChild(h('button',{style:{padding:'8px',background:'#e24b4a11',border:'1px solid #e24b4a',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#e24b4a',cursor:'pointer'},
         onClick:()=>confirmAction('Delete this in-yard cell batch?',()=>{
           const all2=loadNucYards();all2[key].batches.splice(bi,1);saveNucYards(all2);
-          STATE._nucOp=selectedOp;setState({op:'__nucs__'});
+          STATE._nucOp=yard.op;setState({op:'__nucs__'});
         })},'Delete'));
       cBody.appendChild(actRow);
 
@@ -3263,10 +3333,10 @@ function renderNucsScreen(){
     // Collect all nucs grouped by destination yard
     const destGroups=new Map();
     Object.entries(all).forEach(([key,yard])=>{
-      if(yard.op!==selectedOp) return;
+      if(selectedOps.size>0&&!selectedOps.has(yard.op)) return;
       (yard.batches||[]).forEach((batch,bi)=>{
         const bt=batch.splitType||'nuc';
-        if(selectedType!=='all'&&selectedType!==bt) return;
+        if(selectedTypes.size>0&&!selectedTypes.has(bt)) return;
         (batch.nucs||[]).forEach((nuc,ni)=>{
           if(selectedStatus!=='all'){
             const match=selectedStatus==='mated'?(nuc.status==='mated'||!!nuc.transferredTo):selectedStatus==='waiting'?(!nuc.status||nuc.status==='waiting'):nuc.status===selectedStatus;
@@ -3279,7 +3349,8 @@ function renderNucsScreen(){
       });
     });
     if(!destGroups.size){
-      batchArea.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},'No splits yet for '+selectedOp));
+      const _opLabel=selectedOps.size===0?'all ops':selectedOps.size===1?[...selectedOps][0]:[...selectedOps].join(' / ');
+      batchArea.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},'No splits yet for '+_opLabel));
       return;
     }
     // Sort destinations alphabetically, (In Yard) last
@@ -3330,7 +3401,7 @@ function renderNucsScreen(){
           const sl=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Need cell ⚠';
           const srcGroupKey='grp|'+batch.sourceYard+'|'+(batch.dateAdded||'');
           const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
-            onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=srcGroupKey;STATE._nucViewMode='source';setState({op:'__nucs__'});})});
+            onClick:()=>showNucModal(yard.op,key,bi,ni,()=>{STATE._nucOp=yard.op;STATE._expandedNucBatch=srcGroupKey;STATE._nucViewMode='source';setState({op:'__nucs__'});})});
           const rLeft=h('div',null);
           rLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},src+' '+(ni+1)));
           if(nuc.cellDate) rLeft.appendChild(h('div',{style:{fontSize:'11px',color:'#ef9f27',marginTop:'1px'}},'Cell in: '+fmtDate(nuc.cellDate)));
@@ -3359,10 +3430,10 @@ function renderNucsScreen(){
     // Find all batches for this op, filtered by type and status, sorted newest first
     const opBatches=[];
     Object.entries(all).forEach(([key,yard])=>{
-      if(yard.op===selectedOp){
+      if(selectedOps.size===0||selectedOps.has(yard.op)){
         (yard.batches||[]).forEach((batch,bi)=>{
           const bt=batch.splitType||'nuc';
-          if(selectedType!=='all'&&selectedType!==bt) return;
+          if(selectedTypes.size>0&&!selectedTypes.has(bt)) return;
           // Status filter: batch must contain at least one nuc matching the status
           if(selectedStatus!=='all'){
             const nucs=batch.nucs||[];
@@ -3404,7 +3475,8 @@ function renderNucsScreen(){
     }
 
     if(!opBatches.length){
-      const emptyMsg=selectedStatus!=='all'?'No '+STATUS_FILTERS.find(s=>s.k===selectedStatus)?.l+' splits for '+selectedOp:selectedType==='all'?'No splits yet for '+selectedOp:'No '+TYPE_FILTERS.find(t=>t.k===selectedType)?.l+' splits yet for '+selectedOp;
+      const _opLbl=selectedOps.size===0?'all ops':selectedOps.size===1?[...selectedOps][0]:[...selectedOps].join(' / ');
+      const emptyMsg=selectedStatus!=='all'?'No '+STATUS_FILTERS.find(s=>s.k===selectedStatus)?.l+' splits for '+_opLbl:selectedTypes.size===0?'No splits yet for '+_opLbl:'No '+[...selectedTypes].map(t=>TYPE_FILTERS.find(f=>f.k===t)?.l||t).join('/')+" splits yet for "+_opLbl;
       batchArea.appendChild(h('div',{style:{textAlign:'center',padding:'30px 0',color:'#bbb',fontSize:'14px'}},emptyMsg));
     } else {
       // Group batches by yard name + date so same-yard same-day types appear in one card
@@ -3516,7 +3588,7 @@ function renderNucsScreen(){
             const sc=isTransferred?'#3d7a4f':nuc.status==='failed'?'#e24b4a':nuc.status==='mated'?'#3d7a4f':nuc.status==='dl'?'#1a6fb0':nuc.status==='virgin'?'#9b59b6':nuc.status==='cell'?'#ef9f27':'#b07800';
             const sl=isTransferred?'Transferred':nuc.status==='failed'?'Failed':nuc.status==='mated'?'Mated ✓':nuc.status==='dl'?'DL':nuc.status==='virgin'?'Virgin':nuc.status==='cell'?'Cell in':'Need cell ⚠';
             const nRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 14px',borderBottom:'.5px solid #f5f5f3',cursor:'pointer'},
-              onClick:()=>showNucModal(selectedOp,key,bi,ni,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=groupExpandKey;setState({op:'__nucs__'});})});
+              onClick:()=>showNucModal(yard.op,key,bi,ni,()=>{STATE._nucOp=yard.op;STATE._expandedNucBatch=groupExpandKey;setState({op:'__nucs__'});})});
             const nLeft=h('div',null);
             nLeft.appendChild(h('div',{style:{fontWeight:'600',fontSize:'13px'}},batch.sourceYard+' '+(ni+1)));
             if(nuc.cellDate){
@@ -3533,13 +3605,13 @@ function renderNucsScreen(){
           // Actions for this batch
           const actRow=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',padding:'10px 14px',borderTop:'.5px solid #f0f0ee',marginBottom:itemIdx<items.length-1?'0':'0'}});
           actRow.appendChild(h('button',{style:{padding:'8px',background:'#9b59b611',border:'1px solid #9b59b6',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#9b59b6',cursor:'pointer'},
-            onClick:()=>showBatchUpdateModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Update batch'));
+            onClick:()=>showBatchUpdateModal(yard.op,key,bi,()=>{STATE._nucOp=yard.op;setState({op:'__nucs__'});})},'Update batch'));
           actRow.appendChild(h('button',{style:{padding:'8px',background:'#1a6fb011',border:'1px solid #1a6fb0',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#1a6fb0',cursor:'pointer'},
-            onClick:()=>showSendNucsModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Send to yard'));
+            onClick:()=>showSendNucsModal(yard.op,key,bi,()=>{STATE._nucOp=yard.op;setState({op:'__nucs__'});})},'Send to yard'));
           actRow.appendChild(h('button',{style:{padding:'8px',background:'#ef9f2711',border:'1px solid #ef9f27',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#b07800',cursor:'pointer'},
-            onClick:()=>showCellSourceModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;STATE._expandedNucBatch=groupExpandKey;setState({op:'__nucs__'});})},'Cell source'));
+            onClick:()=>showCellSourceModal(yard.op,key,bi,()=>{STATE._nucOp=yard.op;STATE._expandedNucBatch=groupExpandKey;setState({op:'__nucs__'});})},'Cell source'));
           actRow.appendChild(h('button',{style:{padding:'8px',background:'#55555511',border:'1px solid #999',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#666',cursor:'pointer'},
-            onClick:()=>showChangeSourceModal(selectedOp,key,bi,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})},'Change source'));
+            onClick:()=>showChangeSourceModal(yard.op,key,bi,()=>{STATE._nucOp=yard.op;setState({op:'__nucs__'});})},'Change source'));
           actRow.appendChild(h('button',{style:{padding:'8px',background:'#e24b4a11',border:'1px solid #e24b4a',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#e24b4a',cursor:'pointer'},
             onClick:()=>{
               const msg=batch._fromDiary?'Delete this batch? This was created from a diary entry — deleting here will NOT remove the diary entry data.':'Delete this batch?';
@@ -3547,7 +3619,7 @@ function renderNucsScreen(){
                 const all2=loadNucYards();
                 all2[key].batches.splice(bi,1);
                 saveNucYards(all2);
-                STATE._nucOp=selectedOp;
+                STATE._nucOp=yard.op;
                 setState({op:'__nucs__'});
               });
             }},'Delete batch'));
@@ -3567,7 +3639,7 @@ function renderNucsScreen(){
 
     // Add batch button
     batchArea.appendChild(h('button',{style:{width:'100%',padding:'13px',background:'#9b59b6',color:'#fff',border:'none',borderRadius:'10px',fontSize:'14px',fontWeight:'700',cursor:'pointer',marginTop:'4px'},
-      onClick:()=>showAddNucBatchModal(selectedOp,'__nucs__'+selectedOp,()=>{STATE._nucOp=selectedOp;setState({op:'__nucs__'});})
+      onClick:()=>{const _addOp=selectedOps.size===1?[...selectedOps][0]:selectedOps.size>1?[...selectedOps][0]:ops[0];showAddNucBatchModal(_addOp,'__nucs__'+_addOp,()=>{setState({op:'__nucs__'});});}
     },'+ Add split batch'));
   }
 
