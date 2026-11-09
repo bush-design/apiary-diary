@@ -7038,7 +7038,7 @@ function showPollinationDetailModal(opName, cutoffDate){
   // the returned hives originally came from, so returns reduce the orchard total).
   const byOrchard={}; // { orchardName: { net, sites: { siteName: hives }, returns } }
   const unmatchedReturns=[]; // from_orchard movements where to_site not in opSites
-  loadMovements().filter(m=>!cutoffDate||m.date<=cutoffDate).forEach(m=>{
+  loadMovements().filter(m=>!m._silent&&(!cutoffDate||m.date<=cutoffDate)).forEach(m=>{
     const mh=movHives(m);
     if(!mh) return;
     if(m.direction==='to_orchard'&&opSites.includes(m.from_site)){
@@ -13064,7 +13064,7 @@ function renderMovementsScreen(){
 
           // Movement timeline
           const movBody=h('div',{style:{padding:'10px 14px'}});
-          const allMoves=data.moves.sort((a,b)=>b.date.localeCompare(a.date));
+          const allMoves=data.moves.filter(m=>!m._silent).sort((a,b)=>b.date.localeCompare(a.date));
           allMoves.forEach(m=>{
             const isIn=m.type==='in';
             const row=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'5px'}});
@@ -13078,6 +13078,33 @@ function renderMovementsScreen(){
             movBody.appendChild(row);
           });
           card.appendChild(movBody);
+
+          // "Already home?" disclosure — hidden by default, clearly not a movement log
+          const alreadyHomeWrap=h('div',{style:{borderTop:'.5px solid #f0f0ee',padding:'8px 14px'}});
+          const disclosureToggle=h('button',{type:'button',style:{background:'none',border:'none',padding:'0',fontSize:'12px',color:'#bbb',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'}});
+          disclosureToggle.appendChild(document.createTextNode('Already home? ▸'));
+          const disclosureBody=h('div',{hidden:true,style:{marginTop:'8px'}});
+          disclosureBody.appendChild(h('p',{style:{fontSize:'12px',color:'#999',margin:'0 0 8px'}},'Use this only if the hives are already back and you forgot to log the return trip. This clears the orchard record without adding anything to your movement history or tallies.'));
+          disclosureBody.appendChild(h('button',{type:'button',style:{padding:'7px 12px',background:'none',border:'1px solid #ddd',borderRadius:'7px',fontSize:'12px',color:'#888',cursor:'pointer',fontWeight:'600'},
+            onClick:()=>confirmAction('Clear '+site+' from '+o+'? This will not create a movement record — use the Return Trip tab if you want the return logged.',async()=>{
+              const today=new Date().toISOString().slice(0,10);
+              const silentMov={id:Date.now()+'_'+Math.random().toString(36).slice(2,8),direction:'from_orchard',from_orchard:o,to_site:site,pallets:0,singles:netHives,hives:netHives,date:today,recorded_at:new Date().toISOString(),_silent:true};
+              const allMov=await getMergedRemoteMovements();
+              const updated=[...allMov,silentMov];
+              saveMovements(updated);
+              await pushToSupabase('hive_movements',updated);
+              showToast('Orchard record cleared');
+              setState({tab:'orchards'});
+            })
+          },'Clear orchard record (no movement logged)'));
+          disclosureToggle.addEventListener('click',()=>{
+            const open=!disclosureBody.hidden;
+            disclosureBody.hidden=open;
+            disclosureToggle.lastChild.textContent=(open?'Already home? ▸':'Already home? ▾');
+          });
+          alreadyHomeWrap.appendChild(disclosureToggle);
+          alreadyHomeWrap.appendChild(disclosureBody);
+          card.appendChild(alreadyHomeWrap);
           screen.appendChild(card);
         });
       }
@@ -13594,7 +13621,7 @@ function renderMovementsScreen(){
 
   // ── History tab ──
   else if(STATE.tab==='history'){
-    const allMovements=[...loadMovements()].sort((a,b)=>{
+    const allMovements=[...loadMovements()].filter(m=>!m._silent).sort((a,b)=>{
       const dc=(b.date||'').localeCompare(a.date||'');
       return dc!==0?dc:(b.recorded_at||'').localeCompare(a.recorded_at||'');
     });
