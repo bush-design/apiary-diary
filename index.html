@@ -1231,16 +1231,19 @@ async function pullFromSupabase(skipRender){
               } else {
                 const localBatches=merged[key].batches||[];
                 const remoteBatches=remoteYard.batches||[];
+                // Union of deleted batch IDs from both sides — once deleted, always deleted
+                const deletedIds=new Set([...(merged[key]._deletedBatchIds||[]),...(remoteYard._deletedBatchIds||[])]);
                 const byId={};
-                // Local batches go in first
-                localBatches.forEach(b=>{byId[String(b.id)]=b;});
-                // Remote adds batches not in local; if id matches, keep whichever has more nucs
+                // Local batches go in first (skip any that are tombstoned)
+                localBatches.forEach(b=>{if(!deletedIds.has(String(b.id)))byId[String(b.id)]=b;});
+                // Remote adds batches not in local; if id matches, keep whichever has more nucs; skip tombstoned
                 remoteBatches.forEach(b=>{
                   const sid=String(b.id);
+                  if(deletedIds.has(sid)) return;
                   if(!byId[sid]) byId[sid]=b;
                   else if((b.nucs||[]).length>(byId[sid].nucs||[]).length) byId[sid]=b;
                 });
-                merged[key]={...merged[key],...remoteYard,batches:Object.values(byId)};
+                merged[key]={...merged[key],...remoteYard,batches:Object.values(byId),_deletedBatchIds:[...deletedIds]};
               }
             });
             try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(merged));}catch(e){}
@@ -3300,7 +3303,9 @@ function renderNucsScreen(){
         onClick:()=>showBatchUpdateModal(yard.op,key,bi,()=>{STATE._nucOp=yard.op;STATE._expandedInYard=expandKey;setState({op:'__nucs__'});})},'Update batch'));
       actRow.appendChild(h('button',{style:{padding:'8px',background:'#e24b4a11',border:'1px solid #e24b4a',borderRadius:'7px',fontSize:'12px',fontWeight:'700',color:'#e24b4a',cursor:'pointer'},
         onClick:()=>confirmAction('Delete this in-yard cell batch?',()=>{
-          const all2=loadNucYards();all2[key].batches.splice(bi,1);saveNucYards(all2);
+          const all2=loadNucYards();
+          const _db=all2[key].batches[bi];if(_db&&_db.id){all2[key]._deletedBatchIds=(all2[key]._deletedBatchIds||[]);if(!all2[key]._deletedBatchIds.includes(String(_db.id)))all2[key]._deletedBatchIds.push(String(_db.id));}
+          all2[key].batches.splice(bi,1);saveNucYards(all2);
           STATE._nucOp=yard.op;setState({op:'__nucs__'});
         })},'Delete'));
       cBody.appendChild(actRow);
@@ -3561,7 +3566,7 @@ function renderNucsScreen(){
 
         // Expandable body: individual items per batch, with type section divider if multiple types
         const bBody=h('div',{style:{display:isExpanded?'block':'none'}});
-        items.forEach(({key,batch,bi},itemIdx)=>{
+        items.forEach(({key,yard,batch,bi},itemIdx)=>{
           const nucs=batch.nucs||[];
           if(!nucs.length) return;
           const meta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
@@ -3617,6 +3622,7 @@ function renderNucsScreen(){
               const msg=batch._fromDiary?'Delete this batch? This was created from a diary entry — deleting here will NOT remove the diary entry data.':'Delete this batch?';
               confirmAction(msg,()=>{
                 const all2=loadNucYards();
+                const _db2=all2[key].batches[bi];if(_db2&&_db2.id){all2[key]._deletedBatchIds=(all2[key]._deletedBatchIds||[]);if(!all2[key]._deletedBatchIds.includes(String(_db2.id)))all2[key]._deletedBatchIds.push(String(_db2.id));}
                 all2[key].batches.splice(bi,1);
                 saveNucYards(all2);
                 STATE._nucOp=yard.op;
