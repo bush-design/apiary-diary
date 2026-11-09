@@ -12976,29 +12976,32 @@ function renderMovementsScreen(){
       movements.forEach(m=>{
         if(m.direction==='to_orchard'&&m.to_orchard===o){
           const site=m.from_site;if(!site)return;
-          if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,moves:[]};
+          if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,sentHives:0,retHives:0,moves:[]};
           const mPal=movPallets(m), mSing=parseInt(m.singles)||0, mRaw=mPal*4+mSing;
           const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
           // No pallet/singles breakdown — treat all as individuals (unpalletised)
           siteBreakdown[site].sent+=mRaw>0?mPal:0;
           siteBreakdown[site].sentSingles+=mRaw>0?mSing:mHives;
+          siteBreakdown[site].sentHives+=movHives(m);
           siteBreakdown[site].moves.push({...m,type:'in'});
         }
         if(m.direction==='from_orchard'&&m.from_orchard===o){
           const site=m.to_site;if(!site)return;
-          if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,moves:[]};
+          if(!siteBreakdown[site])siteBreakdown[site]={sent:0,returned:0,sentSingles:0,retSingles:0,sentHives:0,retHives:0,moves:[]};
           const mPal=movPallets(m), mSing=parseInt(m.singles)||0, mRaw=mPal*4+mSing;
           const mHives=parseInt(m.hives)>0?parseInt(m.hives):mRaw;
           siteBreakdown[site].returned+=mRaw>0?mPal:0;
           siteBreakdown[site].retSingles+=mRaw>0?mSing:mHives;
+          siteBreakdown[site].retHives+=movHives(m);
           siteBreakdown[site].moves.push({...m,type:'out'});
         }
       });
 
-      const activeSites=Object.entries(siteBreakdown).filter(([,v])=>(v.sent-v.returned)>0||(v.sentSingles-v.retSingles)>0);
-      const totalNetPal=activeSites.reduce((a,[,v])=>a+(v.sent-v.returned),0);
-      const totalNetSing=activeSites.reduce((a,[,v])=>a+(v.sentSingles-v.retSingles),0);
-      const totalNetHives=totalNetPal*4+totalNetSing;
+      // Use net hive count (not separate pallet/singles) so pallet-in / individuals-out correctly nets to zero
+      const activeSites=Object.entries(siteBreakdown).filter(([,v])=>(v.sentHives-v.retHives)>0);
+      const totalNetHives=activeSites.reduce((a,[,v])=>a+(v.sentHives-v.retHives),0);
+      const totalNetPal=activeSites.reduce((a,[,v])=>a+Math.max(0,v.sent-v.returned),0);
+      const totalNetSing=Math.max(0,totalNetHives-totalNetPal*4);
 
       // Summary bar
       screen.appendChild(h('div',{style:{background:'#2a1f3d',borderRadius:'10px',padding:'14px',marginBottom:'14px'}},
@@ -13023,9 +13026,9 @@ function renderMovementsScreen(){
       } else {
         screen.appendChild(h('div',{style:{fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',letterSpacing:'.07em',marginBottom:'10px'}},activeSites.length+' yard'+(activeSites.length!==1?'s':'')+' currently here'));
         activeSites.sort((a,b)=>(b[1].sent-b[1].returned)-(a[1].sent-a[1].returned)).forEach(([site,data])=>{
-          const netPal=data.sent-data.returned;
-          const netSing=data.sentSingles-data.retSingles;
-          const netHives=netPal*4+netSing;
+          const netHives=Math.max(0,data.sentHives-data.retHives);
+          const netPal=Math.max(0,data.sent-data.returned);
+          const netSing=Math.max(0,netHives-netPal*4);
           const hasReturns=data.returned>0||data.retSingles>0;
 
           const card=h('div',{style:{background:'#fff',border:'.5px solid #e0e0de',borderRadius:'12px',marginBottom:'10px',overflow:'hidden'}});
