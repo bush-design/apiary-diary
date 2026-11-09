@@ -3515,7 +3515,7 @@ function renderNucsScreen(){
         });
 
         const primaryMeta=SPLIT_TYPE_META[items[0].batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
-        const totalNeedsCell=items.reduce((sum,{batch})=>sum+(batch.nucs||[]).filter(n=>!n.cellDate&&n.status!=='failed'&&!n.transferredTo).length,0);
+        const totalNeedsCell=items.reduce((sum,{batch})=>sum+(batch.nucs||[]).filter(n=>!n.cellDate&&n.status!=='failed'&&n.status!=='mated'&&n.status!=='dl'&&n.status!=='virgin'&&!n.transferredTo).length,0);
         const card=h('div',{style:{background:primaryMeta.color+'07',borderRadius:'12px',marginBottom:'10px',overflow:'hidden',border:'.5px solid '+primaryMeta.color+'40',borderLeft:'4px solid '+primaryMeta.color}});
 
         // Card header: yard name + type badges, tappable to expand
@@ -3542,7 +3542,7 @@ function renderNucsScreen(){
           const meta=SPLIT_TYPE_META[batch.splitType||'nuc']||SPLIT_TYPE_META.nuc;
           const mated=nucs.filter(n=>n.status==='mated'||n.transferredTo).length;
           const failed=nucs.filter(n=>n.status==='failed').length;
-          const needsCellSub=nucs.filter(n=>!n.cellDate&&n.status!=='failed'&&!n.transferredTo).length;
+          const needsCellSub=nucs.filter(n=>!n.cellDate&&n.status!=='failed'&&n.status!=='mated'&&n.status!=='dl'&&n.status!=='virgin'&&!n.transferredTo).length;
           const countLabel=batch.splitType==='in_yard'?(nucs.length+' cell'+(nucs.length!==1?'s':'')+' in yard'):(nucs.length+' split'+(nucs.length!==1?'s':''));
           const sr=h('div',{style:{display:'flex',alignItems:'center',gap:'5px',marginBottom:'2px',fontSize:'12px',flexWrap:'wrap'}});
           sr.appendChild(h('span',{style:{fontWeight:'700',color:meta.color}},countLabel));
