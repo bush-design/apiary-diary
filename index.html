@@ -2287,8 +2287,10 @@ function anchoredHivesForSite(opName, site, cutoffDate){
   const anchorDate=anchor.date||'';
   const anchorTime=anchor.saved_at||anchor.logged_at||(anchorDate+'T12:00:00');
 
-  // Apply movement record deltas that occurred AFTER the anchor entry
+  // Apply movement record deltas that occurred AFTER the anchor entry.
+  // Also track per-date credited hive counts for the diary fallback below.
   let delta=0;
+  const _mvOutByDate={},_mvInByDate={};
   loadMovements().forEach(m=>{
     if(cutoffDate&&(m.date||'')>cutoffDate) return;
     const mDate=m.date||'';
@@ -2311,13 +2313,45 @@ function anchoredHivesForSite(opName, site, cutoffDate){
     // keeping the fleet total (s.hives + opHivesOut) stable across movements.
     const mhCount=movHives(m);
     if(m.direction==='yard_yard'){
-      if(fromHere) delta-=mhCount;
-      else if(toHere) delta+=mhCount;
+      if(fromHere){delta-=mhCount;if(mhCount>0)_mvOutByDate[mDate]=(_mvOutByDate[mDate]||0)+mhCount;}
+      else if(toHere){delta+=mhCount;if(mhCount>0)_mvInByDate[mDate]=(_mvInByDate[mDate]||0)+mhCount;}
     } else if(m.direction==='to_orchard'){
-      if(fromHere) delta-=mhCount; // hives left yard physically (but still owned by op)
+      if(fromHere){delta-=mhCount;if(mhCount>0)_mvOutByDate[mDate]=(_mvOutByDate[mDate]||0)+mhCount;}
     } else if(m.direction==='from_orchard'){
-      if(toHere) delta+=mhCount; // hives returned to yard
+      if(toHere){delta+=mhCount;if(mhCount>0)_mvInByDate[mDate]=(_mvInByDate[mDate]||0)+mhCount;}
     }
+  });
+
+  // Fallback: when a movement record's hive count resolved to 0 (e.g. alive_hives, pallets,
+  // and singles were all missing but m.hives wasn't saved correctly), the auto-logged diary
+  // movement entry still captures hivesMoved correctly. Use it to fill the gap so a movement
+  // that clearly happened ("14 hives moved") actually affects the count.
+  // Only kicks in for the gap between what movement records already credited and what the
+  // diary entry says — prevents double-counting when records ARE correct.
+  Object.keys(ROUNDS).forEach(rk=>{
+    (STATE.entries[eKey(opName,site,rk)]||[]).forEach(e=>{
+      if(!e._movement) return;
+      const hm=parseInt(e.hivesMoved)||0;
+      if(hm<=0) return;
+      if(cutoffDate&&(e.date||'')>cutoffDate) return;
+      const eDate=e.date||'';
+      if(eDate<anchorDate) return;
+      if(eDate===anchorDate){
+        const eTime=e.saved_at||e.logged_at||(eDate+'T12:00:00');
+        if(eTime<=anchorTime) return;
+      }
+      const comments=(e.comments||'').trim();
+      const isOut=comments.startsWith('MOVED OUT:')||comments.startsWith('MOVEMENT OUT:');
+      const isIn=comments.startsWith('MOVED IN:')||comments.startsWith('MOVEMENT IN:');
+      if(!isOut&&!isIn) return;
+      if(isOut){
+        const c=_mvOutByDate[eDate]||0;
+        if(c<hm){delta-=(hm-c);_mvOutByDate[eDate]=hm;}
+      } else {
+        const c=_mvInByDate[eDate]||0;
+        if(c<hm){delta+=(hm-c);_mvInByDate[eDate]=hm;}
+      }
+    });
   });
 
   return Math.max(0,anchorHives+delta);
@@ -9149,16 +9183,33 @@ function renderEntriesList(){
   const currentHives=computeCurrentHivesForSite(op,site);
   const allMovements=loadMovements();
   const latestDiaryDate2=allSiteEntries[0]?.date||'';
+  const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   let movementNet=0;
+  const _mnOutByDate={},_mnInByDate={};
   allMovements.forEach(m=>{
     if(latestDiaryDate2&&m.date<latestDiaryDate2) return;
     const hives=movHives(m);
-    if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
-    else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
-    else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
-    else if(m.direction==='yard_yard'&&m.to_site===site) movementNet+=hives;
+    if(m.direction==='to_orchard'&&m.from_site===site){movementNet-=hives;if(hives>0)_mnOutByDate[m.date]=(_mnOutByDate[m.date]||0)+hives;}
+    else if(m.direction==='from_orchard'&&m.to_site===site){movementNet+=hives;if(hives>0)_mnInByDate[m.date]=(_mnInByDate[m.date]||0)+hives;}
+    else if(m.direction==='yard_yard'&&m.from_site===site){movementNet-=hives;if(hives>0)_mnOutByDate[m.date]=(_mnOutByDate[m.date]||0)+hives;}
+    else if(m.direction==='yard_yard'&&m.to_site===site){movementNet+=hives;if(hives>0)_mnInByDate[m.date]=(_mnInByDate[m.date]||0)+hives;}
   });
-  const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  // Diary fallback: keep display net in sync with anchoredHivesForSite's actual count.
+  // When a movement record's hive count resolves to 0 (m.hives missing or zero, alive_hives
+  // and pallets/singles also zero), the auto-logged diary entry still carries hivesMoved
+  // correctly — use it to fill the gap so the display matches what the diary shows.
+  movementEntries.forEach(e=>{
+    if(latestDiaryDate2&&(e.date||'')<latestDiaryDate2) return;
+    const hm=parseInt(e.hivesMoved)||0;
+    if(hm<=0) return;
+    const comments=(e.comments||'').trim();
+    const isOut=comments.startsWith('MOVED OUT:')||comments.startsWith('MOVEMENT OUT:');
+    const isIn=comments.startsWith('MOVED IN:')||comments.startsWith('MOVEMENT IN:');
+    if(!isOut&&!isIn) return;
+    const eDate=e.date||'';
+    if(isOut){const c=_mnOutByDate[eDate]||0;if(c<hm){movementNet-=(hm-c);_mnOutByDate[eDate]=hm;}}
+    else{const c=_mnInByDate[eDate]||0;if(c<hm){movementNet+=(hm-c);_mnInByDate[eDate]=hm;}}
+  });
   const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
   const hasMovement=movementNet!==0||latestMovementHives>0;
 
@@ -10728,16 +10779,33 @@ function renderEntriesList(){
   const currentHives=computeCurrentHivesForSite(op,site);
   const allMovements=loadMovements();
   const latestDiaryDate2=allSiteEntries[0]?.date||'';
+  const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   let movementNet=0;
+  const _mnOutByDate={},_mnInByDate={};
   allMovements.forEach(m=>{
     if(latestDiaryDate2&&m.date<latestDiaryDate2) return;
     const hives=movHives(m);
-    if(m.direction==='to_orchard'&&m.from_site===site) movementNet-=hives;
-    else if(m.direction==='from_orchard'&&m.to_site===site) movementNet+=hives;
-    else if(m.direction==='yard_yard'&&m.from_site===site) movementNet-=hives;
-    else if(m.direction==='yard_yard'&&m.to_site===site) movementNet+=hives;
+    if(m.direction==='to_orchard'&&m.from_site===site){movementNet-=hives;if(hives>0)_mnOutByDate[m.date]=(_mnOutByDate[m.date]||0)+hives;}
+    else if(m.direction==='from_orchard'&&m.to_site===site){movementNet+=hives;if(hives>0)_mnInByDate[m.date]=(_mnInByDate[m.date]||0)+hives;}
+    else if(m.direction==='yard_yard'&&m.from_site===site){movementNet-=hives;if(hives>0)_mnOutByDate[m.date]=(_mnOutByDate[m.date]||0)+hives;}
+    else if(m.direction==='yard_yard'&&m.to_site===site){movementNet+=hives;if(hives>0)_mnInByDate[m.date]=(_mnInByDate[m.date]||0)+hives;}
   });
-  const movementEntries=Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>e._movement)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  // Diary fallback: keep display net in sync with anchoredHivesForSite's actual count.
+  // When a movement record's hive count resolves to 0 (m.hives missing or zero, alive_hives
+  // and pallets/singles also zero), the auto-logged diary entry still carries hivesMoved
+  // correctly — use it to fill the gap so the display matches what the diary shows.
+  movementEntries.forEach(e=>{
+    if(latestDiaryDate2&&(e.date||'')<latestDiaryDate2) return;
+    const hm=parseInt(e.hivesMoved)||0;
+    if(hm<=0) return;
+    const comments=(e.comments||'').trim();
+    const isOut=comments.startsWith('MOVED OUT:')||comments.startsWith('MOVEMENT OUT:');
+    const isIn=comments.startsWith('MOVED IN:')||comments.startsWith('MOVEMENT IN:');
+    if(!isOut&&!isIn) return;
+    const eDate=e.date||'';
+    if(isOut){const c=_mnOutByDate[eDate]||0;if(c<hm){movementNet-=(hm-c);_mnOutByDate[eDate]=hm;}}
+    else{const c=_mnInByDate[eDate]||0;if(c<hm){movementNet+=(hm-c);_mnInByDate[eDate]=hm;}}
+  });
   const latestMovementHives=parseInt(movementEntries[0]?.hives)||0;
   const hasMovement=movementNet!==0||latestMovementHives>0;
 
