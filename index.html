@@ -1154,6 +1154,23 @@ async function forceSyncNow(){
   }
   if(!_sbLoaded){showToast('Could not connect to cloud');updateSyncDot('error');return;}
   try{subscribeRealtime();}catch(e){}
+  showToast('Syncing — pushing local data…');
+  // Push ALL local stores so other devices can pull everything, not just pending queue
+  try{
+    const pushes=[
+      pushToSupabase('nuc_yards', loadNucYards()),
+      pushToSupabase('hive_movements', loadMovementsRaw()),
+      pushToSupabase('years', loadYears()),
+    ];
+    // Push all diary entries
+    const local=loadLocal();
+    Object.entries(local).forEach(([k,v])=>{ pushes.push(pushToSupabase(k,v)); });
+    // Push checks, flags, pallet baselines individually (keyed per site)
+    Object.entries(loadChecks()).forEach(([k,v])=>{ pushes.push(pushToSupabase(k,v)); });
+    Object.entries(loadFlags()).forEach(([k,v])=>{ pushes.push(pushToSupabase(k,v)); });
+    Object.entries(loadPalletBaselines()).forEach(([k,v])=>{ pushes.push(pushToSupabase(k,v)); });
+    await Promise.allSettled(pushes);
+  }catch(e){}
   await flushPending();
   await pullFromSupabase(false);
   showToast('Sync complete ✓');
