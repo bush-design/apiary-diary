@@ -1271,8 +1271,10 @@ async function pullFromSupabase(skipRender){
         }
         if(row.entry_key==='nuc_yards'){
           if(row.data&&typeof row.data==='object'){
-            // Merge at batch level: local wins for batches it has (preserves cell-level updates),
-            // remote adds any batches not present locally (picks up other devices' work).
+            // Score a batch by its most advanced nuc status — used to break ties when both
+            // sides have the same number of nucs. Transferred > mated > DL > virgin > cell > waiting.
+            const NUC_STATUS_SCORE={waiting:0,'':0,cell:1,virgin:2,dl:3,mated:4};
+            const batchAdvancement=b=>(b.nucs||[]).reduce((mx,n)=>Math.max(mx,n.transferredTo?5:(NUC_STATUS_SCORE[n.status]||0)),0);
             const local=loadNucYards();
             const merged={...local};
             Object.entries(row.data).forEach(([key,remoteYard])=>{
@@ -1281,17 +1283,18 @@ async function pullFromSupabase(skipRender){
               } else {
                 const localBatches=merged[key].batches||[];
                 const remoteBatches=remoteYard.batches||[];
-                // Union of deleted batch IDs from both sides — once deleted, always deleted
                 const deletedIds=new Set([...(merged[key]._deletedBatchIds||[]),...(remoteYard._deletedBatchIds||[])]);
                 const byId={};
-                // Local batches go in first (skip any that are tombstoned)
                 localBatches.forEach(b=>{if(!deletedIds.has(String(b.id)))byId[String(b.id)]=b;});
-                // Remote adds batches not in local; if id matches, keep whichever has more nucs; skip tombstoned
                 remoteBatches.forEach(b=>{
                   const sid=String(b.id);
                   if(deletedIds.has(sid)) return;
-                  if(!byId[sid]) byId[sid]=b;
-                  else if((b.nucs||[]).length>(byId[sid].nucs||[]).length) byId[sid]=b;
+                  if(!byId[sid]){byId[sid]=b;return;}
+                  const localLen=(byId[sid].nucs||[]).length;
+                  const remoteLen=(b.nucs||[]).length;
+                  if(remoteLen>localLen){byId[sid]=b;return;}
+                  // Same nuc count — pick whichever has more advanced statuses
+                  if(remoteLen===localLen&&batchAdvancement(b)>batchAdvancement(byId[sid])){byId[sid]=b;}
                 });
                 merged[key]={...merged[key],...remoteYard,batches:Object.values(byId),_deletedBatchIds:[...deletedIds]};
               }
@@ -1439,10 +1442,12 @@ function subscribeRealtime(){
     }
     if(entry_key==='nuc_yards'){
       if(data&&typeof data==='object'){
+        const NUC_STATUS_SCORE={waiting:0,'':0,cell:1,virgin:2,dl:3,mated:4};
+        const batchAdvancement=b=>(b.nucs||[]).reduce((mx,n)=>Math.max(mx,n.transferredTo?5:(NUC_STATUS_SCORE[n.status]||0)),0);
         const local=loadNucYards();const merged={...local};
         Object.entries(data).forEach(([key,remoteYard])=>{
           if(!merged[key]){merged[key]=remoteYard;}
-          else{const localB=merged[key].batches||[];const remoteB=remoteYard.batches||[];const byId={};localB.forEach(b=>{byId[String(b.id)]=b;});remoteB.forEach(b=>{const sid=String(b.id);if(!byId[sid])byId[sid]=b;else if((b.nucs||[]).length>(byId[sid].nucs||[]).length)byId[sid]=b;});merged[key]={...merged[key],...remoteYard,batches:Object.values(byId)};}
+          else{const localB=merged[key].batches||[];const remoteB=remoteYard.batches||[];const byId={};localB.forEach(b=>{byId[String(b.id)]=b;});remoteB.forEach(b=>{const sid=String(b.id);if(!byId[sid]){byId[sid]=b;return;}const lLen=(byId[sid].nucs||[]).length,rLen=(b.nucs||[]).length;if(rLen>lLen){byId[sid]=b;}else if(rLen===lLen&&batchAdvancement(b)>batchAdvancement(byId[sid])){byId[sid]=b;}});merged[key]={...merged[key],...remoteYard,batches:Object.values(byId)};}
         });
         try{localStorage.setItem('apiary_nuc_yards',JSON.stringify(merged));}catch(e){}
       }
