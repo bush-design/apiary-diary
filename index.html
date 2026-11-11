@@ -602,7 +602,7 @@ async function addMovement(mov){
     // multi-yard consolidation truckload), each source's data combines into the same entry:
     // numeric fields sum together, comma-separated fields (treatment, diseases) merge uniquely,
     // free-text notes concatenate.
-    const COLLATE_SUM_FIELDS=['qr','virgin','cell_in','cell_needed','tops','splits','nuc_splits','breeders','finishers',
+    const COLLATE_SUM_FIELDS=['qr','virgin','cell_in','cell_needed','nucs_needed','tops','splits','nuc_splits','breeders','finishers',
       'pol_pallet','part_pallet','pol_singles','pol_bc','pol_doubles','hives_fed','honey_hives_fed','pollen_hives_fed',
       'fd_on','on_34','fd_harv','harv_34','honeycomb_fd','honeycomb_hd','best_hive_boxes'];
     // Litres Fed is a per-hive rate applied across the whole yard, not a running total — when
@@ -2045,7 +2045,7 @@ async function exportSinceLastExport(){
 function calcSummary(opName, cutoffDate){
   const sites=allSitesFor(opName);
   // include custom yards
-  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,pol=0,part=0,carrot=0,qr=0,virgin=0,cellNeeded=0;
+  let hives=0,dead=0,alive=0,deadHives=0,singles=0,doubles=0,light=0,weak=0,lidsFloors=0,pol=0,part=0,carrot=0,qr=0,virgin=0,cellNeeded=0,nucsNeeded=0;
   const treatmentSites={}; // {treatmentName: [{site, hives, raw}]}
   const breederSites=[],finisherSites=[],swabSites=[],polSinglesSites=[],polBcSites=[],polDoublesSites=[],polPalletSites=[],partPalletSites=[],carrotSites=[];
   const siteScoreEntries={};
@@ -2141,7 +2141,7 @@ function calcSummary(opName, cutoffDate){
     on34+=lastVal('on_34');
     hcFdOn+=lastVal('honeycomb_fd');
     hcHdOn+=lastVal('honeycomb_hd');
-    qr+=lastVal('qr');virgin+=lastVal('virgin');cellNeeded+=lastVal('cell_needed');
+    qr+=lastVal('qr');virgin+=lastVal('virgin');cellNeeded+=lastVal('cell_needed');nucsNeeded+=lastVal('nucs_needed');
     // Breeders — most recent entry in ANY round, not just Spring, so a breeder logged in
     // Summer (or any other season) still counts toward the fleet total.
     const breederCount=getSiteBreederCount(opName,site,cutoffDate);
@@ -2167,7 +2167,7 @@ function calcSummary(opName, cutoffDate){
   });
   const avgScore=sc>0?(st/sc).toFixed(1):null;
   const barCounts=[0,1,2,3,4,5,6].map(s=>{let c=0;sites.forEach(site=>{const v=parseInt(siteScoreEntries[site]?.score_breakdown?.[s]);if(!isNaN(v))c+=v;});return c;});
-  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,treatmentSites,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,qr,virgin,cellNeeded,diedThisSeason,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polDoublesSites,polPalletSites,partPalletSites,carrotSites};
+  return{hives,dead,alive,deadHives,singles,doubles,light,weak,lidsFloors,treatmentSites,pol,part,carrot,fdOn,on34,hcFdOn,hcHdOn,qr,virgin,cellNeeded,nucsNeeded,diedThisSeason,avgScore,barCounts,scoreHives:sc,logged,total:sites.length,flagged,breederSites,finisherSites,swabSites,polSinglesSites,polBcSites,polDoublesSites,polPalletSites,partPalletSites,carrotSites};
 }
 
 // ── Shared: current breeder count for a site — most recent entry (any round) that actually
@@ -7699,11 +7699,11 @@ function renderSummaryPanel(opName, cutoffDate){
     panel.appendChild(boxDiv);
   }
   // Queen raising section
-  if(prefs.queen&&(s.qr+s.virgin+s.cellNeeded>0)){
+  if(prefs.queen&&(s.qr+s.virgin+s.cellNeeded+s.nucsNeeded>0)){
     const qrDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
     qrDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Queen raising'));
     const qrGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px'}});
-    [{l:'QR',v:s.qr,k:'qr'},{l:'Virgin',v:s.virgin,k:'virgin'},{l:'Cell Needed',v:s.cellNeeded,k:'cell_needed'}].filter(x=>x.v>0).forEach(st=>{
+    [{l:'QR',v:s.qr,k:'qr'},{l:'Virgin',v:s.virgin,k:'virgin'},{l:'Cell Needed',v:s.cellNeeded,k:'cell_needed'},{l:'Nucs Needed',v:s.nucsNeeded,k:'nucs_needed'}].filter(x=>x.v>0).forEach(st=>{
       const tile=h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)'}});
       tile.appendChild(h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#c39bd3',lineHeight:'1.1'}},st.v));
       tile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l+' ↗'));
@@ -8883,6 +8883,7 @@ function renderSitesList(){
         {l:'Nuc Splits'+(lvStr2('nuc_splits_dest')?' → '+lvStr2('nuc_splits_dest'):''),v:sumRound2('nuc_splits'),show:sumRound2('nuc_splits')>0},
         {l:'Cell In',v:sumRound2('cell_in'),show:sumRound2('cell_in')>0},
         {l:'Cell Needed',v:anchoredVal2('cell_needed'),show:anchoredVal2('cell_needed')>0},
+        {l:'Nucs Needed',v:anchoredVal2('nucs_needed'),show:anchoredVal2('nucs_needed')>0},
         {l:'Pollen fed',v:anchoredVal2('pollen_hives_fed'),show:anchoredVal2('pollen_hives_fed')>0},
         {l:'Hives Fed',v:anchoredVal2('hives_fed'),show:anchoredVal2('hives_fed')>0},
         {l:'Litres Fed',v:anchoredVal2('litres_fed'),show:anchoredVal2('litres_fed')>0},
@@ -8968,6 +8969,7 @@ function renderSitesList(){
       nucSplits:sumRound2('nuc_splits'),
       cellIn:sumRound2('cell_in'),
       cellNeeded:anchoredVal2('cell_needed'),
+      nucsNeeded:anchoredVal2('nucs_needed'),
       qr:lv('qr'),
       virgin:lv('virgin'),
       breeders:getSiteBreederCount(op,site),
@@ -9018,6 +9020,7 @@ function renderSitesList(){
     {key:'nucSplits',label:'Nuc Splits',  color:'#555',   bg:'#f0f0ee'},
     {key:'cellIn',  label:'Cell In',      color:'#7a4fa8',bg:'#f3e8ff'},
     {key:'cellNeeded',label:'Cell Needed',color:'#c0392b',bg:'#fde8e8'},
+    {key:'nucsNeeded',label:'Nucs Needed',color:'#c0392b',bg:'#fde8e8'},
     {key:'qr',      label:'QR',           color:'#7a4fa8',bg:'#f3e8ff'},
     {key:'virgin',  label:'Virgin',       color:'#7a4fa8',bg:'#f3e8ff'},
     {key:'breeders',label:'Breeders',     color:'#7a4fa8',bg:'#f3e8ff'},
@@ -9328,6 +9331,7 @@ function renderEntriesList(){
       {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:sumRound('nuc_splits'),show:sumRound('nuc_splits')>0},
       {k:'cell_in',l:'Cell In',v:sumRound('cell_in'),show:sumRound('cell_in')>0},
       {k:'cell_needed',l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
+      {k:'nucs_needed',l:'Nucs Needed',v:anchoredVal('nucs_needed'),show:anchoredVal('nucs_needed')>0},
       {k:'hives_fed',l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
       {k:'litres_fed',l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
     ].filter(x=>x.show);
@@ -9497,7 +9501,7 @@ function renderEntriesList(){
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
       {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
-      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},
+      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},{key:'nucs_needed',label:'Nucs Needed'},
       {key:'tops',label:'Top Splits'},{key:'tops_dest',label:'Top Splits → '},{key:'splits',label:'Box Splits'},{key:'splits_dest',label:'Box Splits → '},{key:'nuc_splits',label:'Nuc Splits'},{key:'nuc_splits_dest',label:'Nuc Splits → '},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
@@ -10104,7 +10108,7 @@ function renderForm(){
     ]},
     {key:'queens',label:'Requeening',color:'#7a4fa8',fields:[
       {key:'qr',label:'QR',type:'number'},{key:'virgin',label:'Virgin',type:'number'},
-      {key:'cell_in',label:'Cell In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},
+      {key:'cell_in',label:'Cell In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},{key:'nucs_needed',label:'Nucs Needed',type:'number'},
       {key:'cell_breeder',label:'Breeder',type:'pill_select',options:['B1','B2','B3','B4','B5'],color:'#1a6fb0'},
       {key:'cell_finisher',label:'Finisher',type:'pill_multi_select',options:Array.from({length:19},(_,i)=>'F'+(i+1)),color:'#3d7a4f'},
       {key:'tops',label:'Top Splits',type:'number'},{key:'tops_dest',label:'Top splits sent to',type:'yard_dest'},
@@ -10919,6 +10923,7 @@ function renderEntriesList(){
       {k:'finishers',l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
       {k:'cell_in',l:'Cell In',v:sumRound('cell_in'),show:sumRound('cell_in')>0},
       {k:'cell_needed',l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
+      {k:'nucs_needed',l:'Nucs Needed',v:anchoredVal('nucs_needed'),show:anchoredVal('nucs_needed')>0},
       {k:'hives_fed',l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
       {k:'litres_fed',l:'Litres Fed',v:anchoredVal('litres_fed'),show:anchoredVal('litres_fed')>0},
     ].filter(x=>x.show);
@@ -11088,7 +11093,7 @@ function renderEntriesList(){
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
       {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
-      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},
+      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},{key:'nucs_needed',label:'Nucs Needed'},
       {key:'tops',label:'Top Splits'},{key:'tops_dest',label:'Top Splits → '},{key:'splits',label:'Box Splits'},{key:'splits_dest',label:'Box Splits → '},{key:'nuc_splits',label:'Nuc Splits'},{key:'nuc_splits_dest',label:'Nuc Splits → '},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
