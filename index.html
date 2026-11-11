@@ -7915,8 +7915,12 @@ function renderRoundTable(op){
     {key:'nucSplits',label:'Nuc Splits',show:rows.some(r=>r.nucSplits>0)},
   ].filter(c=>c.always||c.show);
 
-  // Sort rows — unvisited always at bottom
-  rows.sort((a,b)=>{
+  // Group by batch (preserving yard order), sort within each batch
+  const batchOrder=Object.keys(yards);
+  const grouped={};
+  batchOrder.forEach(b=>{grouped[b]=[];});
+  rows.forEach(row=>{if(grouped[row.batchName])grouped[row.batchName].push(row);});
+  const sortWithin=(arr)=>arr.sort((a,b)=>{
     if(!a.visited&&b.visited) return 1;
     if(a.visited&&!b.visited) return -1;
     let va=a[sortKey],vb=b[sortKey];
@@ -7926,6 +7930,7 @@ function renderRoundTable(op){
     if(va>vb) return 1*sortDir;
     return a.site.localeCompare(b.site);
   });
+  batchOrder.forEach(b=>{if(grouped[b])sortWithin(grouped[b]);});
 
   // CSV export button
   const csvBtn=h('button',{
@@ -7964,43 +7969,53 @@ function renderRoundTable(op){
   thead.appendChild(hdrRow);
   tbl.appendChild(thead);
 
-  // Body
+  // Body — grouped by batch
   const tbody=h('tbody',null);
-  rows.forEach((row,ri)=>{
-    const rowBg=ri%2===0?'#fff':'#fafafa';
-    const tr=h('tr',{
-      style:{background:rowBg,borderBottom:'.5px solid #eee',opacity:row.visited?'1':'0.4',cursor:'pointer'},
-      onClick:()=>{Object.entries(getYards(op)).forEach(([batch,data])=>{if(data.sites.includes(row.site))setState({tab:'diary',run:batch,site:row.site,diaryView:'entries'});});}
-    });
-    cols.forEach((col,ci)=>{
-      const td=h('td',{
-        style:{
-          padding:ci===0?'9px 12px 9px 14px':'8px 10px',
-          textAlign:ci===0?'left':'right',
-          fontWeight:ci===0?'600':'400',
-          color:'#333',
-          whiteSpace:ci===0?'nowrap':'normal',
-          ...(ci===0?{position:'sticky',left:'0',background:rowBg,zIndex:'1',boxShadow:'2px 0 5px rgba(0,0,0,0.05)'}:{})
-        }
+  let globalRi=0;
+  batchOrder.forEach(batchName=>{
+    const bRows=grouped[batchName];
+    if(!bRows||!bRows.length) return;
+    // Batch header row
+    const bHdr=h('tr',{style:{background:'#eeece8',borderTop:'1.5px solid #ddd',borderBottom:'.5px solid #ddd'}});
+    const bTd=h('td',{colSpan:String(cols.length),style:{padding:'6px 14px',fontSize:'11px',fontWeight:'700',color:'#666',textTransform:'uppercase',letterSpacing:'.07em',position:'sticky',left:'0'}},batchName);
+    bHdr.appendChild(bTd);
+    tbody.appendChild(bHdr);
+    bRows.forEach(row=>{
+      const rowBg=globalRi%2===0?'#fff':'#fafafa';
+      globalRi++;
+      const tr=h('tr',{
+        style:{background:rowBg,borderBottom:'.5px solid #eee',opacity:row.visited?'1':'0.4',cursor:'pointer'},
+        onClick:()=>{Object.entries(getYards(op)).forEach(([batch,data])=>{if(data.sites.includes(row.site))setState({tab:'diary',run:batch,site:row.site,diaryView:'entries'});});}
       });
-      const v=row[col.key];
-      if(col.key==='site'){
-        td.appendChild(h('div',null,v));
-        td.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',fontWeight:'400',marginTop:'1px'}},row.batchName));
-      } else if(col.key==='lastVisit'){
-        td.textContent=v?fmtDate(v):'—';
-        td.style.color='#aaa';td.style.fontSize='12px';
-      } else if(v>0){
-        td.textContent=v;
-        if(col.key==='cellNeeded'||col.key==='nucsNeeded'){td.style.color='#c0392b';td.style.fontWeight='700';}
-        else if(col.key==='qr'||col.key==='virgin'||col.key==='cellIn'){td.style.color='#7a4fa8';td.style.fontWeight='600';}
-        else {td.style.color='#555';td.style.fontWeight='600';}
-      } else {
-        td.textContent='—';td.style.color='#ddd';
-      }
-      tr.appendChild(td);
+      cols.forEach((col,ci)=>{
+        const td=h('td',{
+          style:{
+            padding:ci===0?'9px 12px 9px 14px':'8px 10px',
+            textAlign:ci===0?'left':'right',
+            fontWeight:ci===0?'600':'400',
+            color:'#333',
+            whiteSpace:ci===0?'nowrap':'normal',
+            ...(ci===0?{position:'sticky',left:'0',background:rowBg,zIndex:'1',boxShadow:'2px 0 5px rgba(0,0,0,0.05)'}:{})
+          }
+        });
+        const v=row[col.key];
+        if(col.key==='site'){
+          td.textContent=v;
+        } else if(col.key==='lastVisit'){
+          td.textContent=v?fmtDate(v):'—';
+          td.style.color='#aaa';td.style.fontSize='12px';
+        } else if(v>0){
+          td.textContent=v;
+          if(col.key==='cellNeeded'||col.key==='nucsNeeded'){td.style.color='#c0392b';td.style.fontWeight='700';}
+          else if(col.key==='qr'||col.key==='virgin'||col.key==='cellIn'){td.style.color='#7a4fa8';td.style.fontWeight='600';}
+          else{td.style.color='#555';td.style.fontWeight='600';}
+        } else {
+          td.textContent='—';td.style.color='#ddd';
+        }
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
     });
-    tbody.appendChild(tr);
   });
   tbl.appendChild(tbody);
   tableWrap.appendChild(tbl);
