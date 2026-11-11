@@ -87,7 +87,7 @@ input,select,textarea,button{font-family:inherit;}
 .op-card{width:100%;max-width:360px;margin-bottom:14px;padding:16px 18px 14px;border-radius:14px;cursor:pointer;text-align:left;border:none;}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;}
-.sync-dot{width:8px;height:8px;border-radius:50%;background:#aaa;flex-shrink:0;}
+.sync-dot{width:10px;height:10px;border-radius:50%;background:#aaa;flex-shrink:0;cursor:pointer;padding:8px;box-sizing:content-box;margin:-8px;}
 .sync-dot.online{background:#7ecb8f;}
 .sync-dot.syncing{background:#ef9f27;animation:pulse 1s infinite;}
 .sync-dot.error{background:#e24b4a;}
@@ -1143,6 +1143,25 @@ function updateSyncDot(status){
   document.querySelectorAll('.sync-dot').forEach(d=>{
     d.className='sync-dot '+status;
   });
+}
+
+async function forceSyncNow(){
+  if(!navigator.onLine){showToast('No connection');return;}
+  updateSyncDot('syncing');
+  if(!_sbLoaded){
+    _sbLoaded=await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2');
+    if(_sbLoaded){try{window._sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);}catch(e){_sbLoaded=false;}}
+  }
+  if(!_sbLoaded){showToast('Could not connect to cloud');updateSyncDot('error');return;}
+  try{subscribeRealtime();}catch(e){}
+  await flushPending();
+  await pullFromSupabase(false);
+  showToast('Sync complete ✓');
+}
+
+function makeSyncDot(extraStyle){
+  const d=h('div',{className:'sync-dot '+(STATE.syncStatus||'online'),style:{cursor:'pointer',flexShrink:'0',...(extraStyle||{})},title:'Tap to sync',onClick:forceSyncNow});
+  return d;
 }
 
 // ── Supabase sync ─────────────────────────────────────────────────────────────
@@ -2522,7 +2541,7 @@ function renderOpSelector(){
   // Header with sync dot
   const headerRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}});
   headerRow.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.35)',letterSpacing:'.15em',textTransform:'uppercase'}},'Select operation'));
-  headerRow.appendChild(h('div',{className:'sync-dot '+(navigator.onLine?'online':'error')}));
+  headerRow.appendChild(makeSyncDot());
   wrap.appendChild(headerRow);
   wrap.appendChild(h('div',{style:{fontSize:'26px',fontWeight:'800',color:'#fff',marginBottom:'6px',letterSpacing:'-.02em'}},'Apiary Diary'));
   wrap.appendChild(h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.35)',marginBottom:'28px'}},'Logged in as: '+(STATE.userName||'Unknown')));
@@ -2759,7 +2778,7 @@ function renderSeasonNotesScreen(){
   const topRow=h('div',{className:'header-top'});
   topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
   topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
-  topRow.appendChild(h('div',{className:'sync-dot '+(navigator.onLine?'online':'error')}));
+  topRow.appendChild(makeSyncDot());
   header.appendChild(topRow);
   header.appendChild(h('div',{className:'header-title'},'Season Notes'));
   wrap.appendChild(header);
@@ -3150,7 +3169,7 @@ function renderNucsScreen(){
   const topRow=h('div',{className:'header-top'});
   topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
   topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
-  topRow.appendChild(h('div',{className:'sync-dot '+(navigator.onLine?'online':'error')}));
+  topRow.appendChild(makeSyncDot());
   header.appendChild(topRow);
   header.appendChild(h('div',{className:'header-title'},'Splits'));
   wrap.appendChild(header);
@@ -3710,7 +3729,7 @@ function renderReportsScreen(){
   const topRow=h('div',{className:'header-top'});
   topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
   topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
-  topRow.appendChild(h('div',{className:'sync-dot '+(navigator.onLine?'online':'error')}));
+  topRow.appendChild(makeSyncDot());
   header.appendChild(topRow);
   header.appendChild(h('div',{className:'header-title'},'Reports'));
   wrap.appendChild(header);
@@ -12111,7 +12130,7 @@ function renderMovementsScreen(){
   const topRow=h('div',{className:'header-top'});
   topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
   topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
-  topRow.appendChild(h('div',{className:'sync-dot',style:{marginLeft:'auto'}}));
+  topRow.appendChild(makeSyncDot({marginLeft:'auto'}));
   header.appendChild(topRow);
   header.appendChild(h('div',{className:'header-title'},'Hive Movements'));
   const tb=h('div',{className:'tab-bar'});
@@ -14484,7 +14503,7 @@ function renderApp(){
   const topRow=h('div',{className:'header-top'});
   topRow.appendChild(h('button',{className:'back-btn',onClick:()=>setState({op:null})},'‹ Ops'));
   topRow.appendChild(h('div',{className:'header-sub'},'Apiary Diary'));
-  topRow.appendChild(h('div',{className:'sync-dot',style:{marginLeft:'auto'}}));
+  topRow.appendChild(makeSyncDot({marginLeft:'auto'}));
   header.appendChild(topRow);
   header.appendChild(h('div',{className:'header-title'},op+' — '+(STATE.userName||'')));
   const tb=h('div',{className:'tab-bar'});
