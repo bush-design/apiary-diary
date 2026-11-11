@@ -1154,30 +1154,30 @@ async function forceSyncNow(){
   }
   if(!_sbLoaded){showToast('Could not connect to cloud');updateSyncDot('error');return;}
   try{subscribeRealtime();}catch(e){}
-  showToast('Syncing — pushing local data…');
-  // Push ALL local stores so other devices can pull everything, not just pending queue
+  showToast('Syncing…');
+  // Step 1: Pull first — merge remote into local before pushing anything.
+  // This prevents a device with partial data from overwriting another device's data.
+  await pullFromSupabase(true); // skipRender=true while we still have more to do
+  await flushPending();
+  // Step 2: Now push all local data — which now includes the merged result from step 1,
+  // so blob keys like nuc_yards contain the full combined dataset, not just this device's slice.
   try{
     const pushes=[
       pushToSupabase('nuc_yards', loadNucYards()),
       pushToSupabase('hive_movements', loadMovementsRaw()),
       pushToSupabase('years', loadYears()),
     ];
-    // Push all diary entries
     const local=loadLocal();
     Object.entries(local).forEach(([k,v])=>{ pushes.push(pushToSupabase(k,v)); });
-    // Push checks, flags, pallet baselines individually (keyed per site)
     Object.entries(loadChecks()).forEach(([k,v])=>{ pushes.push(pushToSupabase(k,v)); });
     Object.entries(loadFlags()).forEach(([k,v])=>{ pushes.push(pushToSupabase(k,v)); });
     Object.entries(loadPalletBaselines()).forEach(([k,v])=>{ pushes.push(pushToSupabase(k,v)); });
     await Promise.allSettled(pushes);
   }catch(e){}
-  await flushPending();
+  // Step 3: Pull once more to pick up anything other devices pushed while we were working,
+  // and trigger the render that shows the final merged state.
   await pullFromSupabase(false);
-  // Diagnostic: show what landed in localStorage after the pull
-  const nucCount=Object.keys(loadNucYards()).length;
-  const nucBatches=Object.values(loadNucYards()).reduce((a,y)=>a+(y.batches||[]).length,0);
-  const entryCount=Object.keys(loadLocal()).length;
-  showToast('Sync done — '+nucBatches+' split batch'+(nucBatches!==1?'es':'')+(nucCount?' ('+nucCount+' yards)':'')+', '+entryCount+' diary keys');
+  showToast('Sync complete ✓');
 }
 
 function makeSyncDot(extraStyle){
