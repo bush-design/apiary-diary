@@ -1173,7 +1173,11 @@ async function forceSyncNow(){
   }catch(e){}
   await flushPending();
   await pullFromSupabase(false);
-  showToast('Sync complete ✓');
+  // Diagnostic: show what landed in localStorage after the pull
+  const nucCount=Object.keys(loadNucYards()).length;
+  const nucBatches=Object.values(loadNucYards()).reduce((a,y)=>a+(y.batches||[]).length,0);
+  const entryCount=Object.keys(loadLocal()).length;
+  showToast('Sync done — '+nucBatches+' split batch'+(nucBatches!==1?'es':'')+(nucCount?' ('+nucCount+' yards)':'')+', '+entryCount+' diary keys');
 }
 
 function makeSyncDot(extraStyle){
