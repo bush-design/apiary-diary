@@ -7853,11 +7853,216 @@ function renderSummaryPanel(opName, cutoffDate){
   return panel;
 }
 
+function renderRoundTable(op){
+  const roundKey=STATE.tableRound||'queen';
+  const round=ROUNDS[roundKey];
+  const yards=getYards(op);
+  const accent=OPERATIONS[op]?.accent||'#333';
+  const wrap=h('div',null);
+
+  // Round selector tabs
+  const roundRow=h('div',{style:{display:'flex',gap:'6px',marginBottom:'14px',overflowX:'auto',paddingBottom:'2px'}});
+  roundRow.style.cssText+='scrollbar-width:none;-webkit-scrollbar-width:none;';
+  Object.entries(ROUNDS).forEach(([rk,r])=>{
+    const active=rk===roundKey;
+    const btn=h('button',{style:{padding:'6px 14px',borderRadius:'20px',background:active?r.color:'transparent',color:active?'#fff':r.color,border:'1.5px solid '+r.color,fontSize:'12px',fontWeight:'700',cursor:'pointer',whiteSpace:'nowrap',flexShrink:'0'},
+      onClick:()=>setState({tableRound:rk})},r.short);
+    roundRow.appendChild(btn);
+  });
+  wrap.appendChild(roundRow);
+
+  // Collect per-site data for selected round
+  const sortKey=STATE.tableSortKey||'site';
+  const sortDir=STATE.tableSortDir||1;
+  const rows=[];
+  Object.entries(yards).forEach(([batchName,batchData])=>{
+    batchData.sites.forEach(site=>{
+      const entries=(STATE.entries[eKey(op,site,roundKey)]||[]).filter(e=>!e._movement);
+      const sorted=entries.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+      const latest=sorted[0]||null;
+      const cellIn=entries.reduce((a,e)=>a+(parseInt(e.cell_in)||0),0);
+      const splits=entries.reduce((a,e)=>a+(parseInt(e.splits)||0),0);
+      const tops=entries.reduce((a,e)=>a+(parseInt(e.tops)||0),0);
+      const nucSplits=entries.reduce((a,e)=>a+(parseInt(e.nuc_splits)||0),0);
+      rows.push({
+        site,batchName,
+        lastVisit:latest?.date||null,
+        hives:parseInt(latest?.hives)||0,
+        qr:parseInt(latest?.qr)||0,
+        virgin:parseInt(latest?.virgin)||0,
+        cellNeeded:parseInt(latest?.cell_needed)||0,
+        nucsNeeded:parseInt(latest?.nucs_needed)||0,
+        cellIn,splits,tops,nucSplits,
+        visited:!!latest
+      });
+    });
+  });
+
+  // Determine which columns have any data to show
+  const cols=[
+    {key:'site',label:'Site',always:true},
+    {key:'lastVisit',label:'Last Visit',always:true},
+    {key:'hives',label:'Hives',always:true},
+    {key:'qr',label:'QR',show:rows.some(r=>r.qr>0)},
+    {key:'virgin',label:'Virgin',show:rows.some(r=>r.virgin>0)},
+    {key:'cellNeeded',label:'Cell Needed',show:rows.some(r=>r.cellNeeded>0)},
+    {key:'nucsNeeded',label:'Nucs Needed',show:rows.some(r=>r.nucsNeeded>0)},
+    {key:'cellIn',label:'Cell In',show:rows.some(r=>r.cellIn>0)},
+    {key:'splits',label:'Splits',show:rows.some(r=>r.splits>0)},
+    {key:'tops',label:'Tops',show:rows.some(r=>r.tops>0)},
+    {key:'nucSplits',label:'Nuc Splits',show:rows.some(r=>r.nucSplits>0)},
+  ].filter(c=>c.always||c.show);
+
+  // Sort rows — unvisited always at bottom
+  rows.sort((a,b)=>{
+    if(!a.visited&&b.visited) return 1;
+    if(a.visited&&!b.visited) return -1;
+    let va=a[sortKey],vb=b[sortKey];
+    if(sortKey==='site'||sortKey==='lastVisit'){va=va||'';vb=vb||'';}
+    else{va=Number(va)||0;vb=Number(vb)||0;}
+    if(va<vb) return -1*sortDir;
+    if(va>vb) return 1*sortDir;
+    return a.site.localeCompare(b.site);
+  });
+
+  // CSV export button
+  const csvBtn=h('button',{
+    style:{marginBottom:'10px',padding:'7px 14px',borderRadius:'8px',background:'#f4f4f2',border:'.5px solid #ccc',fontSize:'13px',fontWeight:'600',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px'},
+    onClick:()=>{exportRoundTableCSV(op,roundKey,rows,cols);showToast('Downloading CSV…');}
+  },'⬇ Export CSV');
+  wrap.appendChild(csvBtn);
+
+  // Table
+  const tableWrap=h('div',{style:{overflowX:'auto',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'10px',WebkitOverflowScrolling:'touch'}});
+  const minW=Math.max(360,cols.length*82)+'px';
+  const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:minW,fontSize:'13px'}});
+
+  // Header
+  const thead=h('thead',null);
+  const hdrRow=h('tr',{style:{background:'#f4f4f2',borderBottom:'1.5px solid #ddd'}});
+  cols.forEach((col,ci)=>{
+    const isActive=sortKey===col.key;
+    const th=h('th',{
+      style:{
+        padding:ci===0?'10px 12px 10px 14px':'9px 10px',
+        textAlign:ci===0?'left':'right',
+        fontSize:'11px',fontWeight:'700',
+        color:isActive?accent:'#888',
+        textTransform:'uppercase',letterSpacing:'.05em',
+        cursor:'pointer',whiteSpace:'nowrap',userSelect:'none',
+        ...(ci===0?{position:'sticky',left:'0',background:'#f4f4f2',zIndex:'2',boxShadow:'2px 0 5px rgba(0,0,0,0.07)'}:{})
+      },
+      onClick:()=>{
+        if(sortKey===col.key){setState({tableSortDir:sortDir===1?-1:1});}
+        else{setState({tableSortKey:col.key,tableSortDir:(col.key==='site'||col.key==='lastVisit')?1:-1});}
+      }
+    },col.label+(isActive?(sortDir===1?' ↑':' ↓'):''));
+    hdrRow.appendChild(th);
+  });
+  thead.appendChild(hdrRow);
+  tbl.appendChild(thead);
+
+  // Body
+  const tbody=h('tbody',null);
+  rows.forEach((row,ri)=>{
+    const rowBg=ri%2===0?'#fff':'#fafafa';
+    const tr=h('tr',{
+      style:{background:rowBg,borderBottom:'.5px solid #eee',opacity:row.visited?'1':'0.4',cursor:'pointer'},
+      onClick:()=>{Object.entries(getYards(op)).forEach(([batch,data])=>{if(data.sites.includes(row.site))setState({tab:'diary',run:batch,site:row.site,diaryView:'entries'});});}
+    });
+    cols.forEach((col,ci)=>{
+      const td=h('td',{
+        style:{
+          padding:ci===0?'9px 12px 9px 14px':'8px 10px',
+          textAlign:ci===0?'left':'right',
+          fontWeight:ci===0?'600':'400',
+          color:'#333',
+          whiteSpace:ci===0?'nowrap':'normal',
+          ...(ci===0?{position:'sticky',left:'0',background:rowBg,zIndex:'1',boxShadow:'2px 0 5px rgba(0,0,0,0.05)'}:{})
+        }
+      });
+      const v=row[col.key];
+      if(col.key==='site'){
+        td.appendChild(h('div',null,v));
+        td.appendChild(h('div',{style:{fontSize:'10px',color:'#aaa',fontWeight:'400',marginTop:'1px'}},row.batchName));
+      } else if(col.key==='lastVisit'){
+        td.textContent=v?fmtDate(v):'—';
+        td.style.color='#aaa';td.style.fontSize='12px';
+      } else if(v>0){
+        td.textContent=v;
+        if(col.key==='cellNeeded'||col.key==='nucsNeeded'){td.style.color='#c0392b';td.style.fontWeight='700';}
+        else if(col.key==='qr'||col.key==='virgin'||col.key==='cellIn'){td.style.color='#7a4fa8';td.style.fontWeight='600';}
+        else {td.style.color='#555';td.style.fontWeight='600';}
+      } else {
+        td.textContent='—';td.style.color='#ddd';
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  tableWrap.appendChild(tbl);
+  wrap.appendChild(tableWrap);
+
+  // Footer note
+  wrap.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb',marginBottom:'12px',lineHeight:'1.5'}},
+    'Cell Needed / Nucs Needed = latest entry. Cell In / Splits = round total. Faded rows not yet visited this round. Tap a row to open that yard.'
+  ));
+  return wrap;
+}
+
+function exportRoundTableCSV(op,roundKey,rows,cols){
+  const round=ROUNDS[roundKey];
+  const headers=cols.map(c=>c.label);
+  // Add batch column after site
+  const allCols=['Site','Batch',...headers.slice(1)];
+  const csvRows=[allCols.join(',')];
+  rows.forEach(row=>{
+    const vals=cols.map((col,ci)=>{
+      if(ci===0) return '"'+(row.site||'').replace(/"/g,'""')+'"';
+      if(col.key==='lastVisit') return row.lastVisit?fmtDate(row.lastVisit):'';
+      const v=row[col.key];
+      return (v>0)?v:'';
+    });
+    // Insert batch after site
+    vals.splice(1,0,'"'+(row.batchName||'').replace(/"/g,'""')+'"');
+    csvRows.push(vals.join(','));
+  });
+  const csv='﻿'+csvRows.join('\r\n'); // BOM for Excel
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=op+'_'+(round?.label||roundKey)+'_table.csv';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function renderOverviewTab(){
   const op=STATE.op,yards=getYards(op);
   const screen=h('div',{className:'screen'});
   const snapshotDate=STATE.snapshotDate||null;
   screen.appendChild(renderSummaryPanel(op, snapshotDate));
+
+  // ── Cards / Table toggle ──
+  if(!snapshotDate){
+    const tglRow=h('div',{style:{display:'flex',justifyContent:'flex-end',marginBottom:'10px',gap:'6px'}});
+    const mode=STATE.overviewMode||'cards';
+    [{k:'cards',l:'⊞ Cards'},{k:'table',l:'⊟ Table'}].forEach(({k,l})=>{
+      const active=mode===k;
+      const btn=h('button',{
+        style:{padding:'5px 13px',borderRadius:'20px',fontSize:'12px',fontWeight:'700',cursor:'pointer',
+          background:active?'#333':'transparent',color:active?'#fff':'#aaa',
+          border:'1.5px solid '+(active?'#333':'#ddd')},
+        onClick:()=>setState({overviewMode:k,tableRound:STATE.tableRound||'queen'})
+      },l);
+      tglRow.appendChild(btn);
+    });
+    screen.appendChild(tglRow);
+    if((STATE.overviewMode||'cards')==='table'){
+      screen.appendChild(renderRoundTable(op));
+      return screen;
+    }
+  }
 
   // ── Search bar ──
   const searchWrap=h('div',{style:{position:'relative',marginBottom:'14px'}});
