@@ -7884,10 +7884,12 @@ function renderRoundTable(op){
       const splits=entries.reduce((a,e)=>a+(parseInt(e.splits)||0),0);
       const tops=entries.reduce((a,e)=>a+(parseInt(e.tops)||0),0);
       const nucSplits=entries.reduce((a,e)=>a+(parseInt(e.nuc_splits)||0),0);
+      // Hives: use movement-adjusted count (same as main cards view)
+      const hives=anchoredHivesForSite(op,site,null);
       rows.push({
         site,batchName,
         lastVisit:latest?.date||null,
-        hives:parseInt(latest?.hives)||0,
+        hives,
         qr:parseInt(latest?.qr)||0,
         virgin:parseInt(latest?.virgin)||0,
         cellNeeded:parseInt(latest?.cell_needed)||0,
