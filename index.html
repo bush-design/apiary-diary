@@ -8016,6 +8016,40 @@ function renderRoundTable(op){
       });
       tbody.appendChild(tr);
     });
+    // Totals row for this batch
+    const totRow=h('tr',{style:{background:'#f4f4f2',borderTop:'1.5px solid #ddd',borderBottom:'1.5px solid #ddd'}});
+    cols.forEach((col,ci)=>{
+      const td=h('td',{
+        style:{
+          padding:ci===0?'8px 12px 8px 14px':'7px 10px',
+          textAlign:ci===0?'left':'right',
+          fontWeight:'700',
+          fontSize:'12px',
+          color:'#444',
+          whiteSpace:'nowrap',
+          ...(ci===0?{position:'sticky',left:'0',background:'#f4f4f2',zIndex:'1',boxShadow:'2px 0 5px rgba(0,0,0,0.05)'}:{})
+        }
+      });
+      if(col.key==='site'){
+        td.textContent='Total';
+        td.style.color='#888';
+        td.style.fontStyle='italic';
+      } else if(col.key==='lastVisit'){
+        td.textContent='';
+      } else {
+        const total=bRows.reduce((sum,r)=>sum+(Number(r[col.key])||0),0);
+        if(total>0){
+          td.textContent=total;
+          if(col.key==='cellNeeded'||col.key==='nucsNeeded'){td.style.color='#c0392b';}
+          else if(col.key==='qr'||col.key==='virgin'||col.key==='cellIn'){td.style.color='#7a4fa8';}
+          else{td.style.color='#333';}
+        } else {
+          td.textContent='—';td.style.color='#ccc';td.style.fontWeight='400';
+        }
+      }
+      totRow.appendChild(td);
+    });
+    tbody.appendChild(totRow);
   });
   tbl.appendChild(tbody);
   tableWrap.appendChild(tbl);
