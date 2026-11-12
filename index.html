@@ -9627,9 +9627,13 @@ function renderEntriesList(){
     // wherever a value happens to last appear (same bug class already fixed for Check, FD Harv,
     // POL fields, etc — otherwise a harvest number from weeks ago keeps showing even after a
     // newer visit that simply didn't record one).
+    // Second/third on are SUMMED across all entries — different visits may each add more boxes.
+    const sumAllSiteE=k=>allSiteEntries.reduce((acc,e)=>acc+(parseInt(e[k])||0),0);
+    const fdOnTotal=anchoredVal('fd_on')+sumAllSiteE('fd_second_on')+sumAllSiteE('fd_third_on');
+    const on34Total=anchoredVal('on_34')+sumAllSiteE('on_34_second')+sumAllSiteE('on_34_third');
     const boxes=[
-      {l:'FD on',v:anchoredVal('fd_on'),show:anchoredVal('fd_on')>0},
-      {l:'3/4 on',v:anchoredVal('on_34'),show:anchoredVal('on_34')>0},
+      {l:'FD on',v:fdOnTotal,show:fdOnTotal>0},
+      {l:'3/4 on',v:on34Total,show:on34Total>0},
       {l:'HC FD',v:anchoredVal('honeycomb_fd'),show:anchoredVal('honeycomb_fd')>0},
       {l:'HC ½',v:anchoredVal('honeycomb_hd'),show:anchoredVal('honeycomb_hd')>0},
     ].filter(x=>x.show);
@@ -9847,7 +9851,8 @@ function renderEntriesList(){
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
       {key:'pollen_hives_fed',label:'Pollen Hives Fed'},{key:'pollen_amount',label:'Pollen Amount'},
       // Harvest
-      {key:'fd_on',label:'FD on'},{key:'on_34',label:'3/4 on'},
+      {key:'fd_on',label:'FD on'},{key:'fd_second_on',label:'FD 2nd on'},{key:'fd_third_on',label:'FD 3rd on'},
+      {key:'on_34',label:'3/4 on'},{key:'on_34_second',label:'3/4 2nd on'},{key:'on_34_third',label:'3/4 3rd on'},
       {key:'fd_harv',label:'FD Harvested'},{key:'harv_34',label:'3/4 Harvested'},
       {key:'harvest_pct',label:'% Full'},{key:'honeycomb_fd',label:'HC FD'},
       {key:'honeycomb_hd',label:'HC ½'},{key:'best_hive_boxes',label:'Best Hive'},
@@ -10513,6 +10518,8 @@ function renderForm(){
     const body=h('div',{style:{padding:'0 12px 12px',display:openSections.has(sec.key)?'block':'none',borderTop:`1px solid ${sec.color}22`}});
 
     const _thirdDivMap={};
+    const _boxInpRefs={};
+    let _updateFdTotal=null,_update34Total=null;
     for(let _fi=0;_fi<sec.fields.length;_fi++){
       const f=sec.fields[_fi];
       const nextF=sec.fields[_fi+1]||null;
@@ -10557,6 +10564,9 @@ function renderForm(){
         const inp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',padding:'7px 8px',border:'.5px solid '+(f._sub?'#e8d0bc':'#ddd'),borderRadius:'7px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box'}});
         inp.value=vals[f.key]||'';
         inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
+        // Store refs for live box totals and wire updater callbacks
+        if(['fd_on','fd_second_on','fd_third_on'].includes(f.key)){_boxInpRefs[f.key]=inp;inp.addEventListener('input',()=>{if(_updateFdTotal)_updateFdTotal();});}
+        if(['on_34','on_34_second','on_34_third'].includes(f.key)){_boxInpRefs[f.key]=inp;inp.addEventListener('input',()=>{if(_update34Total)_update34Total();});}
         if(sec.key==='pollination'){
           // Same +/- stepper pattern as Hive Strength, scoped to the Pollination section
           inp.style.textAlign='center';
@@ -10924,6 +10934,39 @@ function renderForm(){
         fw.appendChild(sel);
       }
       body.appendChild(fw);
+      // Live total tiles after each FD / 3/4 group
+      if(f.key==='fd_third_on'){
+        const totDiv=h('div',{style:{marginTop:'8px',padding:'9px 12px',background:'#fdf5ef',borderRadius:'8px',border:'1px solid #e8d0bc',display:'none',justifyContent:'space-between',alignItems:'center'}});
+        totDiv.appendChild(h('div',{style:{fontSize:'11px',color:'#b05a1a',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700'}},'Total FD on'));
+        const totValFd=h('div',{style:{fontSize:'18px',fontWeight:'800',color:'#b05a1a'}},'—');
+        totDiv.appendChild(totValFd);
+        _updateFdTotal=()=>{
+          const a=parseInt(STATE.formVals['fd_on'])||0;
+          const b=parseInt(STATE.formVals['fd_second_on'])||0;
+          const c=parseInt(STATE.formVals['fd_third_on'])||0;
+          const s=a+b+c;
+          totValFd.textContent=s>0?String(s):'—';
+          totDiv.style.display=(a||b||c)?'flex':'none';
+        };
+        _updateFdTotal();
+        body.appendChild(totDiv);
+      }
+      if(f.key==='on_34_third'){
+        const totDiv34=h('div',{style:{marginTop:'8px',padding:'9px 12px',background:'#fdf5ef',borderRadius:'8px',border:'1px solid #e8d0bc',display:'none',justifyContent:'space-between',alignItems:'center'}});
+        totDiv34.appendChild(h('div',{style:{fontSize:'11px',color:'#b05a1a',textTransform:'uppercase',letterSpacing:'.04em',fontWeight:'700'}},'Total 3/4 on'));
+        const totVal34=h('div',{style:{fontSize:'18px',fontWeight:'800',color:'#b05a1a'}},'—');
+        totDiv34.appendChild(totVal34);
+        _update34Total=()=>{
+          const a=parseInt(STATE.formVals['on_34'])||0;
+          const b=parseInt(STATE.formVals['on_34_second'])||0;
+          const c=parseInt(STATE.formVals['on_34_third'])||0;
+          const s=a+b+c;
+          totVal34.textContent=s>0?String(s):'—';
+          totDiv34.style.display=(a||b||c)?'flex':'none';
+        };
+        _update34Total();
+        body.appendChild(totDiv34);
+      }
     } // end for-loop over sec.fields
 
     tile.appendChild(body);
@@ -11247,9 +11290,13 @@ function renderEntriesList(){
     // wherever a value happens to last appear (same bug class already fixed for Check, FD Harv,
     // POL fields, etc — otherwise a harvest number from weeks ago keeps showing even after a
     // newer visit that simply didn't record one).
+    // Second/third on are SUMMED across all entries — different visits may each add more boxes.
+    const sumAllSiteE=k=>allSiteEntries.reduce((acc,e)=>acc+(parseInt(e[k])||0),0);
+    const fdOnTotal=anchoredVal('fd_on')+sumAllSiteE('fd_second_on')+sumAllSiteE('fd_third_on');
+    const on34Total=anchoredVal('on_34')+sumAllSiteE('on_34_second')+sumAllSiteE('on_34_third');
     const boxes=[
-      {l:'FD on',v:anchoredVal('fd_on'),show:anchoredVal('fd_on')>0},
-      {l:'3/4 on',v:anchoredVal('on_34'),show:anchoredVal('on_34')>0},
+      {l:'FD on',v:fdOnTotal,show:fdOnTotal>0},
+      {l:'3/4 on',v:on34Total,show:on34Total>0},
       {l:'HC FD',v:anchoredVal('honeycomb_fd'),show:anchoredVal('honeycomb_fd')>0},
       {l:'HC ½',v:anchoredVal('honeycomb_hd'),show:anchoredVal('honeycomb_hd')>0},
     ].filter(x=>x.show);
@@ -11468,7 +11515,8 @@ function renderEntriesList(){
       {key:'honey_fed_type',label:'Honey Type'},{key:'honey_hives_fed',label:'Honey Hives Fed'},
       {key:'pollen_hives_fed',label:'Pollen Hives Fed'},{key:'pollen_amount',label:'Pollen Amount'},
       // Harvest
-      {key:'fd_on',label:'FD on'},{key:'on_34',label:'3/4 on'},
+      {key:'fd_on',label:'FD on'},{key:'fd_second_on',label:'FD 2nd on'},{key:'fd_third_on',label:'FD 3rd on'},
+      {key:'on_34',label:'3/4 on'},{key:'on_34_second',label:'3/4 2nd on'},{key:'on_34_third',label:'3/4 3rd on'},
       {key:'fd_harv',label:'FD Harvested'},{key:'harv_34',label:'3/4 Harvested'},
       {key:'harvest_pct',label:'% Full'},{key:'honeycomb_fd',label:'HC FD'},
       {key:'honeycomb_hd',label:'HC ½'},{key:'best_hive_boxes',label:'Best Hive'},
