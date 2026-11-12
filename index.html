@@ -1093,6 +1093,12 @@ function savePolIndivDismissed(d){try{localStorage.setItem('apiary_pol_indiv_dis
 function polIndivDismissedKey(op,site){return `${op}__${site}`;}
 function isPolIndivDismissed(op,site){const d=loadPolIndivDismissed();return !!d[polIndivDismissedKey(op,site)];}
 function dismissPolIndiv(op,site){const d=loadPolIndivDismissed();d[polIndivDismissedKey(op,site)]=true;savePolIndivDismissed(d);}
+// Cell In "mating checked" dismissals — stores the dismissed count so it re-shows if more cells are added
+function loadCellInDismissed(){try{return JSON.parse(localStorage.getItem('apiary_cell_in_dismissed')||'{}');}catch(e){return{};}}
+function saveCellInDismissed(d){try{localStorage.setItem('apiary_cell_in_dismissed',JSON.stringify(d));}catch(e){}}
+function cellInDismissedKey(op,site){return `${op}__${site}`;}
+function getCellInDismissedCount(op,site){const d=loadCellInDismissed();return d[cellInDismissedKey(op,site)]||0;}
+function dismissCellIn(op,site,count){const d=loadCellInDismissed();d[cellInDismissedKey(op,site)]=count;saveCellInDismissed(d);}
 async function setPalletBaseline(op,site,pallets,singles){
   const s=loadPalletBaselines();
   const k=palletBaselineKey(op,site);
@@ -9093,7 +9099,7 @@ function renderSitesList(){
     const wholeYardMovedOut=mostRecentAny&&mostRecentAny._movement&&(parseInt(mostRecentAny.hives)||0)===0;
     const mostRecentWithHives2=allWithMov.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||null;
     const lv=k=>{
-      if(wholeYardMovedOut&&['singles','doubles','light','weak','lids_floors'].includes(k)) return 0;
+      if(wholeYardMovedOut&&['singles','doubles','light','weak'].includes(k)) return 0;
       if(HIVE_FIELDS2.includes(k)){
         if(!mostRecentWithHives2) return 0;
         const raw=mostRecentWithHives2[k];
@@ -9659,16 +9665,16 @@ function renderEntriesList(){
       {k:'check',l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {k:'qr',l:'QR',v:lv('qr'),show:lv('qr')>0},
       {k:'virgin',l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
-      {k:'splits',l:'Box Splits'+(lvStr('splits_dest')?' → '+lvStr('splits_dest'):''),v:sumRound('splits'),show:sumRound('splits')>0},
-      {k:'tops',l:'Top Splits'+(lvStr('tops_dest')?' → '+lvStr('tops_dest'):''),v:lv('tops'),show:lv('tops')>0},
+      {k:'splits',l:'Box Splits'+(lvStr('splits_dest')?' → '+lvStr('splits_dest'):''),v:sumRound('splits'),show:sumRound('splits')>getCellInDismissedCount(op,site+'__splits')},
+      {k:'tops',l:'Top Splits'+(lvStr('tops_dest')?' → '+lvStr('tops_dest'):''),v:lv('tops'),show:lv('tops')>getCellInDismissedCount(op,site+'__tops')},
       {k:'fd_harv',l:'FD Harv',v:anchoredVal('fd_harv'),show:anchoredVal('fd_harv')>0},
       {k:'harv_34',l:'3/4 Harv',v:anchoredVal('harv_34'),show:anchoredVal('harv_34')>0},
       {k:'honeycomb_fd',l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
       {k:'honeycomb_hd',l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
       {k:'pollen_hives_fed',l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
       {k:'breeders',l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
-      {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:sumRound('nuc_splits'),show:sumRound('nuc_splits')>0},
-      {k:'cell_in',l:'Cell In',v:sumRound('cell_in'),show:sumRound('cell_in')>0},
+      {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:sumRound('nuc_splits'),show:sumRound('nuc_splits')>getCellInDismissedCount(op,site+'__nuc_splits')},
+      {k:'cell_in',l:'Cell In',v:sumRound('cell_in'),show:sumRound('cell_in')>getCellInDismissedCount(op,site)},
       {k:'cell_needed',l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
       {k:'nucs_needed',l:'Nucs Needed',v:anchoredVal('nucs_needed'),show:anchoredVal('nucs_needed')>0},
       {k:'hives_fed',l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
@@ -9686,14 +9692,29 @@ function renderEntriesList(){
           btn.addEventListener('touchend',doDismiss,{passive:false});
           btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
-        } else if(['splits','tops','nuc_splits','cell_in'].includes(f.k)){
-          // Tappable pill — navigates straight to Splits page, filtered by type
-          const _splitTypeMap={splits:'box',tops:'top',nuc_splits:'nuc',cell_in:'in_yard'};
+        } else if(f.k==='cell_in'){
+          // Cell In — tappable to view splits, plus ✕ to dismiss (mating checked)
+          const cellPill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#c39bd3',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.35)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',gap:'4px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+          const navSpan=h('span',null,f.v+' '+f.l+' ↗');
+          const navTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter='in_yard';setState({op:'__nucs__'});};
+          navSpan.addEventListener('touchend',navTap,{passive:false});navSpan.addEventListener('click',navTap);
+          const dismissSpan=h('span',{style:{opacity:'0.6',fontSize:'11px',paddingLeft:'4px',borderLeft:'1px solid rgba(195,155,211,0.4)',marginLeft:'2px',paddingRight:'2px'}},'✕');
+          const doCellInDismiss=ev=>{ev.preventDefault();ev.stopPropagation();dismissCellIn(op,site,sumRound('cell_in'));showToast('Cell In cleared for '+site);setState({});};
+          dismissSpan.addEventListener('touchend',doCellInDismiss,{passive:false});dismissSpan.addEventListener('click',doCellInDismiss);
+          cellPill.appendChild(navSpan);cellPill.appendChild(dismissSpan);
+          eRow.appendChild(cellPill);
+        } else if(['splits','tops','nuc_splits'].includes(f.k)){
+          // Tappable pill — navigates to Splits page, plus ✕ to dismiss
+          const _splitTypeMap={splits:'box',tops:'top',nuc_splits:'nuc'};
           const typeFilter=_splitTypeMap[f.k];
-          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#c39bd3',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.35)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',gap:'3px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
-          pill.appendChild(document.createTextNode(f.v+' '+f.l+' ↗'));
-          const onTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;if(typeFilter!=='in_yard')STATE._expandedNucBatch='grp|'+site+'|'+(allSiteEntries[0]?.date||'');setState({op:'__nucs__'});};
-          pill.addEventListener('touchend',onTap,{passive:false});pill.addEventListener('click',onTap);
+          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#c39bd3',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.35)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',gap:'4px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+          const navSpan2=h('span',null,f.v+' '+f.l+' ↗');
+          const navTap2=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;STATE._expandedNucBatch='grp|'+site+'|'+(allSiteEntries[0]?.date||'');setState({op:'__nucs__'});};
+          navSpan2.addEventListener('touchend',navTap2,{passive:false});navSpan2.addEventListener('click',navTap2);
+          const dismissSpan2=h('span',{style:{opacity:'0.6',fontSize:'11px',paddingLeft:'4px',borderLeft:'1px solid rgba(195,155,211,0.4)',marginLeft:'2px',paddingRight:'2px'}},'✕');
+          const doSplitDismiss=ev=>{ev.preventDefault();ev.stopPropagation();dismissCellIn(op,site+'__'+f.k,f.v);showToast(f.l+' cleared for '+site);setState({});};
+          dismissSpan2.addEventListener('touchend',doSplitDismiss,{passive:false});dismissSpan2.addEventListener('click',doSplitDismiss);
+          pill.appendChild(navSpan2);pill.appendChild(dismissSpan2);
           eRow.appendChild(pill);
         } else {
           const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
@@ -11170,7 +11191,7 @@ function renderEntriesList(){
   const mostRecentAnyE=allSiteEntriesWithMov[0]||null;
   const wholeYardOut2=mostRecentAnyE&&mostRecentAnyE._movement&&(parseInt(mostRecentAnyE.hives)||0)===0;
   const lv=k=>{
-    if(wholeYardOut2&&['singles','doubles','light','weak','lids_floors'].includes(k)) return 0;
+    if(wholeYardOut2&&['singles','doubles','light','weak'].includes(k)) return 0;
     if(HIVE_FIELDS3.includes(k)){
       // hives/dead/singles/doubles/light/weak all come from the SAME most-recent hive-count
       // visit — if that visit correctly recorded 0 doubles, that's current, not a reason to
@@ -11322,17 +11343,17 @@ function renderEntriesList(){
       {k:'check',l:'Check',v:anchoredVal('check'),show:anchoredVal('check')>0},
       {k:'qr',l:'QR',v:lv('qr'),show:lv('qr')>0},
       {k:'virgin',l:'Virgin',v:lv('virgin'),show:lv('virgin')>0},
-      {k:'splits',l:'Box Splits'+(lvStr('splits_dest')?' → '+lvStr('splits_dest'):''),v:sumRound('splits'),show:sumRound('splits')>0},
-      {k:'tops',l:'Top Splits'+(lvStr('tops_dest')?' → '+lvStr('tops_dest'):''),v:lv('tops'),show:lv('tops')>0},
+      {k:'splits',l:'Box Splits'+(lvStr('splits_dest')?' → '+lvStr('splits_dest'):''),v:sumRound('splits'),show:sumRound('splits')>getCellInDismissedCount(op,site+'__splits')},
+      {k:'tops',l:'Top Splits'+(lvStr('tops_dest')?' → '+lvStr('tops_dest'):''),v:lv('tops'),show:lv('tops')>getCellInDismissedCount(op,site+'__tops')},
       {k:'fd_harv',l:'FD Harv',v:anchoredVal('fd_harv'),show:anchoredVal('fd_harv')>0},
       {k:'harv_34',l:'3/4 Harv',v:anchoredVal('harv_34'),show:anchoredVal('harv_34')>0},
       {k:'honeycomb_fd',l:'HC FD Harv',v:lv('honeycomb_fd'),show:false}, // already in boxes
       {k:'honeycomb_hd',l:'HC ½ Harv',v:lv('honeycomb_hd'),show:false},
       {k:'pollen_hives_fed',l:'Pollen fed',v:anchoredVal('pollen_hives_fed'),show:anchoredVal('pollen_hives_fed')>0},
       {k:'breeders',l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
-      {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:sumRound('nuc_splits'),show:sumRound('nuc_splits')>0},
+      {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:sumRound('nuc_splits'),show:sumRound('nuc_splits')>getCellInDismissedCount(op,site+'__nuc_splits')},
       {k:'finishers',l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
-      {k:'cell_in',l:'Cell In',v:sumRound('cell_in'),show:sumRound('cell_in')>0},
+      {k:'cell_in',l:'Cell In',v:sumRound('cell_in'),show:sumRound('cell_in')>getCellInDismissedCount(op,site)},
       {k:'cell_needed',l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
       {k:'nucs_needed',l:'Nucs Needed',v:anchoredVal('nucs_needed'),show:anchoredVal('nucs_needed')>0},
       {k:'hives_fed',l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
@@ -11350,14 +11371,29 @@ function renderEntriesList(){
           btn.addEventListener('touchend',doDismiss,{passive:false});
           btn.addEventListener('click',doDismiss);
           eRow.appendChild(btn);
-        } else if(['splits','tops','nuc_splits','cell_in'].includes(f.k)){
-          // Tappable pill — navigates straight to Splits page, filtered by type
-          const _splitTypeMap={splits:'box',tops:'top',nuc_splits:'nuc',cell_in:'in_yard'};
+        } else if(f.k==='cell_in'){
+          // Cell In — tappable to view splits, plus ✕ to dismiss (mating checked)
+          const cellPill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#c39bd3',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.35)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',gap:'4px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+          const navSpan=h('span',null,f.v+' '+f.l+' ↗');
+          const navTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter='in_yard';setState({op:'__nucs__'});};
+          navSpan.addEventListener('touchend',navTap,{passive:false});navSpan.addEventListener('click',navTap);
+          const dismissSpan=h('span',{style:{opacity:'0.6',fontSize:'11px',paddingLeft:'4px',borderLeft:'1px solid rgba(195,155,211,0.4)',marginLeft:'2px',paddingRight:'2px'}},'✕');
+          const doCellInDismiss=ev=>{ev.preventDefault();ev.stopPropagation();dismissCellIn(op,site,sumRound('cell_in'));showToast('Cell In cleared for '+site);setState({});};
+          dismissSpan.addEventListener('touchend',doCellInDismiss,{passive:false});dismissSpan.addEventListener('click',doCellInDismiss);
+          cellPill.appendChild(navSpan);cellPill.appendChild(dismissSpan);
+          eRow.appendChild(cellPill);
+        } else if(['splits','tops','nuc_splits'].includes(f.k)){
+          // Tappable pill — navigates to Splits page, plus ✕ to dismiss
+          const _splitTypeMap={splits:'box',tops:'top',nuc_splits:'nuc'};
           const typeFilter=_splitTypeMap[f.k];
-          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#c39bd3',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.35)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',gap:'3px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
-          pill.appendChild(document.createTextNode(f.v+' '+f.l+' ↗'));
-          const onTap=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;if(typeFilter!=='in_yard')STATE._expandedNucBatch='grp|'+site+'|'+(allSiteEntries[0]?.date||'');setState({op:'__nucs__'});};
-          pill.addEventListener('touchend',onTap,{passive:false});pill.addEventListener('click',onTap);
+          const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'#c39bd3',background:'rgba(155,89,182,0.15)',border:'1px solid rgba(155,89,182,0.35)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',gap:'4px',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
+          const navSpan2=h('span',null,f.v+' '+f.l+' ↗');
+          const navTap2=ev=>{ev.preventDefault();ev.stopPropagation();STATE._nucOp=op;STATE._nucTypeFilter=typeFilter;STATE._expandedNucBatch='grp|'+site+'|'+(allSiteEntries[0]?.date||'');setState({op:'__nucs__'});};
+          navSpan2.addEventListener('touchend',navTap2,{passive:false});navSpan2.addEventListener('click',navTap2);
+          const dismissSpan2=h('span',{style:{opacity:'0.6',fontSize:'11px',paddingLeft:'4px',borderLeft:'1px solid rgba(195,155,211,0.4)',marginLeft:'2px',paddingRight:'2px'}},'✕');
+          const doSplitDismiss=ev=>{ev.preventDefault();ev.stopPropagation();dismissCellIn(op,site+'__'+f.k,f.v);showToast(f.l+' cleared for '+site);setState({});};
+          dismissSpan2.addEventListener('touchend',doSplitDismiss,{passive:false});dismissSpan2.addEventListener('click',doSplitDismiss);
+          pill.appendChild(navSpan2);pill.appendChild(dismissSpan2);
           eRow.appendChild(pill);
         } else {
           const pill=h('span',{style:{fontSize:'12px',fontWeight:'600',color:'rgba(255,255,255,0.85)',background:'rgba(255,255,255,0.1)',borderRadius:'6px',padding:'3px 8px',display:'inline-flex',alignItems:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)',userSelect:'none'}});
