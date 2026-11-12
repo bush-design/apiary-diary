@@ -604,7 +604,8 @@ async function addMovement(mov){
     // free-text notes concatenate.
     const COLLATE_SUM_FIELDS=['qr','virgin','cell_in','cell_needed','nucs_needed','tops','splits','nuc_splits','breeders','finishers',
       'pol_pallet','part_pallet','pol_singles','pol_bc','pol_doubles','hives_fed','honey_hives_fed','pollen_hives_fed',
-      'fd_on','on_34','fd_harv','harv_34','honeycomb_fd','honeycomb_hd','best_hive_boxes'];
+      'fd_on','on_34','fd_harv','harv_34','honeycomb_fd','honeycomb_hd','best_hive_boxes',
+      'fd_second_on','fd_third_on','on_34_second','on_34_third'];
     // Litres Fed is a per-hive rate applied across the whole yard, not a running total — when
     // multiple sources merge into one destination, this should average across them, not sum.
     const COLLATE_AVG_FIELDS=['litres_fed'];
@@ -857,7 +858,8 @@ const ROUNDS = {
     {key:"tops",label:"Tops",type:"number"},{key:"splits",label:"Splits taken",type:"number"},
     {key:"carrot",label:"Carrot pallets",type:"number"},{key:"carrot_score",label:"Carrot Score",type:"carrot_grid"},
     {key:"fd_harv",label:"FD Harv",type:"number"},{key:"harv_34",label:"3/4 Harv",type:"number"},
-    {key:"on_34",label:"3/4 on",type:"number"},{key:"fd_on",label:"FD on",type:"number"},
+    {key:"on_34",label:"3/4 on",type:"number"},{key:"on_34_second",label:"3/4 Second on",type:"number"},{key:"on_34_third",label:"3/4 Third on",type:"number"},
+    {key:"fd_on",label:"FD on",type:"number"},{key:"fd_second_on",label:"FD Second on",type:"number"},{key:"fd_third_on",label:"FD Third on",type:"number"},
     {key:"queen_yard",label:"Queen Yard",type:"queen_yard"},
     {key:"treatment",label:"Treatment",type:"treatment"},{key:"comments",label:"Comments",type:"textarea"}
   ]},
@@ -867,8 +869,8 @@ const ROUNDS = {
     {key:"dead",label:"Dead",type:"number"},{key:"lids_floors",label:"Lids & Floors",type:"number"},{key:"check",label:"Check",type:"number"},{key:"check_note",label:"Check note",type:"check_note"},
     {key:"carrot",label:"Carrot pallets",type:"number"},{key:"carrot_score",label:"Carrot Score",type:"carrot_grid"},
     {key:"fd_harv",label:"FD Harv",type:"number"},
-    {key:"harv_34",label:"3/4 Harv",type:"number"},{key:"on_34",label:"3/4 on",type:"number"},
-    {key:"fd_on",label:"FD on",type:"number"},
+    {key:"harv_34",label:"3/4 Harv",type:"number"},{key:"on_34",label:"3/4 on",type:"number"},{key:"on_34_second",label:"3/4 Second on",type:"number"},{key:"on_34_third",label:"3/4 Third on",type:"number"},
+    {key:"fd_on",label:"FD on",type:"number"},{key:"fd_second_on",label:"FD Second on",type:"number"},{key:"fd_third_on",label:"FD Third on",type:"number"},
     {key:"honeycomb_fd",label:"Honeycomb Full Depth",type:"number"},
     {key:"honeycomb_hd",label:"Honeycomb Half Depth",type:"number"},
     {key:"queen_yard",label:"Queen Yard",type:"queen_yard"},
@@ -1274,7 +1276,13 @@ async function pullFromSupabase(skipRender){
             // Score a batch by its most advanced nuc status — used to break ties when both
             // sides have the same number of nucs. Transferred > mated > DL > virgin > cell > waiting.
             const NUC_STATUS_SCORE={waiting:0,'':0,cell:1,virgin:2,dl:3,mated:4};
-            const batchAdvancement=b=>(b.nucs||[]).reduce((mx,n)=>Math.max(mx,n.transferredTo?5:(NUC_STATUS_SCORE[n.status]||0)),0);
+            // Compare two versions of the same batch. Latest _updatedAt on any nuc wins;
+            // fall back to most-advanced status for data without timestamps.
+            const batchAdvancement=b=>{
+              const ts=(b.nucs||[]).reduce((mx,n)=>n._updatedAt&&n._updatedAt>mx?n._updatedAt:mx,'');
+              if(ts) return ts; // ISO string — sorts lexicographically as date
+              return String((b.nucs||[]).reduce((mx,n)=>Math.max(mx,n.transferredTo?5:(NUC_STATUS_SCORE[n.status]||0)),0));
+            };
             const local=loadNucYards();
             const merged={...local};
             Object.entries(row.data).forEach(([key,remoteYard])=>{
@@ -1443,7 +1451,7 @@ function subscribeRealtime(){
     if(entry_key==='nuc_yards'){
       if(data&&typeof data==='object'){
         const NUC_STATUS_SCORE={waiting:0,'':0,cell:1,virgin:2,dl:3,mated:4};
-        const batchAdvancement=b=>(b.nucs||[]).reduce((mx,n)=>Math.max(mx,n.transferredTo?5:(NUC_STATUS_SCORE[n.status]||0)),0);
+        const batchAdvancement=b=>{const ts=(b.nucs||[]).reduce((mx,n)=>n._updatedAt&&n._updatedAt>mx?n._updatedAt:mx,'');if(ts)return ts;return String((b.nucs||[]).reduce((mx,n)=>Math.max(mx,n.transferredTo?5:(NUC_STATUS_SCORE[n.status]||0)),0));};
         const local=loadNucYards();const merged={...local};
         Object.entries(data).forEach(([key,remoteYard])=>{
           if(!merged[key]){merged[key]=remoteYard;}
@@ -1782,7 +1790,11 @@ const EXPORT_FIELD_DEFS=[
   {label:'FD Harv',get:e=>e.fd_harv||''},
   {label:'3/4 Harv',get:e=>e.harv_34||''},
   {label:'3/4 on',get:e=>e.on_34||''},
+  {label:'3/4 2nd on',get:e=>e.on_34_second||''},
+  {label:'3/4 3rd on',get:e=>e.on_34_third||''},
   {label:'FD on',get:e=>e.fd_on||''},
+  {label:'FD 2nd on',get:e=>e.fd_second_on||''},
+  {label:'FD 3rd on',get:e=>e.fd_third_on||''},
   {label:'Honeycomb FD',get:e=>e.honeycomb_fd||''},
   {label:'Honeycomb HD',get:e=>e.honeycomb_hd||''},
   {label:'Harvest Type',get:e=>e.harvest_flower||''},
@@ -2193,7 +2205,11 @@ function calcSummary(opName, cutoffDate){
     alive+=lastVal('alive_hives');deadHives+=lastVal('dead_hives');
     light+=lastVal('light');pol+=lastVal('pol_pallet');part+=lastVal('part_pallet');carrot+=lastVal('carrot');
     fdOn+=lastVal('fd_on');
+    allSiteEntries.forEach(e=>{const v=parseInt(e.fd_second_on);if(!isNaN(v)&&v>0)fdOn+=v;});
+    allSiteEntries.forEach(e=>{const v=parseInt(e.fd_third_on);if(!isNaN(v)&&v>0)fdOn+=v;});
     on34+=lastVal('on_34');
+    allSiteEntries.forEach(e=>{const v=parseInt(e.on_34_second);if(!isNaN(v)&&v>0)on34+=v;});
+    allSiteEntries.forEach(e=>{const v=parseInt(e.on_34_third);if(!isNaN(v)&&v>0)on34+=v;});
     hcFdOn+=lastVal('honeycomb_fd');
     hcHdOn+=lastVal('honeycomb_hd');
     qr+=lastVal('qr');virgin+=lastVal('virgin');cellNeeded+=lastVal('cell_needed');nucsNeeded+=lastVal('nucs_needed');
@@ -3183,9 +3199,11 @@ function showSendNucsModal(op, nucYardKey, batchIdx, onSave){
       if(!destSite){showToast('Select a destination yard');return;}
       const selected=nucChecks.filter(({cb})=>cb.checked).map(({nuc})=>nuc);
       if(!selected.length){showToast('Select at least one nuc');return;}
+      const _now=new Date().toISOString();
       selected.forEach(nuc=>{
         nuc.transferredTo=destSite;
         nuc.transferredDate=dateInp.value;
+        nuc._updatedAt=_now;
       });
       saveNucYards(all);
       showToast(selected.length+' nuc'+(selected.length!==1?'s':'')+' sent to '+destSite);
@@ -8333,10 +8351,13 @@ function calcBatchSummary(op, batch, sites){
     }
     for(const e of allE){const raw=e[k];if(raw===undefined||raw===null||raw==='')continue;const v=parseInt(raw);if(!isNaN(v))return v;}return 0;
   };
+  // sumAllEntries: sum a field across ALL entries for a site (used for cumulative second/third-on fields)
+  const sumAllEntries=(site,k)=>Object.keys(ROUNDS).flatMap(rk=>(STATE.entries[eKey(op,site,rk)]||[])).reduce((acc,e)=>{const v=parseInt(e[k]);return acc+((!isNaN(v)&&v>0)?v:0);},0);
   sites.forEach(site=>{
     hives+=lv(site,'hives');dead+=lv(site,'dead');alive+=lv(site,'alive_hives');
     singles+=lv(site,'singles');doubles+=lv(site,'doubles');light+=lv(site,'light');
-    fdOn+=lv(site,'fd_on');on34+=lv(site,'on_34');
+    fdOn+=lv(site,'fd_on')+sumAllEntries(site,'fd_second_on')+sumAllEntries(site,'fd_third_on');
+    on34+=lv(site,'on_34')+sumAllEntries(site,'on_34_second')+sumAllEntries(site,'on_34_third');
     hcFdOn+=lv(site,'honeycomb_fd');hcHdOn+=lv(site,'honeycomb_hd');
     fdHarv+=lv(site,'fd_harv');harv34+=lv(site,'harv_34');
     breeders+=getSiteBreederCount(op,site);
@@ -8695,14 +8716,17 @@ function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
           nuc.status=key;
           const dateKey=key+'Date';
           if(!nuc[dateKey]) nuc[dateKey]=todayStr();
+          nuc._updatedAt=new Date().toISOString();
           saveNucYards(all);overlay.remove();onSave();
         };
         const applyToAll=()=>{
+          const _now=new Date().toISOString();
           batchForNuc.nucs.forEach(n=>{
             if(n.status==='failed'||n.transferredTo) return; // skip failed/transferred
             n.status=key;
             const dk=key+'Date';
             if(!n[dk]) n[dk]=todayStr();
+            n._updatedAt=_now;
           });
           saveNucYards(all);overlay.remove();onSave();
         };
@@ -9158,7 +9182,7 @@ function renderSitesList(){
         body.appendChild(hRow);
       }
       // Boxes on
-      const boxOn=[{l:'FD on',v:lv('fd_on')},{l:'3/4 on',v:lv('on_34')},{l:'HC FD',v:lv('honeycomb_fd')},{l:'HC ½',v:lv('honeycomb_hd')}].filter(x=>x.v>0);
+      const boxOn=[{l:'FD on',v:lv('fd_on') + sumRound2('fd_second_on') + sumRound2('fd_third_on')},{l:'3/4 on',v:lv('on_34') + sumRound2('on_34_second') + sumRound2('on_34_third')},{l:'HC FD',v:lv('honeycomb_fd')},{l:'HC ½',v:lv('honeycomb_hd')}].filter(x=>x.v>0);
       if(boxOn.length){
         const bRow=h('div',{style:{display:'flex',flexWrap:'wrap',gap:'5px',marginBottom:'6px'}});
         boxOn.forEach(f=>bRow.appendChild(h('span',{style:{fontSize:'12px',color:'#555',background:'#f0f0ee',borderRadius:'6px',padding:'2px 7px'}},f.v+' '+f.l)));
@@ -9268,8 +9292,8 @@ function renderSitesList(){
       singles:lv('singles'),
       doubles:lv('doubles'),
       light:lv('light'),
-      fdOn:lv('fd_on'),
-      on34:lv('on_34'),
+      fdOn:lv('fd_on') + sumRound2('fd_second_on') + sumRound2('fd_third_on'),
+      on34:lv('on_34') + sumRound2('on_34_second') + sumRound2('on_34_third'),
       hcFd:lv('honeycomb_fd'),
       hcHd:lv('honeycomb_hd'),
       fdHarv:lv('fd_harv'),
@@ -9319,8 +9343,8 @@ function renderSitesList(){
     {key:'doubles', label:'Doubles',      color:'#555',   bg:'#f5f5f3'},
     {key:'singles', label:'Singles',      color:'#555',   bg:'#f5f5f3'},
     {key:'light',   label:'Light',        color:'#b07800',bg:'#fff8e6'},
-    {key:'fdOn',    label:'FD on',        color:'#555',   bg:'#f0f0ee'},
-    {key:'on34',    label:'3/4 on',       color:'#555',   bg:'#f0f0ee'},
+    {key:'fdOn',    label:'FD total',      color:'#555',   bg:'#f0f0ee'},
+    {key:'on34',    label:'3/4 total',    color:'#555',   bg:'#f0f0ee'},
     {key:'hcFd',    label:'HC FD',        color:'#555',   bg:'#f0f0ee'},
     {key:'hcHd',    label:'HC ½',         color:'#555',   bg:'#f0f0ee'},
     {key:'fdHarv',  label:'FD Harv',      color:'#b05a1a',bg:'#faeeda'},
@@ -10446,7 +10470,12 @@ function renderForm(){
     ]},
     {key:'harvest',label:'Harvest',color:'#b05a1a',fields:[
       {key:'harvest_flower',label:'Harvest Type',type:'harvest_flower'},
-      {key:'fd_on',label:'FD on',type:'number'},{key:'on_34',label:'3/4 on',type:'number'},
+      {key:'fd_on',label:'FD on',type:'number'},
+      {key:'fd_second_on',label:'Second on',type:'number',_sub:true},
+      {key:'fd_third_on',label:'Third on',type:'number',_sub:true,_third:true},
+      {key:'on_34',label:'3/4 on',type:'number'},
+      {key:'on_34_second',label:'Second on',type:'number',_sub:true},
+      {key:'on_34_third',label:'Third on',type:'number',_sub:true,_third:true},
       {key:'fd_harv',label:'FD Harvested',type:'number'},{key:'harv_34',label:'3/4 Harvested',type:'number'},
       {key:'harvest_pct',label:'% Full (whole load)',type:'percent'},
       {key:'honeycomb_fd',label:'Honeycomb FD',type:'number'},{key:'honeycomb_hd',label:'Honeycomb ½',type:'number'},
@@ -10483,8 +10512,21 @@ function renderForm(){
     // Section body
     const body=h('div',{style:{padding:'0 12px 12px',display:openSections.has(sec.key)?'block':'none',borderTop:`1px solid ${sec.color}22`}});
 
-    sec.fields.forEach(f=>{
-      const fw=h('div',{style:{marginTop:'10px'}});
+    const _thirdDivMap={};
+    for(let _fi=0;_fi<sec.fields.length;_fi++){
+      const f=sec.fields[_fi];
+      const nextF=sec.fields[_fi+1]||null;
+      const fw=h('div',{style:{marginTop: f._sub ? '4px' : '10px'}});
+      if(f._third){
+        // Hide third-on fields until "+" is tapped, unless already has a value
+        const hasVal=!!(vals[f.key]&&vals[f.key]!=='');
+        fw.style.display=hasVal?'block':'none';
+        _thirdDivMap[f.key]=fw;
+      }
+      if(f._sub){
+        fw.style.paddingLeft='14px';
+        fw.style.borderLeft='2px solid #e8e4dc';
+      }
       if(f.type==='pill_select'){
         fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'5px'}},f.label));
         const col=f.color||'#555';
@@ -10511,8 +10553,8 @@ function renderForm(){
         });
         fw.appendChild(pillRow);
       } else if(f.type==='number'){
-        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
-        const inp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box'}});
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:f._sub?'#b05a1a':'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
+        const inp=h('input',{type:'number',inputmode:'numeric',placeholder:'—',style:{width:'100%',padding:'7px 8px',border:'.5px solid '+(f._sub?'#e8d0bc':'#ddd'),borderRadius:'7px',fontSize:'16px',fontWeight:'700',background:'#fff',boxSizing:'border-box'}});
         inp.value=vals[f.key]||'';
         inp.addEventListener('input',e=>STATE.formVals[f.key]=e.target.value);
         if(sec.key==='pollination'){
@@ -10534,6 +10576,17 @@ function renderForm(){
           fw.appendChild(stepRow);
         } else {
           fw.appendChild(inp);
+        }
+        // If this is a non-third sub-field and next field is _third, add "+" button
+        if(f._sub && !f._third && nextF && nextF._third){
+          const thirdAlreadyHasVal=!!(vals[nextF.key]&&vals[nextF.key]!=='');
+          const addBtn=h('button',{type:'button',style:{marginTop:'5px',fontSize:'11px',fontWeight:'700',color:'#b05a1a',background:'transparent',border:'none',padding:'0',cursor:'pointer',textDecoration:'underline',display:thirdAlreadyHasVal?'none':'block'}},
+            '+ Add Third on');
+          addBtn.addEventListener('click',()=>{
+            const td=_thirdDivMap[nextF.key];
+            if(td){td.style.display='block';addBtn.style.display='none';}
+          });
+          fw.appendChild(addBtn);
         }
       } else if(f.type==='score_grid'){
         const scPill=h('button',{type:'button',style:{padding:'8px 14px',borderRadius:'20px',border:'1.5px solid '+(vals.spring_clean?'#3d7a4f':'#ddd'),background:vals.spring_clean?'#3d7a4f':'#fff',color:vals.spring_clean?'#fff':'#555',fontSize:'13px',fontWeight:'700',cursor:'pointer',marginBottom:'10px',display:'inline-flex',alignItems:'center',gap:'6px'}},
@@ -10871,7 +10924,7 @@ function renderForm(){
         fw.appendChild(sel);
       }
       body.appendChild(fw);
-    });
+    } // end for-loop over sec.fields
 
     tile.appendChild(body);
 
