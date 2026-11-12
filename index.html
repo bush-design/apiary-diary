@@ -602,7 +602,7 @@ async function addMovement(mov){
     // multi-yard consolidation truckload), each source's data combines into the same entry:
     // numeric fields sum together, comma-separated fields (treatment, diseases) merge uniquely,
     // free-text notes concatenate.
-    const COLLATE_SUM_FIELDS=['qr','virgin','cell_in','cell_needed','nucs_needed','tops','splits','nuc_splits','breeders','finishers',
+    const COLLATE_SUM_FIELDS=['qr','virgin','cell_in','nucs_in','cell_needed','nucs_needed','tops','splits','nuc_splits','breeders','finishers',
       'pol_pallet','part_pallet','pol_singles','pol_bc','pol_doubles','hives_fed','honey_hives_fed','pollen_hives_fed',
       'fd_on','on_34','fd_harv','harv_34','honeycomb_fd','honeycomb_hd','best_hive_boxes',
       'fd_second_on','fd_third_on','on_34_second','on_34_third'];
@@ -7782,7 +7782,7 @@ function renderSummaryPanel(opName, cutoffDate){
     const qrDiv=h('div',{style:{background:'rgba(255,255,255,0.07)',borderRadius:'8px',padding:'10px 12px',marginTop:'4px',marginBottom:'4px'}});
     qrDiv.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px'}},'Queen raising'));
     const qrGrid=h('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px'}});
-    [{l:'QR',v:s.qr,k:'qr'},{l:'Virgin',v:s.virgin,k:'virgin'},{l:'Cell Needed',v:s.cellNeeded,k:'cell_needed'},{l:'Nucs Needed',v:s.nucsNeeded,k:'nucs_needed'}].filter(x=>x.v>0).forEach(st=>{
+    [{l:'QR',v:s.qr,k:'qr'},{l:'Virgin',v:s.virgin,k:'virgin'},{l:'Cell Needed',v:s.cellNeeded,k:'cell_needed'},{l:'Nucs Needed',v:s.nucsNeeded,k:'nucs_needed'},{l:'Nucs In',v:s.nucsIn,k:'nucs_in'}].filter(x=>x.v>0).forEach(st=>{
       const tile=h('div',{style:{background:'rgba(255,255,255,0.09)',borderRadius:'7px',padding:'7px 4px',textAlign:'center',cursor:'pointer',WebkitTapHighlightColor:'rgba(0,0,0,0)'}});
       tile.appendChild(h('div',{style:{fontSize:'17px',fontWeight:'700',color:'#c39bd3',lineHeight:'1.1'}},st.v));
       tile.appendChild(h('div',{style:{fontSize:'10px',color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'.03em',marginTop:'2px'}},st.l+' ↗'));
@@ -7960,6 +7960,7 @@ function renderRoundTable(op){
       const sorted=entries.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
       const latest=sorted[0]||null;
       const cellIn=entries.reduce((a,e)=>a+(parseInt(e.cell_in)||0),0);
+      const nucsIn=entries.reduce((a,e)=>a+(parseInt(e.nucs_in)||0),0);
       const splits=entries.reduce((a,e)=>a+(parseInt(e.splits)||0),0);
       const tops=entries.reduce((a,e)=>a+(parseInt(e.tops)||0),0);
       const nucSplits=entries.reduce((a,e)=>a+(parseInt(e.nuc_splits)||0),0);
@@ -7973,7 +7974,7 @@ function renderRoundTable(op){
         virgin:parseInt(latest?.virgin)||0,
         cellNeeded:parseInt(latest?.cell_needed)||0,
         nucsNeeded:parseInt(latest?.nucs_needed)||0,
-        cellIn,splits,tops,nucSplits,
+        cellIn,nucsIn,splits,tops,nucSplits,
         visited:!!latest
       });
     });
@@ -7989,6 +7990,7 @@ function renderRoundTable(op){
     {key:'cellNeeded',label:'Cell Needed',show:rows.some(r=>r.cellNeeded>0)},
     {key:'nucsNeeded',label:'Nucs Needed',show:rows.some(r=>r.nucsNeeded>0)},
     {key:'cellIn',label:'Cell In',show:rows.some(r=>r.cellIn>0)},
+    {key:'nucsIn',label:'Nucs In',show:rows.some(r=>r.nucsIn>0)},
     {key:'splits',label:'Splits',show:rows.some(r=>r.splits>0)},
     {key:'tops',label:'Tops',show:rows.some(r=>r.tops>0)},
     {key:'nucSplits',label:'Nuc Splits',show:rows.some(r=>r.nucSplits>0)},
@@ -9675,6 +9677,7 @@ function renderEntriesList(){
       {k:'breeders',l:'Breeders',v:getSiteBreederCount(op,site),show:getSiteBreederCount(op,site)>0},
       {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:sumRound('nuc_splits'),show:sumRound('nuc_splits')>getCellInDismissedCount(op,site+'__nuc_splits')},
       {k:'cell_in',l:'Cell In',v:sumRound('cell_in'),show:sumRound('cell_in')>getCellInDismissedCount(op,site)},
+      {k:'nucs_in',l:'Nucs In',v:sumRound('nucs_in'),show:sumRound('nucs_in')>getCellInDismissedCount(op,site+'__nucs_in')},
       {k:'cell_needed',l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
       {k:'nucs_needed',l:'Nucs Needed',v:anchoredVal('nucs_needed'),show:anchoredVal('nucs_needed')>0},
       {k:'hives_fed',l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
@@ -9861,7 +9864,7 @@ function renderEntriesList(){
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
       {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
-      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},{key:'nucs_needed',label:'Nucs Needed'},
+      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'nucs_in',label:'Nucs In'},{key:'cell_needed',label:'Cell Needed'},{key:'nucs_needed',label:'Nucs Needed'},
       {key:'tops',label:'Top Splits'},{key:'tops_dest',label:'Top Splits → '},{key:'splits',label:'Box Splits'},{key:'splits_dest',label:'Box Splits → '},{key:'nuc_splits',label:'Nuc Splits'},{key:'nuc_splits_dest',label:'Nuc Splits → '},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
@@ -10469,7 +10472,7 @@ function renderForm(){
     ]},
     {key:'queens',label:'Requeening',color:'#7a4fa8',fields:[
       {key:'qr',label:'QR',type:'number'},{key:'virgin',label:'Virgin',type:'number'},
-      {key:'cell_in',label:'Cell In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},{key:'nucs_needed',label:'Nucs Needed',type:'number'},
+      {key:'cell_in',label:'Cell In',type:'number'},{key:'nucs_in',label:'Nucs In',type:'number'},{key:'cell_needed',label:'Cell Needed',type:'number'},{key:'nucs_needed',label:'Nucs Needed',type:'number'},
       {key:'cell_breeder',label:'Breeder',type:'pill_select',options:['B1','B2','B3','B4','B5'],color:'#1a6fb0'},
       {key:'cell_finisher',label:'Finisher',type:'pill_multi_select',options:Array.from({length:19},(_,i)=>'F'+(i+1)),color:'#3d7a4f'},
       {key:'tops',label:'Top Splits',type:'number'},{key:'tops_dest',label:'Top splits sent to',type:'yard_dest'},
@@ -11354,6 +11357,7 @@ function renderEntriesList(){
       {k:'nuc_splits',l:'Nuc Splits'+(lvStr('nuc_splits_dest')?' → '+lvStr('nuc_splits_dest'):''),v:sumRound('nuc_splits'),show:sumRound('nuc_splits')>getCellInDismissedCount(op,site+'__nuc_splits')},
       {k:'finishers',l:'Finishers',v:anchoredVal('finishers'),show:anchoredVal('finishers')>0},
       {k:'cell_in',l:'Cell In',v:sumRound('cell_in'),show:sumRound('cell_in')>getCellInDismissedCount(op,site)},
+      {k:'nucs_in',l:'Nucs In',v:sumRound('nucs_in'),show:sumRound('nucs_in')>getCellInDismissedCount(op,site+'__nucs_in')},
       {k:'cell_needed',l:'Cell Needed',v:anchoredVal('cell_needed'),show:anchoredVal('cell_needed')>0},
       {k:'nucs_needed',l:'Nucs Needed',v:anchoredVal('nucs_needed'),show:anchoredVal('nucs_needed')>0},
       {k:'hives_fed',l:'Hives Fed',v:anchoredVal('hives_fed'),show:anchoredVal('hives_fed')>0},
@@ -11540,7 +11544,7 @@ function renderEntriesList(){
       {key:'doubles',label:'Doubles'},{key:'lids_floors',label:'Lids & Floors'},{key:'light',label:'Light'},
       {key:'weak',label:'Weak'},{key:'check',label:'Check'},{key:'to_swab',label:'To Swab'},{key:'swab_whole_yard',label:'Whole Yard'},
       // Requeening
-      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'cell_needed',label:'Cell Needed'},{key:'nucs_needed',label:'Nucs Needed'},
+      {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'nucs_in',label:'Nucs In'},{key:'cell_needed',label:'Cell Needed'},{key:'nucs_needed',label:'Nucs Needed'},
       {key:'tops',label:'Top Splits'},{key:'tops_dest',label:'Top Splits → '},{key:'splits',label:'Box Splits'},{key:'splits_dest',label:'Box Splits → '},{key:'nuc_splits',label:'Nuc Splits'},{key:'nuc_splits_dest',label:'Nuc Splits → '},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
