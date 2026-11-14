@@ -7949,8 +7949,8 @@ function renderRoundTable(op){
   });
   wrap.appendChild(roundRow);
 
-  // Section tabs
-  const tableView=STATE.tableView||'queens';
+  // Section tabs (multi-select)
+  const tableViews=Array.isArray(STATE.tableViews)?STATE.tableViews:(STATE.tableView?[STATE.tableView]:['queens']);
   const SECT=[
     {k:'hive',l:'Hive Numbers',
      fields:[{k:'hives',l:'Hives'},{k:'dead_hives',l:'Dead'},{k:'dead',l:'Dead'},{k:'singles',l:'Singles'},{k:'doubles',l:'Doubles'},{k:'light',l:'Light'},{k:'weak',l:'Weak'},{k:'lids_floors',l:'Lids/Flrs'},{k:'check',l:'Check'}],
@@ -7974,14 +7974,22 @@ function renderRoundTable(op){
      fields:[{k:'hives_fed',l:'Hives Fed'},{k:'honey_hives_fed',l:'Honey Fed'},{k:'pollen_hives_fed',l:'Pollen Fed'}],
      hasData:e=>['hives_fed','honey_hives_fed','pollen_hives_fed'].some(k=>parseInt(e[k])>0)},
   ];
-  const section=SECT.find(s=>s.k===tableView)||SECT[1];
+  const sections=SECT.filter(s=>tableViews.includes(s.k));
+  if(!sections.length) sections.push(SECT[1]);
   const secRow=h('div',{style:{display:'flex',gap:'5px',marginBottom:'14px',overflowX:'auto',paddingBottom:'2px'}});
   secRow.style.cssText+='scrollbar-width:none;-webkit-scrollbar-width:none;';
   SECT.forEach(s=>{
-    const active=s.k===tableView;
+    const active=tableViews.includes(s.k);
     const btn=h('button',{
-      style:{padding:'5px 12px',borderRadius:'20px',background:active?accent:'transparent',color:active?'#fff':accent,border:'1.5px solid '+accent,fontSize:'11px',fontWeight:'700',cursor:'pointer',whiteSpace:'nowrap',flexShrink:'0'},
-      onClick:()=>setState({tableView:s.k,tableSortKey:'site',tableSortDir:1})
+      style:{padding:'5px 12px',borderRadius:'20px',background:active?accent:'transparent',color:active?'#fff':accent,
+        border:'1.5px solid '+accent,fontSize:'11px',fontWeight:'700',cursor:'pointer',whiteSpace:'nowrap',flexShrink:'0',
+        boxShadow:active?'inset 0 1px 3px rgba(0,0,0,0.15)':'none'},
+      onClick:()=>{
+        let next;
+        if(active) next=tableViews.length>1?tableViews.filter(k=>k!==s.k):tableViews;
+        else next=[...tableViews,s.k];
+        setState({tableViews:next,tableSortKey:'site',tableSortDir:1});
+      }
     },s.l);
     secRow.appendChild(btn);
   });
@@ -7994,6 +8002,8 @@ function renderRoundTable(op){
     'hives_fed','honey_hives_fed','pollen_hives_fed','dead_hives','dead']);
 
   // Build one row per site
+  const anyHiveSection=sections.some(s=>s.k==='hive');
+  const sectionHasData=(e)=>sections.some(s=>s.hasData(e));
   const sortKey=STATE.tableSortKey||'site';
   const sortDir=STATE.tableSortDir||1;
   const batchOrder=Object.keys(yards);
@@ -8003,18 +8013,22 @@ function renderRoundTable(op){
       const entries=(STATE.entries[eKey(op,site,roundKey)]||[]).filter(e=>!e._movement);
       const sorted=entries.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
       const hives=anchoredHivesForSite(op,site,null);
-      const latestWithData=section.k==='hive'
+      const latestWithData=(sections.length===1&&anyHiveSection)
         ?(sorted.find(e=>parseInt(e.hives)>0)||sorted[0]||null)
-        :sorted.find(e=>section.hasData(e));
+        :sorted.find(e=>sectionHasData(e));
       const row={site,batchName,hives,date:latestWithData?.date||null,
-        visited:sorted.length>0,hasData:section.k==='hive'?hives>0:!!latestWithData};
-      section.fields.forEach(f=>{
-        if(f.k==='hives'||f.k==='dead') return; // hives from anchored; dead folded into dead_hives
-        row[f.k]=CUM_FIELDS.has(f.k)
-          ?entries.reduce((a,e)=>a+(parseInt(e[f.k])||0),0)
-          :(f.k==='treatment'?(latestWithData?.treatment||''):(parseInt(latestWithData?.[f.k])||0));
+        visited:sorted.length>0,hasData:(anyHiveSection?hives>0:false)||!!latestWithData};
+      const seenRowKeys=new Set(['hives','dead']);
+      sections.forEach(sec=>{
+        sec.fields.forEach(f=>{
+          if(seenRowKeys.has(f.k)) return;
+          seenRowKeys.add(f.k);
+          row[f.k]=CUM_FIELDS.has(f.k)
+            ?entries.reduce((a,e)=>a+(parseInt(e[f.k])||0),0)
+            :(f.k==='treatment'?(latestWithData?.treatment||''):(parseInt(latestWithData?.[f.k])||0));
+        });
       });
-      if(section.k==='hive'){
+      if(anyHiveSection){
         const dh=entries.reduce((a,e)=>a+(parseInt(e.dead_hives)||0),0);
         const dd=entries.reduce((a,e)=>a+(parseInt(e.dead)||0),0);
         row.dead_hives=dh||dd;
@@ -8023,9 +8037,11 @@ function renderRoundTable(op){
     });
   });
 
-  // Which section fields have any data?
-  const activeFields=section.fields.filter(f=>{
-    if(f.k==='hives'||f.k==='dead') return false;
+  // Which fields have any data? (combined from all selected sections, deduped)
+  const seenFieldKeys=new Set(['hives','dead']);
+  const allSectionFields=[];
+  sections.forEach(sec=>{sec.fields.forEach(f=>{if(!seenFieldKeys.has(f.k)){seenFieldKeys.add(f.k);allSectionFields.push(f);}});});
+  const activeFields=allSectionFields.filter(f=>{
     if(f.k==='treatment') return rows.some(r=>r.treatment&&r.treatment!=='');
     return rows.some(r=>(r[f.k]||0)>0);
   });
@@ -8065,14 +8081,14 @@ function renderRoundTable(op){
       });});
       const a=document.createElement('a');
       a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csvLines.join('\n'));
-      a.download=op+'_'+section.l.replace(/\s/g,'_')+'_'+roundKey+'.csv';
+      a.download=op+'_'+sections.map(s=>s.l).join('-').replace(/\s/g,'_')+'_'+roundKey+'.csv';
       a.click();showToast('Downloading CSV…');
     }
   },'⬇ Export CSV');
   wrap.appendChild(csvBtn);
 
   if(!rows.some(r=>r.hasData)){
-    wrap.appendChild(h('div',{style:{padding:'32px',textAlign:'center',color:'#aaa',fontSize:'14px'}},'No '+section.l+' data for this round yet.'));
+    wrap.appendChild(h('div',{style:{padding:'32px',textAlign:'center',color:'#aaa',fontSize:'14px'}},'No '+sections.map(s=>s.l).join(' / ')+' data for this round yet.'));
     return wrap;
   }
 
@@ -8172,7 +8188,7 @@ function renderRoundTable(op){
   tableWrap.appendChild(tbl);
   wrap.appendChild(tableWrap);
   wrap.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb',marginBottom:'12px',lineHeight:'1.5'}},
-    'One row per site — most recent '+section.l+' entry. Cumulative fields (splits, cell in, etc.) show round totals. Faded = no data yet this round. Tap a row to open that yard.'
+    'One row per site — most recent '+sections.map(s=>s.l).join(' / ')+' entry. Cumulative fields (splits, cell in, etc.) show round totals. Faded = no data yet this round. Tap a row to open that yard.'
   ));
 
   return wrap;
