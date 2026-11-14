@@ -8086,7 +8086,8 @@ function renderRoundTable(op){
     const th=h('th',{
       style:{padding:sticky?'10px 12px 10px 14px':'9px 12px',textAlign:align||'left',fontSize:'11px',fontWeight:'700',
         color:isActive?accent:'#888',textTransform:'uppercase',letterSpacing:'.05em',cursor:'pointer',whiteSpace:'nowrap',userSelect:'none',
-        ...(sticky?{position:'sticky',left:'0',background:'#f4f4f2',zIndex:'2',boxShadow:'2px 0 5px rgba(0,0,0,0.07)'}:{})},
+        position:'sticky',top:'0',background:'#f4f4f2',zIndex:sticky?'4':'2',
+        ...(sticky?{left:'0',boxShadow:'2px 2px 5px rgba(0,0,0,0.07)'}:{boxShadow:'0 2px 4px rgba(0,0,0,0.06)'})},
       onClick:()=>{if(sortKey===key)setState({tableSortDir:-sortDir});else setState({tableSortKey:key,tableSortDir:key==='hives'?-1:1});}
     },label+(isActive?(sortDir===1?' ↑':' ↓'):''));
     return th;
@@ -8105,7 +8106,7 @@ function renderRoundTable(op){
     const bRows=grouped[batchName];
     if(!bRows||!bRows.length) return;
     const bHdr=h('tr',{style:{background:'#eeece8',borderTop:'1.5px solid #ddd',borderBottom:'.5px solid #ddd'}});
-    bHdr.appendChild(h('td',{colSpan:String(cols.length),style:{padding:'6px 14px',fontSize:'11px',fontWeight:'700',color:'#666',textTransform:'uppercase',letterSpacing:'.07em',position:'sticky',left:'0'}},batchName));
+    bHdr.appendChild(h('td',{colSpan:String(cols.length),style:{padding:'6px 14px',fontSize:'11px',fontWeight:'700',color:'#666',textTransform:'uppercase',letterSpacing:'.07em',position:'sticky',left:'0',maxWidth:'120px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},batchName));
     tbody.appendChild(bHdr);
     bRows.forEach(row=>{
       const rowBg=globalRi%2===0?'#fff':'#fafafa';globalRi++;
@@ -8121,6 +8122,7 @@ function renderRoundTable(op){
         }});
         if(col.key==='site'){
           td.textContent=row.site;td.style.fontWeight='600';td.style.color='#333';
+          td.style.maxWidth='120px';td.style.overflow='hidden';td.style.textOverflow='ellipsis';
         } else if(col.key==='date'){
           td.textContent=row.date?fmtDate(row.date):'—';
           td.style.color=row.date?'#888':'#ddd';td.style.fontSize='12px';
@@ -8151,7 +8153,7 @@ function renderRoundTable(op){
         color:'#444',whiteSpace:'nowrap',textAlign:'left',
         ...(ci===0?{position:'sticky',left:'0',background:'#f4f4f2',zIndex:'1',boxShadow:'2px 0 5px rgba(0,0,0,0.05)'}:{})
       }});
-      if(col.key==='site'){td.textContent='Total';td.style.color='#888';td.style.fontStyle='italic';}
+      if(col.key==='site'){td.textContent='Total';td.style.color='#888';td.style.fontStyle='italic';td.style.maxWidth='120px';}
       else if(col.key==='date'||col.key==='treatment'){td.textContent='';}
       else {
         const total=bRows.reduce((s,r)=>s+(Number(r[col.key])||0),0);
