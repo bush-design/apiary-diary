@@ -7956,7 +7956,7 @@ function renderRoundTable(op){
      fields:[{k:'hives',l:'Hives'},{k:'dead_hives',l:'Dead'},{k:'dead',l:'Dead'},{k:'singles',l:'Singles'},{k:'doubles',l:'Doubles'},{k:'light',l:'Light'},{k:'weak',l:'Weak'},{k:'lids_floors',l:'Lids/Flrs'},{k:'check',l:'Check'}],
      hasData:e=>parseInt(e.hives)>0||parseInt(e.dead_hives)>0||parseInt(e.dead)>0},
     {k:'queens',l:'Requeening',
-     fields:[{k:'qr',l:'QR'},{k:'virgin',l:'Virgin'},{k:'cell_in',l:'Cell In'},{k:'nucs_in',l:'Nucs In'},{k:'cell_needed',l:'Needed'},{k:'nucs_needed',l:'Nucs Needed'},{k:'breeders',l:'Breeders'},{k:'finishers',l:'Finishers'}],
+     fields:[{k:'cell_in',l:'Cell In'},{k:'nucs_in',l:'Nucs In'},{k:'qr',l:'QR'},{k:'virgin',l:'Virgin'},{k:'cell_needed',l:'Needed'},{k:'nucs_needed',l:'Nucs Needed'},{k:'breeders',l:'Breeders'},{k:'finishers',l:'Finishers'}],
      hasData:e=>['qr','virgin','cell_in','nucs_in','cell_needed','nucs_needed','breeders','finishers'].some(k=>parseInt(e[k])>0)},
     {k:'splits',l:'Splits',
      fields:[{k:'tops',l:'Tops'},{k:'splits',l:'Box Splits'},{k:'nuc_splits',l:'Nuc Splits'}],
