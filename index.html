@@ -3305,36 +3305,38 @@ function renderNucsScreen(){
     const SPLIT_COLORS={top:'#3d7a4f',box:'#1a6fb0',nuc:'#9b59b6',in_yard:'#b07800'};
     const NCOLS=9; // Source | Date | Total | Cell In | Virgin | Mated | Failed | Need Cell | Edit
 
-    // Build yard groups in order
-    const yardGroups=[];
+    // Collect all batches, grouped by destYard (matches Cards "By Destination" view)
+    const destMap=new Map();
     Object.entries(all).forEach(([key,yard])=>{
       if(!activeOps.includes(yard.op)) return;
-      const yardDisplayName=yard.name||(key.includes('__')?key.split('__').slice(1).join('__'):key);
-      const batches=(yard.batches||[]).map((batch,bi)=>{
+      (yard.batches||[]).forEach((batch,bi)=>{
         const cells=batch.nucs||[];
         const cellIn=cells.filter(c=>c.cellDate||c.status==='cell').length;
         const virgin=cells.filter(c=>c.status==='virgin').length;
         const mated=cells.filter(c=>c.status==='mated'||c.transferredTo).length;
         const failed=cells.filter(c=>c.status==='failed').length;
         const needCell=cells.filter(c=>!c.status||c.status==='waiting').length;
-        return {yardKey:key,yardName:yardDisplayName,op:yard.op,bi,batch,
+        const dest=batch.destYard||'(In Yard)';
+        if(!destMap.has(dest)) destMap.set(dest,[]);
+        destMap.get(dest).push({
+          yardKey:key,yardName:yard.name||key,op:yard.op,bi,batch,
           sourceYard:batch.sourceYard||'—',dateAdded:batch.dateAdded||'',
-          splitType:batch.splitType||'nuc',total:cells.length,cellIn,virgin,mated,failed,needCell};
+          splitType:batch.splitType||'nuc',total:cells.length,cellIn,virgin,mated,failed,needCell
+        });
       });
-      if(!batches.length) return;
-      // Yard-level totals
-      const tot=(f)=>batches.reduce((s,b)=>s+b[f],0);
-      yardGroups.push({key,yardDisplayName,op:yard.op,batches,
-        tTotal:tot('total'),tCellIn:tot('cellIn'),tVirgin:tot('virgin'),
-        tMated:tot('mated'),tFailed:tot('failed'),tNeedCell:tot('needCell')});
     });
 
-    if(!yardGroups.length){
+    if(!destMap.size){
       tableSection.appendChild(h('div',{style:{padding:'32px',textAlign:'center',color:'#aaa',fontSize:'14px'}},'No splits added yet. Use Cards view to add splits.'));
       return;
     }
 
-    yardGroups.sort((a,b)=>a.yardDisplayName.localeCompare(b.yardDisplayName));
+    // Sort alphabetically, (In Yard) last
+    const sorted=[...destMap.entries()].sort((a,b)=>{
+      if(a[0]==='(In Yard)') return 1;
+      if(b[0]==='(In Yard)') return -1;
+      return a[0].localeCompare(b[0]);
+    });
 
     const tableWrap=h('div',{style:{overflowX:'auto',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'16px',WebkitOverflowScrolling:'touch'}});
     const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:'680px',fontSize:'13px'}});
@@ -3347,15 +3349,19 @@ function renderNucsScreen(){
     thead.appendChild(hdrRow);tbl.appendChild(thead);
 
     const tbody=h('tbody',null);
-    yardGroups.forEach(({key,yardDisplayName,op:yOp,batches,tTotal,tCellIn,tVirgin,tMated,tFailed,tNeedCell})=>{
-      const opAccent=OPERATIONS[yOp]?.accent||'#555';
+    sorted.forEach(([dest,rows])=>{
+      const tTotal=rows.reduce((s,r)=>s+r.total,0);
+      const tCellIn=rows.reduce((s,r)=>s+r.cellIn,0);
+      const tVirgin=rows.reduce((s,r)=>s+r.virgin,0);
+      const tMated=rows.reduce((s,r)=>s+r.mated,0);
+      const tFailed=rows.reduce((s,r)=>s+r.failed,0);
+      const tNeedCell=rows.reduce((s,r)=>s+r.needCell,0);
 
-      // Yard group header row
+      // Destination group header row
       const grpRow=h('tr',{style:{background:'#f8f7f4',borderTop:'2px solid #e0ddd8',borderBottom:'.5px solid #ddd'}});
       const grpTd=h('td',{colSpan:String(NCOLS),style:{padding:'9px 14px'}});
       const grpInner=h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',flexWrap:'wrap',gap:'6px'}});
-      grpInner.appendChild(h('span',{style:{fontWeight:'800',fontSize:'14px',color:'#222',textTransform:'uppercase',letterSpacing:'.04em'}},yardDisplayName));
-      // Summary chips
+      grpInner.appendChild(h('span',{style:{fontWeight:'800',fontSize:'14px',color:'#222',textTransform:'uppercase',letterSpacing:'.04em'}},dest));
       const chips=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
       const chip=(n,label,color)=>{
         if(!n) return;
@@ -3370,8 +3376,11 @@ function renderNucsScreen(){
       grpInner.appendChild(chips);
       grpTd.appendChild(grpInner);grpRow.appendChild(grpTd);tbody.appendChild(grpRow);
 
-      // Batch rows (source yards)
-      batches.forEach((r,ri)=>{
+      // Sort rows by date within each destination
+      rows.sort((a,b)=>(a.dateAdded||'').localeCompare(b.dateAdded||''));
+
+      // Batch rows (source yards under this destination)
+      rows.forEach((r,ri)=>{
         const bg=ri%2===0?'#fff':'#fafafa';
         const tr=h('tr',{style:{background:bg,borderBottom:'.5px solid #eee'}});
         const mk=(content,color,bold)=>{
