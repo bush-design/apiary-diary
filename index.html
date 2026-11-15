@@ -3303,7 +3303,7 @@ function renderNucsScreen(){
     const all=loadNucYards();
     const SPLIT_LABELS={top:'Top Split',box:'Box Split',nuc:'Nuc',in_yard:'In Yard'};
     const SPLIT_COLORS={top:'#3d7a4f',box:'#1a6fb0',nuc:'#9b59b6',in_yard:'#b07800'};
-    const NCOLS=9; // Source | Date | Total | Cell In | Virgin | Mated | Failed | Need Cell | Edit
+    const NCOLS=11; // Source | Date | Total | Used | Available | Cell In | Virgin | Mated | Failed | Need Cell | Edit
 
     // Collect all batches, grouped by destYard (matches Cards "By Destination" view)
     const destMap=new Map();
@@ -3316,12 +3316,14 @@ function renderNucsScreen(){
         const mated=cells.filter(c=>c.status==='mated'||c.transferredTo).length;
         const failed=cells.filter(c=>c.status==='failed').length;
         const needCell=cells.filter(c=>!c.status||c.status==='waiting').length;
+        const used=mated; // queens successfully mated
+        const available=cells.length-mated-failed; // still being raised
         const dest=batch.destYard||'(In Yard)';
         if(!destMap.has(dest)) destMap.set(dest,[]);
         destMap.get(dest).push({
           yardKey:key,yardName:yard.name||key,op:yard.op,bi,batch,
           sourceYard:batch.sourceYard||'—',dateAdded:batch.dateAdded||'',
-          splitType:batch.splitType||'nuc',total:cells.length,cellIn,virgin,mated,failed,needCell
+          splitType:batch.splitType||'nuc',total:cells.length,cellIn,virgin,mated,failed,needCell,used,available
         });
       });
     });
@@ -3338,41 +3340,55 @@ function renderNucsScreen(){
       return a[0].localeCompare(b[0]);
     });
 
-    const tableWrap=h('div',{style:{overflowX:'auto',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'16px',WebkitOverflowScrolling:'touch'}});
+    const tableWrap=h('div',{style:{overflowX:'auto',overflowY:'auto',maxHeight:'65vh',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'16px',WebkitOverflowScrolling:'touch',position:'relative'}});
     const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:'680px',fontSize:'13px'}});
 
     const thead=h('thead',null);
-    const hdrRow=h('tr',{style:{background:'#f4f4f2',borderBottom:'1.5px solid #ddd'}});
-    ['Source','Date','Total','Cell In','Virgin','Mated','Failed','Need Cell',''].forEach(c=>{
-      hdrRow.appendChild(h('th',{style:{padding:'9px 12px',textAlign:'left',fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap',boxShadow:'0 2px 4px rgba(0,0,0,0.06)'}},c));
+    const hdrRow=h('tr',null);
+    ['Source','Date','Total','Used','Available','Cell In','Virgin','Mated','Failed','Need Cell',''].forEach((c,ci)=>{
+      const isFirst=ci===0;
+      hdrRow.appendChild(h('th',{style:{
+        padding:'9px 12px',textAlign:'left',fontSize:'11px',fontWeight:'700',color:'#888',
+        textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap',
+        position:'sticky',top:'0',zIndex:isFirst?4:3,
+        background:'#f4f4f2',borderBottom:'1.5px solid #ddd',
+        ...(isFirst?{left:'0',boxShadow:'2px 2px 4px rgba(0,0,0,0.08)'}:{})
+      }},c));
     });
     thead.appendChild(hdrRow);tbl.appendChild(thead);
 
     const tbody=h('tbody',null);
     sorted.forEach(([dest,rows])=>{
       const tTotal=rows.reduce((s,r)=>s+r.total,0);
+      const tUsed=rows.reduce((s,r)=>s+r.used,0);
+      const tAvail=rows.reduce((s,r)=>s+r.available,0);
       const tCellIn=rows.reduce((s,r)=>s+r.cellIn,0);
       const tVirgin=rows.reduce((s,r)=>s+r.virgin,0);
       const tMated=rows.reduce((s,r)=>s+r.mated,0);
       const tFailed=rows.reduce((s,r)=>s+r.failed,0);
       const tNeedCell=rows.reduce((s,r)=>s+r.needCell,0);
 
-      // Destination group header row
-      const grpRow=h('tr',{style:{background:'#f8f7f4',borderTop:'2px solid #e0ddd8',borderBottom:'.5px solid #ddd'}});
-      const grpTd=h('td',{colSpan:String(NCOLS),style:{padding:'9px 14px'}});
-      const grpInner=h('div',{style:{display:'flex',alignItems:'baseline',justifyContent:'space-between',flexWrap:'wrap',gap:'6px'}});
-      grpInner.appendChild(h('span',{style:{fontWeight:'800',fontSize:'14px',color:'#222',textTransform:'uppercase',letterSpacing:'.04em'}},dest));
-      const chips=h('div',{style:{display:'flex',gap:'6px',flexWrap:'wrap'}});
+      // Destination group header row — compact, sticky on the left
+      const grpRow=h('tr',{style:{background:'#f0ede8',borderTop:'2px solid #ddd'}});
+      const grpTd=h('td',{colSpan:String(NCOLS),style:{
+        padding:'5px 12px',position:'sticky',left:'0',
+        background:'#f0ede8',boxShadow:'0 1px 0 #ddd'
+      }});
+      const grpInner=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}});
+      grpInner.appendChild(h('span',{style:{fontWeight:'800',fontSize:'12px',color:'#333',textTransform:'uppercase',letterSpacing:'.05em'}},dest));
+      const chips=h('div',{style:{display:'flex',gap:'4px',flexWrap:'wrap'}});
       const chip=(n,label,color)=>{
         if(!n) return;
-        chips.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color,background:color+'18',borderRadius:'8px',padding:'2px 8px'}},n+' '+label));
+        chips.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color,background:color+'18',borderRadius:'6px',padding:'1px 6px'}},n+' '+label));
       };
       chip(tTotal,'splits','#555');
+      chip(tUsed,'used','#3d7a4f');
+      chip(tAvail,'avail','#1a6fb0');
       chip(tCellIn,'celled','#b07800');
       chip(tVirgin,'virgin','#9b59b6');
       chip(tMated,'mated','#3d7a4f');
       chip(tFailed,'failed','#c0392b');
-      if(tNeedCell) chips.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:'#b07800',background:'#b0780018',borderRadius:'8px',padding:'2px 8px'}},'⚠ '+tNeedCell+' need cell'));
+      if(tNeedCell) chips.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:'#b07800',background:'#b0780018',borderRadius:'6px',padding:'1px 6px'}},'⚠ '+tNeedCell));
       grpInner.appendChild(chips);
       grpTd.appendChild(grpInner);grpRow.appendChild(grpTd);tbody.appendChild(grpRow);
 
@@ -3387,14 +3403,16 @@ function renderNucsScreen(){
           const td=h('td',{style:{padding:'8px 12px',whiteSpace:'nowrap',color:color||'#555',fontWeight:bold?'700':'400',fontSize:'13px',maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis'}});
           td.textContent=content;return td;
         };
-        // Source yard with type badge
-        const srcTd=h('td',{style:{padding:'7px 12px 7px 20px',whiteSpace:'nowrap'}});
+        // Source yard — sticky left column
+        const srcTd=h('td',{style:{padding:'7px 12px 7px 20px',whiteSpace:'nowrap',position:'sticky',left:'0',zIndex:'1',background:bg,boxShadow:'2px 0 4px rgba(0,0,0,0.05)'}});
         const typeColor=SPLIT_COLORS[r.splitType]||'#555';
         srcTd.appendChild(h('span',{style:{fontWeight:'600',fontSize:'13px',color:'#333',marginRight:'6px'}},r.sourceYard));
         srcTd.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'6px',padding:'1px 6px'}},SPLIT_LABELS[r.splitType]||r.splitType));
         tr.appendChild(srcTd);
         tr.appendChild(mk(r.dateAdded?fmtDate(r.dateAdded):'—','#999'));
         tr.appendChild(mk(String(r.total),'#333',true));
+        tr.appendChild(mk(r.used>0?String(r.used):'—',r.used>0?'#3d7a4f':'#ddd',r.used>0));
+        tr.appendChild(mk(r.available>0?String(r.available):'—',r.available>0?'#1a6fb0':'#ddd',r.available>0));
         tr.appendChild(mk(r.cellIn>0?String(r.cellIn):'—',r.cellIn>0?'#b07800':'#ddd',r.cellIn>0));
         tr.appendChild(mk(r.virgin>0?String(r.virgin):'—',r.virgin>0?'#9b59b6':'#ddd',r.virgin>0));
         tr.appendChild(mk(r.mated>0?String(r.mated):'—',r.mated>0?'#3d7a4f':'#ddd',r.mated>0));
