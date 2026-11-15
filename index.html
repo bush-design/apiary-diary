@@ -8168,6 +8168,10 @@ function renderRoundTable(op){
         const dh=entries.reduce((a,e)=>a+(parseInt(e.dead_hives)||0),0);
         const dd=entries.reduce((a,e)=>a+(parseInt(e.dead)||0),0);
         row.dead_hives=dh||dd;
+        // If site currently has 0 hives, zero out composition fields — old entry values are stale
+        if(hives===0){
+          ['singles','doubles','light','weak','lids_floors','check'].forEach(k=>{ row[k]=0; });
+        }
       }
       rows.push(row);
     });
