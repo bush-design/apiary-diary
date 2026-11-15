@@ -3439,16 +3439,21 @@ function renderNucsScreen(){
     tbl.appendChild(tbody);tableWrap.appendChild(tbl);
     tableSection.appendChild(tableWrap);
     // Switch source column between full name and 3-letter abbr based on horizontal scroll
+    // No width changes (avoids reflow feedback loop); hysteresis prevents oscillation
     let _srcScrolled=false;
+    let _srcRaf=null;
     tableWrap.addEventListener('scroll',()=>{
-      const nowScrolled=tableWrap.scrollLeft>24;
-      if(nowScrolled===_srcScrolled) return;
-      _srcScrolled=nowScrolled;
-      srcCells.forEach(({td,full,abbr,bg})=>{
-        full.style.display=nowScrolled?'none':'block';
-        abbr.style.display=nowScrolled?'block':'none';
-        td.style.width=nowScrolled?'52px':'';
-        td.style.maxWidth=nowScrolled?'52px':'';
+      if(_srcRaf) cancelAnimationFrame(_srcRaf);
+      _srcRaf=requestAnimationFrame(()=>{
+        const sl=tableWrap.scrollLeft;
+        // Switch TO abbr at 50px, switch BACK to full at 15px (hysteresis gap)
+        const nowScrolled=_srcScrolled?(sl>15):(sl>50);
+        if(nowScrolled===_srcScrolled) return;
+        _srcScrolled=nowScrolled;
+        srcCells.forEach(({full,abbr})=>{
+          full.style.display=nowScrolled?'none':'block';
+          abbr.style.display=nowScrolled?'block':'none';
+        });
       });
     });
   }
