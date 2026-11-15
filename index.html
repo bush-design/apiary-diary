@@ -3339,6 +3339,7 @@ function renderNucsScreen(){
       if(b[0]==='(In Yard)') return -1;
       return a[0].localeCompare(b[0]);
     });
+    const srcCells=[]; // track source cells for scroll-based abbreviation
 
     const tableWrap=h('div',{style:{overflowX:'auto',overflowY:'auto',maxHeight:'65vh',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'16px',WebkitOverflowScrolling:'touch',position:'relative'}});
     const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:'680px',fontSize:'13px'}});
@@ -3403,13 +3404,21 @@ function renderNucsScreen(){
           const td=h('td',{style:{padding:'8px 12px',whiteSpace:'nowrap',color:color||'#555',fontWeight:bold?'700':'400',fontSize:'13px',maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis'}});
           td.textContent=content;return td;
         };
-        // Source yard — sticky left column, abbreviated
-        const srcTd=h('td',{style:{padding:'7px 8px 7px 10px',whiteSpace:'nowrap',position:'sticky',left:'0',zIndex:'1',background:bg,boxShadow:'2px 0 4px rgba(0,0,0,0.05)',width:'60px',maxWidth:'60px'}});
+        // Source yard — sticky left column, full name by default, abbreviated on horizontal scroll
+        const srcTd=h('td',{style:{padding:'7px 8px 7px 10px',whiteSpace:'nowrap',position:'sticky',left:'0',zIndex:'1',background:bg,boxShadow:'2px 0 4px rgba(0,0,0,0.05)'}});
         const typeColor=SPLIT_COLORS[r.splitType]||'#555';
-        const abbr=(r.sourceYard||'—').slice(0,3).toUpperCase();
+        const abbr3=(r.sourceYard||'—').slice(0,3).toUpperCase();
         const TYPE_ABBR={top:'T',box:'B',nuc:'N',in_yard:'IY'};
-        srcTd.appendChild(h('span',{style:{fontWeight:'700',fontSize:'12px',color:'#333',display:'block',letterSpacing:'.02em'},title:r.sourceYard},abbr));
-        srcTd.appendChild(h('span',{style:{fontSize:'9px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'4px',padding:'0 4px'}},TYPE_ABBR[r.splitType]||r.splitType));
+        // Full view (default)
+        const srcFull=h('div',{style:{display:'block'}});
+        srcFull.appendChild(h('span',{style:{fontWeight:'600',fontSize:'13px',color:'#333',marginRight:'6px'}},r.sourceYard));
+        srcFull.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'6px',padding:'1px 6px'}},SPLIT_LABELS[r.splitType]||r.splitType));
+        // Abbreviated view (shown when scrolled right)
+        const srcAbbr=h('div',{style:{display:'none'}});
+        srcAbbr.appendChild(h('span',{style:{fontWeight:'700',fontSize:'12px',color:'#333',display:'block',letterSpacing:'.02em'},title:r.sourceYard},abbr3));
+        srcAbbr.appendChild(h('span',{style:{fontSize:'9px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'4px',padding:'0 4px'}},TYPE_ABBR[r.splitType]||r.splitType));
+        srcTd.appendChild(srcFull);srcTd.appendChild(srcAbbr);
+        srcCells.push({td:srcTd,full:srcFull,abbr:srcAbbr,bg});
         tr.appendChild(srcTd);
         tr.appendChild(mk(r.dateAdded?fmtDate(r.dateAdded):'—','#999'));
         tr.appendChild(mk(String(r.total),'#333',true));
@@ -3429,6 +3438,19 @@ function renderNucsScreen(){
     });
     tbl.appendChild(tbody);tableWrap.appendChild(tbl);
     tableSection.appendChild(tableWrap);
+    // Switch source column between full name and 3-letter abbr based on horizontal scroll
+    let _srcScrolled=false;
+    tableWrap.addEventListener('scroll',()=>{
+      const nowScrolled=tableWrap.scrollLeft>24;
+      if(nowScrolled===_srcScrolled) return;
+      _srcScrolled=nowScrolled;
+      srcCells.forEach(({td,full,abbr,bg})=>{
+        full.style.display=nowScrolled?'none':'block';
+        abbr.style.display=nowScrolled?'block':'none';
+        td.style.width=nowScrolled?'52px':'';
+        td.style.maxWidth=nowScrolled?'52px':'';
+      });
+    });
   }
   renderTableSection();
 
