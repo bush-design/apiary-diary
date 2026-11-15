@@ -7932,6 +7932,136 @@ function renderSummaryPanel(opName, cutoffDate){
   return panel;
 }
 
+function renderSplitsTracker(op){
+  const yards=getYards(op);
+  const accent=OPERATIONS[op]?.accent||'#333';
+  const wrap=h('div',null);
+
+  // Gather all split records across all rounds
+  const records=[];
+  Object.entries(yards).forEach(([batchName,batchData])=>{
+    batchData.sites.forEach(site=>{
+      Object.keys(ROUNDS).forEach(rk=>{
+        const entries=(STATE.entries[eKey(op,site,rk)]||[]).filter(e=>!e._movement);
+        entries.forEach(e=>{
+          const tops=parseInt(e.tops)||0;
+          const splits=parseInt(e.splits)||0;
+          const nucs=parseInt(e.nuc_splits)||0;
+          if(!tops&&!splits&&!nucs) return;
+          const destMap={};
+          if(tops&&e.tops_dest){
+            if(!destMap[e.tops_dest]) destMap[e.tops_dest]={tops:0,splits:0,nucs:0};
+            destMap[e.tops_dest].tops+=tops;
+          }
+          if(splits&&e.splits_dest){
+            if(!destMap[e.splits_dest]) destMap[e.splits_dest]={tops:0,splits:0,nucs:0};
+            destMap[e.splits_dest].splits+=splits;
+          }
+          if(nucs&&e.nuc_splits_dest){
+            if(!destMap[e.nuc_splits_dest]) destMap[e.nuc_splits_dest]={tops:0,splits:0,nucs:0};
+            destMap[e.nuc_splits_dest].nucs+=nucs;
+          }
+          const noDestTops=tops&&!e.tops_dest?tops:0;
+          const noDestSplits=splits&&!e.splits_dest?splits:0;
+          const noDestNucs=nucs&&!e.nuc_splits_dest?nucs:0;
+          if(noDestTops||noDestSplits||noDestNucs){
+            if(!destMap['(no destination)']) destMap['(no destination)']={tops:0,splits:0,nucs:0};
+            destMap['(no destination)'].tops+=noDestTops;
+            destMap['(no destination)'].splits+=noDestSplits;
+            destMap['(no destination)'].nucs+=noDestNucs;
+          }
+          Object.entries(destMap).forEach(([destYard,counts])=>{
+            records.push({
+              destYard,sourceYard:site,batchName,date:e.date||'',round:rk,
+              tops:counts.tops,splits:counts.splits,nucs:counts.nucs,
+              total:counts.tops+counts.splits+counts.nucs,
+              cell_date:e.split_cell_date||'',qr_date:e.split_qr_date||'',
+              virgin_date:e.split_virgin_date||'',failed:!!e.split_failed
+            });
+          });
+        });
+      });
+    });
+  });
+
+  if(!records.length){
+    wrap.appendChild(h('div',{style:{padding:'32px',textAlign:'center',color:'#aaa',fontSize:'14px'}},'No splits data recorded yet. Add splits in the diary to see them here.'));
+    return wrap;
+  }
+
+  const destGroups={};
+  records.forEach(r=>{if(!destGroups[r.destYard])destGroups[r.destYard]=[];destGroups[r.destYard].push(r);});
+  Object.values(destGroups).forEach(grp=>grp.sort((a,b)=>(b.date||'').localeCompare(a.date||'')));
+  const sortedDests=Object.keys(destGroups).sort((a,b)=>a==='(no destination)'?1:b==='(no destination)'?-1:a.localeCompare(b));
+
+  const tableWrap=h('div',{style:{overflowX:'auto',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'10px',WebkitOverflowScrolling:'touch'}});
+  const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:'700px',fontSize:'13px'}});
+  const thead=h('thead',null);
+  const hdrRow=h('tr',{style:{background:'#f4f4f2',borderBottom:'1.5px solid #ddd'}});
+  ['Source','Date','Tops','Box','Nuc','Total','Cells In','QR','Virgin','Failed'].forEach((c,i)=>{
+    hdrRow.appendChild(h('th',{style:{
+      padding:i===0?'10px 12px 10px 14px':'9px 12px',textAlign:'left',fontSize:'11px',fontWeight:'700',
+      color:'#888',textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap',
+      position:'sticky',top:'0',background:'#f4f4f2',zIndex:i===0?'4':'2',
+      ...(i===0?{left:'0',boxShadow:'2px 2px 5px rgba(0,0,0,0.07)'}:{boxShadow:'0 2px 4px rgba(0,0,0,0.06)'})
+    }},c));
+  });
+  thead.appendChild(hdrRow);tbl.appendChild(thead);
+
+  const tbody=h('tbody',null);
+  let rowIdx=0;
+  sortedDests.forEach(dest=>{
+    const grp=destGroups[dest];
+    const destHdr=h('tr',{style:{background:'#eeece8',borderTop:'1.5px solid #ddd',borderBottom:'.5px solid #ddd'}});
+    destHdr.appendChild(h('td',{colSpan:'10',style:{padding:'7px 14px',fontSize:'12px',fontWeight:'700',color:accent,
+      textTransform:'uppercase',letterSpacing:'.07em',position:'sticky',left:'0'}},'→ '+dest));
+    tbody.appendChild(destHdr);
+    let gTops=0,gSplits=0,gNucs=0,gTotal=0;
+    grp.forEach(r=>{
+      const bg=rowIdx%2===0?'#fff':'#fafafa';rowIdx++;
+      const tr=h('tr',{style:{background:bg,borderBottom:'.5px solid #eee',cursor:'pointer'},
+        onClick:()=>{Object.entries(getYards(op)).forEach(([batch,data])=>{if(data.sites.includes(r.sourceYard))setState({tab:'diary',run:batch,site:r.sourceYard,diaryView:'entries'});});}});
+      const mkTd=(content,color,bold,sticky)=>{
+        const td=h('td',{style:{padding:sticky?'8px 12px 8px 14px':'7px 12px',whiteSpace:'nowrap',
+          color:color||'#555',fontWeight:bold?'700':'400',fontSize:'13px',
+          ...(sticky?{position:'sticky',left:'0',background:bg,zIndex:'1',boxShadow:'2px 0 5px rgba(0,0,0,0.05)',maxWidth:'120px',overflow:'hidden',textOverflow:'ellipsis'}:{})}});
+        td.textContent=content;return td;
+      };
+      tr.appendChild(mkTd(r.sourceYard,'#333',true,true));
+      tr.appendChild(mkTd(r.date?fmtDate(r.date):'—',r.date?'#888':'#ddd'));
+      tr.appendChild(mkTd(r.tops>0?String(r.tops):'—',r.tops>0?accent:'#ddd',r.tops>0));
+      tr.appendChild(mkTd(r.splits>0?String(r.splits):'—',r.splits>0?accent:'#ddd',r.splits>0));
+      tr.appendChild(mkTd(r.nucs>0?String(r.nucs):'—',r.nucs>0?accent:'#ddd',r.nucs>0));
+      tr.appendChild(mkTd(String(r.total),'#333',true));
+      tr.appendChild(mkTd(r.cell_date?fmtDate(r.cell_date):'—',r.cell_date?'#7a4fa8':'#ddd'));
+      tr.appendChild(mkTd(r.qr_date?fmtDate(r.qr_date):'—',r.qr_date?'#7a4fa8':'#ddd'));
+      tr.appendChild(mkTd(r.virgin_date?fmtDate(r.virgin_date):'—',r.virgin_date?'#7a4fa8':'#ddd'));
+      tr.appendChild(mkTd(r.failed?'✕ Failed':'—',r.failed?'#c0392b':'#ddd',r.failed));
+      tbody.appendChild(tr);
+      gTops+=r.tops;gSplits+=r.splits;gNucs+=r.nucs;gTotal+=r.total;
+    });
+    const totRow=h('tr',{style:{background:'#f4f4f2',borderTop:'1.5px solid #ddd',borderBottom:'1.5px solid #ddd'}});
+    const mkTot=(content,color,sticky)=>{
+      const td=h('td',{style:{padding:sticky?'7px 12px 7px 14px':'6px 12px',fontWeight:'700',fontSize:'12px',
+        color:color||'#444',whiteSpace:'nowrap',
+        ...(sticky?{position:'sticky',left:'0',background:'#f4f4f2',zIndex:'1',boxShadow:'2px 0 5px rgba(0,0,0,0.05)'}:{})}});
+      td.textContent=content;return td;
+    };
+    totRow.appendChild(mkTot('Total','#888',true));
+    totRow.appendChild(mkTot(''));
+    totRow.appendChild(mkTot(gTops>0?String(gTops):'—',gTops>0?accent:'#ccc'));
+    totRow.appendChild(mkTot(gSplits>0?String(gSplits):'—',gSplits>0?accent:'#ccc'));
+    totRow.appendChild(mkTot(gNucs>0?String(gNucs):'—',gNucs>0?accent:'#ccc'));
+    totRow.appendChild(mkTot(String(gTotal),'#333'));
+    [0,0,0,0].forEach(()=>totRow.appendChild(mkTot('')));
+    tbody.appendChild(totRow);
+  });
+  tbl.appendChild(tbody);tableWrap.appendChild(tbl);wrap.appendChild(tableWrap);
+  wrap.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb',marginBottom:'12px',lineHeight:'1.5'}},
+    'Splits grouped by destination yard. All rounds included. Tracking dates per diary entry. Tap a row to open that source yard.'));
+  return wrap;
+}
+
 function renderRoundTable(op){
   const roundKey=STATE.tableRound||'queen';
   const yards=getYards(op);
@@ -7994,6 +8124,12 @@ function renderRoundTable(op){
     secRow.appendChild(btn);
   });
   wrap.appendChild(secRow);
+
+  // Splits tracker: show when ONLY splits is selected
+  if(sections.length===1&&sections[0].k==='splits'){
+    wrap.appendChild(renderSplitsTracker(op));
+    return wrap;
+  }
 
   // Fields summed across the whole round vs taken from latest entry
   const CUM_FIELDS=new Set(['splits','tops','nuc_splits','cell_in','nucs_in',
@@ -9917,6 +10053,7 @@ function renderEntriesList(){
       // Requeening
       {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'nucs_in',label:'Nucs In'},{key:'cell_needed',label:'Cell Needed'},{key:'nucs_needed',label:'Nucs Needed'},
       {key:'tops',label:'Top Splits'},{key:'tops_dest',label:'Top Splits → '},{key:'splits',label:'Box Splits'},{key:'splits_dest',label:'Box Splits → '},{key:'nuc_splits',label:'Nuc Splits'},{key:'nuc_splits_dest',label:'Nuc Splits → '},
+      {key:'split_cell_date',label:'Cells In'},{key:'split_qr_date',label:'QR Date'},{key:'split_virgin_date',label:'Virgin Date'},{key:'split_failed',label:'Failed'},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
@@ -10529,6 +10666,9 @@ function renderForm(){
       {key:'tops',label:'Top Splits',type:'number'},{key:'tops_dest',label:'Top splits sent to',type:'yard_dest'},
       {key:'splits',label:'Box Splits',type:'number'},{key:'splits_dest',label:'Box splits sent to',type:'yard_dest'},
       {key:'nuc_splits',label:'Nuc Splits',type:'number'},{key:'nuc_splits_dest',label:'Nuc splits sent to',type:'yard_dest'},
+      {key:'_split_track',label:'Split Tracking',type:'subtitle'},
+      {key:'split_cell_date',label:'Cells In',type:'date_input'},{key:'split_qr_date',label:'QR',type:'date_input'},
+      {key:'split_virgin_date',label:'Virgin',type:'date_input'},{key:'split_failed',label:'Failed',type:'toggle'},
     ]},
     {key:'pollination',label:'Pollination',color:'#b07800',fields:[
       {key:'pol_pallet',label:'POL Pallets',type:'number'},{key:'part_pallet',label:'Part Pallets',type:'number'},
@@ -11007,6 +11147,18 @@ function renderForm(){
         sel.addEventListener('change',e=>STATE.formVals[f.key]=e.target.value);
         if(vals[f.key]) sel.value=vals[f.key];
         fw.appendChild(sel);
+      } else if(f.type==='date_input'){
+        fw.appendChild(h('label',{style:{fontSize:'10px',color:'#888',textTransform:'uppercase',letterSpacing:'.04em',display:'block',marginBottom:'4px'}},f.label));
+        const dinp=h('input',{type:'date',style:{width:'100%',padding:'7px 8px',border:'.5px solid #ddd',borderRadius:'7px',fontSize:'14px',background:'#fff',boxSizing:'border-box',colorScheme:'light'}});
+        dinp.value=vals[f.key]||'';
+        dinp.addEventListener('change',e=>STATE.formVals[f.key]=e.target.value);
+        fw.appendChild(dinp);
+      } else if(f.type==='toggle'){
+        const isOn=!!(vals[f.key]);
+        const tbtn=h('button',{type:'button',style:{padding:'8px 16px',borderRadius:'20px',border:'1.5px solid '+(isOn?'#c0392b':'#ddd'),background:isOn?'#c0392b':'#fff',color:isOn?'#fff':'#aaa',fontSize:'13px',fontWeight:'700',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px'}},
+          (isOn?'✕ ':'○ ')+f.label);
+        tbtn.addEventListener('click',()=>{STATE.formVals[f.key]=!STATE.formVals[f.key];setState({});});
+        fw.appendChild(tbtn);
       }
       body.appendChild(fw);
       // Live total tiles after each FD / 3/4 group
@@ -11597,6 +11749,7 @@ function renderEntriesList(){
       // Requeening
       {key:'qr',label:'QR'},{key:'virgin',label:'Virgin'},{key:'cell_in',label:'Cell In'},{key:'nucs_in',label:'Nucs In'},{key:'cell_needed',label:'Cell Needed'},{key:'nucs_needed',label:'Nucs Needed'},
       {key:'tops',label:'Top Splits'},{key:'tops_dest',label:'Top Splits → '},{key:'splits',label:'Box Splits'},{key:'splits_dest',label:'Box Splits → '},{key:'nuc_splits',label:'Nuc Splits'},{key:'nuc_splits_dest',label:'Nuc Splits → '},
+      {key:'split_cell_date',label:'Cells In'},{key:'split_qr_date',label:'QR Date'},{key:'split_virgin_date',label:'Virgin Date'},{key:'split_failed',label:'Failed'},
       {key:'breeders',label:'Breeders'},{key:'finishers',label:'Finishers'},
       // Pollination
       {key:'pol_pallet',label:'POL Pallets'},{key:'part_pallet',label:'Part Pallets'},
