@@ -3300,13 +3300,76 @@ function renderNucsScreen(){
   function renderTableSection(){
     tableSection.innerHTML='';
     const activeOps=selectedOps.size===0?Object.keys(OPERATIONS):[...selectedOps];
-    activeOps.forEach((op,i)=>{
-      if(activeOps.length>1){
-        const opColor=OPERATIONS[op]?.color||'#555';
-        tableSection.appendChild(h('div',{style:{fontSize:'12px',fontWeight:'700',color:opColor,textTransform:'uppercase',letterSpacing:'.06em',marginBottom:'8px',marginTop:i>0?'20px':'0'}},op));
-      }
-      tableSection.appendChild(renderSplitsTracker(op));
+    const all=loadNucYards();
+    const SPLIT_LABELS={top:'Top Split',box:'Box Split',nuc:'Nuc',in_yard:'In Yard'};
+    const SPLIT_COLORS={top:'#3d7a4f',box:'#1a6fb0',nuc:'#9b59b6',in_yard:'#b07800'};
+
+    const rows=[];
+    Object.entries(all).forEach(([key,yard])=>{
+      if(!activeOps.includes(yard.op)) return;
+      const yardDisplayName=yard.name||(key.includes('__')?key.split('__').slice(1).join('__'):key);
+      (yard.batches||[]).forEach((batch,bi)=>{
+        const cells=batch.nucs||[];
+        const cellIn=cells.filter(c=>c.cellDate||c.status==='cell').length;
+        const virgin=cells.filter(c=>c.status==='virgin').length;
+        const mated=cells.filter(c=>c.status==='mated'||c.transferredTo).length;
+        const failed=cells.filter(c=>c.status==='failed').length;
+        const needCell=cells.filter(c=>!c.status||c.status==='waiting').length;
+        rows.push({yardKey:key,yardName:yardDisplayName,op:yard.op,bi,batch,
+          sourceYard:batch.sourceYard||'—',dateAdded:batch.dateAdded||'',
+          splitType:batch.splitType||'nuc',total:cells.length,cellIn,virgin,mated,failed,needCell});
+      });
     });
+
+    if(!rows.length){
+      tableSection.appendChild(h('div',{style:{padding:'32px',textAlign:'center',color:'#aaa',fontSize:'14px'}},'No splits added yet. Use Cards view to add splits.'));
+      return;
+    }
+
+    rows.sort((a,b)=>(b.dateAdded||'').localeCompare(a.dateAdded||''));
+
+    const tableWrap=h('div',{style:{overflowX:'auto',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'10px',WebkitOverflowScrolling:'touch'}});
+    const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:'720px',fontSize:'13px'}});
+    const thead=h('thead',null);
+    const hdrRow=h('tr',{style:{background:'#f4f4f2',borderBottom:'1.5px solid #ddd'}});
+    ['Yard','Type','Source','Date','Total','Cell In','Virgin','Mated','Failed','Need Cell',''].forEach(c=>{
+      hdrRow.appendChild(h('th',{style:{padding:'9px 12px',textAlign:'left',fontSize:'11px',fontWeight:'700',color:'#888',textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap',boxShadow:'0 2px 4px rgba(0,0,0,0.06)'}},c));
+    });
+    thead.appendChild(hdrRow);tbl.appendChild(thead);
+
+    const tbody=h('tbody',null);
+    rows.forEach((r,i)=>{
+      const bg=i%2===0?'#fff':'#fafafa';
+      const tr=h('tr',{style:{background:bg,borderBottom:'.5px solid #eee'}});
+      const mk=(content,color,bold)=>{
+        const td=h('td',{style:{padding:'8px 12px',whiteSpace:'nowrap',color:color||'#555',fontWeight:bold?'700':'400',fontSize:'13px',maxWidth:'150px',overflow:'hidden',textOverflow:'ellipsis'}});
+        td.textContent=content;return td;
+      };
+      const typeColor=SPLIT_COLORS[r.splitType]||'#555';
+      tr.appendChild(mk(r.yardName,'#333',true));
+      const typeTd=h('td',{style:{padding:'7px 12px',whiteSpace:'nowrap'}});
+      typeTd.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'8px',padding:'2px 7px'}},SPLIT_LABELS[r.splitType]||r.splitType));
+      tr.appendChild(typeTd);
+      tr.appendChild(mk(r.sourceYard,'#555'));
+      tr.appendChild(mk(r.dateAdded?fmtDate(r.dateAdded):'—','#999'));
+      tr.appendChild(mk(String(r.total),'#333',true));
+      tr.appendChild(mk(r.cellIn>0?String(r.cellIn):'—',r.cellIn>0?'#b07800':'#ddd',r.cellIn>0));
+      tr.appendChild(mk(r.virgin>0?String(r.virgin):'—',r.virgin>0?'#9b59b6':'#ddd',r.virgin>0));
+      tr.appendChild(mk(r.mated>0?String(r.mated):'—',r.mated>0?'#3d7a4f':'#ddd',r.mated>0));
+      tr.appendChild(mk(r.failed>0?String(r.failed):'—',r.failed>0?'#c0392b':'#ddd'));
+      tr.appendChild(mk(r.needCell>0?'⚠ '+r.needCell:'—',r.needCell>0?'#b07800':'#ddd',r.needCell>0));
+      // Edit button
+      const editTd=h('td',{style:{padding:'6px 10px',whiteSpace:'nowrap'}});
+      const editBtn=h('button',{type:'button',style:{padding:'4px 12px',borderRadius:'6px',background:'#f0f0ee',border:'.5px solid #ddd',color:'#555',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},'Edit');
+      editBtn.addEventListener('click',e=>{
+        e.stopPropagation();
+        showBatchTableEditModal(r,()=>{renderTableSection();renderBatches();});
+      });
+      editTd.appendChild(editBtn);tr.appendChild(editTd);
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);tableWrap.appendChild(tbl);
+    tableSection.appendChild(tableWrap);
   }
   renderTableSection();
 
@@ -7978,6 +8041,80 @@ function renderSummaryPanel(opName, cutoffDate){
   }
 
   return panel;
+}
+
+function showBatchTableEditModal(row, onDone){
+  // row: {yardKey, yardName, op, bi, batch, sourceYard, total, cellIn, virgin, mated, failed, needCell}
+  const accent=OPERATIONS[row.op]?.accent||'#3d7a4f';
+  const today=todayStr();
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.45)',zIndex:'9999',display:'flex',alignItems:'flex-end',justifyContent:'center'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px 16px 0 0',width:'100%',maxWidth:'520px',padding:'20px 20px 36px',maxHeight:'85vh',overflowY:'auto',boxSizing:'border-box'}});
+
+  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'2px'}},row.yardName));
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'#999',marginBottom:'4px'}},row.sourceYard+(row.dateAdded?' · cells in '+fmtDate(row.dateAdded):'')));
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'18px'}},'Total: '+row.total+' splits'));
+
+  let newMated=row.mated, newVirgin=row.virgin, newFailed=row.failed;
+
+  const mkNumRow=(label,color,currentVal,onChange)=>{
+    const wrap=h('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'14px',paddingBottom:'14px',borderBottom:'.5px solid #f0f0ee'}});
+    const lbl=h('div',null);
+    lbl.appendChild(h('div',{style:{fontWeight:'700',fontSize:'14px',color:'#333'}},label));
+    lbl.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa'}},'currently: '+currentVal));
+    wrap.appendChild(lbl);
+    const ctrl=h('div',{style:{display:'flex',alignItems:'center',gap:'10px'}});
+    const countEl=h('span',{style:{fontWeight:'700',fontSize:'18px',color:color,minWidth:'28px',textAlign:'center'}},String(currentVal));
+    const mkBtn=(delta,sym)=>{
+      const btn=h('button',{type:'button',style:{width:'34px',height:'34px',borderRadius:'50%',border:'1.5px solid #ddd',background:'#fff',fontSize:'18px',color:'#555',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:'0'}},sym);
+      btn.addEventListener('click',()=>{
+        const updated=onChange(delta);
+        countEl.textContent=String(updated);
+        countEl.style.color=updated>0?color:'#ccc';
+      });
+      return btn;
+    };
+    ctrl.appendChild(mkBtn(-1,'−'));ctrl.appendChild(countEl);ctrl.appendChild(mkBtn(1,'+'));
+    wrap.appendChild(ctrl);return wrap;
+  };
+
+  box.appendChild(mkNumRow('Mated','#3d7a4f',newMated,(delta)=>{
+    newMated=Math.max(0,Math.min(row.total,newMated+delta));return newMated;
+  }));
+  box.appendChild(mkNumRow('Virgin','#9b59b6',newVirgin,(delta)=>{
+    newVirgin=Math.max(0,Math.min(row.total,newVirgin+delta));return newVirgin;
+  }));
+  box.appendChild(mkNumRow('Failed','#c0392b',newFailed,(delta)=>{
+    newFailed=Math.max(0,Math.min(row.total,newFailed+delta));return newFailed;
+  }));
+
+  const noteEl=h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'20px'}});
+  noteEl.textContent='Remaining '+(row.total-row.mated-row.virgin-row.failed)+' will keep their current status';
+  box.appendChild(noteEl);
+
+  const saveBtn=h('button',{type:'button',style:{width:'100%',padding:'13px',background:accent,color:'#fff',border:'none',borderRadius:'10px',fontSize:'15px',fontWeight:'700',cursor:'pointer',marginBottom:'10px'}},'Save');
+  saveBtn.addEventListener('click',()=>{
+    const all=loadNucYards();
+    const nucs=(all[row.yardKey]?.batches?.[row.bi]?.nucs)||[];
+    // Apply statuses in order: first newMated, then newVirgin, then newFailed, rest unchanged
+    let idx=0;
+    for(let i=0;i<newMated&&idx<nucs.length;i++,idx++){
+      if(nucs[idx].status!=='mated'){nucs[idx].status='mated';nucs[idx].matedDate=today;}
+    }
+    for(let i=0;i<newVirgin&&idx<nucs.length;i++,idx++){
+      if(nucs[idx].status!=='virgin'){nucs[idx].status='virgin';nucs[idx].virginDate=today;}
+    }
+    for(let i=0;i<newFailed&&idx<nucs.length;i++,idx++){
+      if(nucs[idx].status!=='failed'){nucs[idx].status='failed';nucs[idx].failedDate=today;}
+    }
+    // rest: unchanged
+    saveNucYards(all);
+    overlay.remove();onDone();
+  });
+  box.appendChild(saveBtn);
+  box.appendChild(h('button',{type:'button',style:{width:'100%',padding:'12px',background:'#f0f0ee',color:'#444',border:'none',borderRadius:'10px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  document.body.appendChild(overlay);
 }
 
 function renderSplitsTracker(op){
