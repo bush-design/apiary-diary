@@ -3406,13 +3406,15 @@ function renderNucsScreen(){
           td.textContent=content;return td;
         };
         // Source yard — sticky left column, full name by default, abbreviated on horizontal scroll
-        const srcTd=h('td',{style:{padding:'7px 8px 7px 10px',whiteSpace:'nowrap',position:'sticky',left:'0',zIndex:'1',background:bg,boxShadow:'2px 0 4px rgba(0,0,0,0.05)'}});
+        // Fixed width on the sticky column — prevents width change on abbr toggle,
+        // which would shift scrollLeft and trigger a feedback loop
+        const srcTd=h('td',{style:{padding:'7px 8px 7px 10px',width:'155px',minWidth:'155px',maxWidth:'155px',overflow:'hidden',position:'sticky',left:'0',zIndex:'1',background:bg,boxShadow:'2px 0 4px rgba(0,0,0,0.05)'}});
         const typeColor=SPLIT_COLORS[r.splitType]||'#555';
         const abbr3=(r.sourceYard||'—').slice(0,3).toUpperCase();
         const TYPE_ABBR={top:'T',box:'B',nuc:'N',in_yard:'IY'};
-        // Full view (default)
+        // Full view (default) — name truncates if longer than column
         const srcFull=h('div',{style:{display:'block'}});
-        srcFull.appendChild(h('span',{style:{fontWeight:'600',fontSize:'13px',color:'#333',marginRight:'6px'}},r.sourceYard));
+        srcFull.appendChild(h('span',{style:{fontWeight:'600',fontSize:'13px',color:'#333',marginRight:'4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'inline-block',maxWidth:'95px',verticalAlign:'middle'},title:r.sourceYard},r.sourceYard));
         srcFull.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'6px',padding:'1px 6px'}},SPLIT_LABELS[r.splitType]||r.splitType));
         // Abbreviated view (shown when scrolled right)
         const srcAbbr=h('div',{style:{display:'none'}});
@@ -3447,8 +3449,9 @@ function renderNucsScreen(){
       if(_srcRaf) cancelAnimationFrame(_srcRaf);
       _srcRaf=requestAnimationFrame(()=>{
         const sl=tableWrap.scrollLeft;
-        // Switch TO abbr at 50px, switch BACK to full at 15px (hysteresis gap)
-        const nowScrolled=_srcScrolled?(sl>15):(sl>50);
+        // Switch TO abbr at 80px, switch BACK to full at 10px
+        // Gap must exceed any reflow-driven scrollLeft shift — fixed column width prevents this now
+        const nowScrolled=_srcScrolled?(sl>10):(sl>80);
         if(nowScrolled===_srcScrolled) return;
         _srcScrolled=nowScrolled;
         srcCells.forEach(({full,abbr})=>{
