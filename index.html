@@ -3332,7 +3332,8 @@ function renderNucsScreen(){
         const failed=cells.filter(c=>c.status==='failed').length;
         const needCell=cells.filter(c=>!c.status||c.status==='waiting').length;
         const used=cells.filter(c=>!!c.transferredTo).length; // already placed in hives
-        const available=cells.filter(c=>c.status==='mated'&&!c.transferredTo).length; // mated, ready to place
+        // in_yard queens are already in their hive — not available for transfer
+        const available=batch.splitType==='in_yard'?0:cells.filter(c=>c.status==='mated'&&!c.transferredTo).length;
         const dest=batch.destYard||'(In Yard)';
         if(!destMap.has(dest)) destMap.set(dest,[]);
         destMap.get(dest).push({
