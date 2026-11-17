@@ -3340,10 +3340,12 @@ function renderNucsScreen(){
       if(b[0]==='(In Yard)') return -1;
       return a[0].localeCompare(b[0]);
     });
-    const srcCells=[]; // track source cells for scroll-based abbreviation
+    // Pinch-to-zoom — persisted to localStorage
+    let _tblZoom=parseFloat((()=>{try{return localStorage.getItem('nucTableZoom');}catch(e){return null;}})() || '1');
+    _tblZoom=Math.max(0.4,Math.min(1.5,_tblZoom));
 
     const tableWrap=h('div',{style:{overflowX:'auto',overflowY:'auto',maxHeight:'65vh',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'16px',WebkitOverflowScrolling:'touch',position:'relative'}});
-    const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:'680px',fontSize:'13px'}});
+    const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:'680px',fontSize:'13px',zoom:String(_tblZoom)}});
 
     const thead=h('thead',null);
     const hdrRow=h('tr',null);
@@ -3405,23 +3407,11 @@ function renderNucsScreen(){
           const td=h('td',{style:{padding:'8px 12px',whiteSpace:'nowrap',color:color||'#555',fontWeight:bold?'700':'400',fontSize:'13px',maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis'}});
           td.textContent=content;return td;
         };
-        // Source yard — sticky left column, full name by default, abbreviated on horizontal scroll
-        // Fixed width on the sticky column — prevents width change on abbr toggle,
-        // which would shift scrollLeft and trigger a feedback loop
-        const srcTd=h('td',{style:{padding:'7px 8px 7px 10px',width:'155px',minWidth:'155px',maxWidth:'155px',overflow:'hidden',position:'sticky',left:'0',zIndex:'1',background:bg,boxShadow:'2px 0 4px rgba(0,0,0,0.05)'}});
+        // Source yard — sticky left column, always full name
+        const srcTd=h('td',{style:{padding:'7px 8px 7px 10px',whiteSpace:'nowrap',position:'sticky',left:'0',zIndex:'1',background:bg,boxShadow:'2px 0 4px rgba(0,0,0,0.05)'}});
         const typeColor=SPLIT_COLORS[r.splitType]||'#555';
-        const abbr3=(r.sourceYard||'—').slice(0,3).toUpperCase();
-        const TYPE_ABBR={top:'T',box:'B',nuc:'N',in_yard:'IY'};
-        // Full view (default) — name truncates if longer than column
-        const srcFull=h('div',{style:{display:'block'}});
-        srcFull.appendChild(h('span',{style:{fontWeight:'600',fontSize:'13px',color:'#333',marginRight:'4px',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'inline-block',maxWidth:'95px',verticalAlign:'middle'},title:r.sourceYard},r.sourceYard));
-        srcFull.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'6px',padding:'1px 6px'}},SPLIT_LABELS[r.splitType]||r.splitType));
-        // Abbreviated view (shown when scrolled right)
-        const srcAbbr=h('div',{style:{display:'none'}});
-        srcAbbr.appendChild(h('span',{style:{fontWeight:'700',fontSize:'12px',color:'#333',display:'block',letterSpacing:'.02em'},title:r.sourceYard},abbr3));
-        srcAbbr.appendChild(h('span',{style:{fontSize:'9px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'4px',padding:'0 4px'}},TYPE_ABBR[r.splitType]||r.splitType));
-        srcTd.appendChild(srcFull);srcTd.appendChild(srcAbbr);
-        srcCells.push({td:srcTd,full:srcFull,abbr:srcAbbr,bg});
+        srcTd.appendChild(h('span',{style:{fontWeight:'600',fontSize:'13px',color:'#333',marginRight:'6px'}},r.sourceYard));
+        srcTd.appendChild(h('span',{style:{fontSize:'10px',fontWeight:'700',color:typeColor,background:typeColor+'18',borderRadius:'6px',padding:'1px 6px'}},SPLIT_LABELS[r.splitType]||r.splitType));
         tr.appendChild(srcTd);
         tr.appendChild(mk(r.dateAdded?fmtDate(r.dateAdded):'—','#999'));
         tr.appendChild(mk(String(r.total),'#333',true));
@@ -3441,25 +3431,24 @@ function renderNucsScreen(){
     });
     tbl.appendChild(tbody);tableWrap.appendChild(tbl);
     tableSection.appendChild(tableWrap);
-    // Switch source column between full name and 3-letter abbr based on horizontal scroll
-    // No width changes (avoids reflow feedback loop); hysteresis prevents oscillation
-    let _srcScrolled=false;
-    let _srcRaf=null;
-    tableWrap.addEventListener('scroll',()=>{
-      if(_srcRaf) cancelAnimationFrame(_srcRaf);
-      _srcRaf=requestAnimationFrame(()=>{
-        const sl=tableWrap.scrollLeft;
-        // Switch TO abbr at 80px, switch BACK to full at 10px
-        // Gap must exceed any reflow-driven scrollLeft shift — fixed column width prevents this now
-        const nowScrolled=_srcScrolled?(sl>10):(sl>80);
-        if(nowScrolled===_srcScrolled) return;
-        _srcScrolled=nowScrolled;
-        srcCells.forEach(({full,abbr})=>{
-          full.style.display=nowScrolled?'none':'block';
-          abbr.style.display=nowScrolled?'block':'none';
-        });
-      });
-    });
+
+    // Pinch-to-zoom: two fingers spread/pinch scales the table
+    let _pinchStartDist=null;
+    let _pinchStartZoom=_tblZoom;
+    const _pinchDist=e=>{ const dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY; return Math.sqrt(dx*dx+dy*dy); };
+    tableWrap.addEventListener('touchstart',e=>{
+      if(e.touches.length===2){ _pinchStartDist=_pinchDist(e); _pinchStartZoom=_tblZoom; }
+    },{passive:true});
+    tableWrap.addEventListener('touchmove',e=>{
+      if(e.touches.length===2&&_pinchStartDist){
+        e.preventDefault();
+        const z=Math.max(0.4,Math.min(1.5,_pinchStartZoom*(_pinchDist(e)/_pinchStartDist)));
+        _tblZoom=z; tbl.style.zoom=String(z);
+      }
+    },{passive:false});
+    tableWrap.addEventListener('touchend',e=>{
+      if(_pinchStartDist){ _pinchStartDist=null; try{localStorage.setItem('nucTableZoom',String(_tblZoom));}catch(err){} }
+    },{passive:true});
   }
   renderTableSection();
 
