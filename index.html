@@ -50,7 +50,7 @@ async function loadLibraries() {
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
 body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f5f4f0;overscroll-behavior:none;}
 input,select,textarea,button{font-family:inherit;}
-.app{max-width:430px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
+.app{width:100%;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;}
 .screen{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px 14px 80px;}
 .header{background:var(--op-color,#111);color:#fff;padding:14px 16px 0;flex-shrink:0;}
 .header-top{display:flex;align-items:center;gap:8px;margin-bottom:2px;}
@@ -84,7 +84,17 @@ input,select,textarea,button{font-family:inherit;}
 .section-label{font-size:11px;color:#aaa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;}
 .empty-msg{text-align:center;padding:40px 0;color:#ccc;font-size:14px;}
 .tx-pill{font-size:11px;color:#9b59b6;margin-top:2px;font-weight:500;}
-.op-card{width:100%;max-width:360px;margin-bottom:14px;padding:16px 18px 14px;border-radius:14px;cursor:pointer;text-align:left;border:none;}
+.op-card{width:100%;max-width:360px;margin-bottom:0;padding:16px 18px 14px;border-radius:14px;cursor:pointer;text-align:left;border:none;}
+/* Desktop layout */
+@media(min-width:700px){
+  .screen{padding:20px 36px 80px;}
+  .header{padding:16px 36px 0;}
+  .round-bar{padding:10px 36px;}
+  .tab-bar{padding:0 24px;}
+  .op-card{max-width:none;margin-bottom:0;}
+  .op-cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;width:100%;}
+  .header-title{font-size:24px;}
+}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;}
 .toast.show{opacity:1;}
 .sync-dot{width:10px;height:10px;border-radius:50%;background:#aaa;flex-shrink:0;cursor:pointer;padding:8px;box-sizing:content-box;margin:-8px;}
@@ -2605,7 +2615,7 @@ function renderNamePrompt(){
 
 // ── Screens ───────────────────────────────────────────────────────────────────
 function renderOpSelector(){
-  const wrap=h('div',{style:{minHeight:'100vh',background:'#111',display:'flex',flexDirection:'column',alignItems:'center',padding:'40px 20px 32px'}});
+  const wrap=h('div',{style:{minHeight:'100vh',background:'#111',display:'flex',flexDirection:'column',padding:'40px 24px 40px'}});
   // Header with sync dot
   const headerRow=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'8px'}});
   headerRow.appendChild(h('div',{style:{fontSize:'11px',color:'rgba(255,255,255,0.35)',letterSpacing:'.15em',textTransform:'uppercase'}},'Select operation'));
@@ -2613,6 +2623,10 @@ function renderOpSelector(){
   wrap.appendChild(headerRow);
   wrap.appendChild(h('div',{style:{fontSize:'26px',fontWeight:'800',color:'#fff',marginBottom:'6px',letterSpacing:'-.02em'}},'Apiary Diary'));
   wrap.appendChild(h('div',{style:{fontSize:'12px',color:'rgba(255,255,255,0.35)',marginBottom:'28px'}},'Logged in as: '+(STATE.userName||'Unknown')));
+
+  // Cards grid — single column on mobile, multi-column on desktop via CSS
+  const cardsGrid=h('div',{className:'op-cards-grid',style:{display:'flex',flexDirection:'column',gap:'14px',width:'100%'}});
+  wrap.appendChild(cardsGrid);
 
   Object.entries(OPERATIONS).forEach(([name,op])=>{
     const s=calcSummary(name);
@@ -2678,10 +2692,10 @@ function renderOpSelector(){
       });
       card.appendChild(flagDiv);
     }
-    wrap.appendChild(card);
+    cardsGrid.appendChild(card);
   });
   // ── Hive Movements card ──
-  const movCard=h('button',{style:{width:'100%',maxWidth:'360px',marginBottom:'14px',padding:'16px 18px 14px',borderRadius:'14px',cursor:'pointer',textAlign:'left',border:'none',background:'#2a1f3d',borderTop:'3px solid #9b59b6'},
+  const movCard=h('button',{className:'op-card',style:{background:'#2a1f3d',borderTop:'3px solid #9b59b6'},
     onClick:()=>setState({op:'__movements__',tab:'movements'})});
   // Use pallets×4+singles net arithmetic (same as Return Trip tab) — avoids drift when the
   // stored `hives` field on a movement doesn't match the pallets/singles breakdown exactly.
@@ -2726,13 +2740,13 @@ function renderOpSelector(){
       )
     ));
   }
-  wrap.appendChild(movCard);
+  cardsGrid.appendChild(movCard);
 
-  // Splits card (below Hive Movements)
+  // Splits card
   const allNucData=loadNucYards();
   const totalNucs=Object.values(allNucData).reduce((a,ny)=>a+ny.batches.reduce((b,bt)=>b+(bt.nucs||[]).length,0),0);
   const totalMated=Object.values(allNucData).reduce((a,ny)=>a+ny.batches.reduce((b,bt)=>b+(bt.nucs||[]).filter(n=>n.status==='mated'||n.transferredTo).length,0),0);
-  const nucCard=h('button',{className:'op-card',style:{background:'#2a1a08',border:'1.5px solid #ef9f2750',marginTop:'10px'},onClick:()=>setState({op:'__nucs__'})});
+  const nucCard=h('button',{className:'op-card',style:{background:'#2a1a08',border:'1.5px solid #ef9f2750'},onClick:()=>setState({op:'__nucs__'})});
   nucCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
     h('div',null,
       h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Splits'),
@@ -2740,10 +2754,10 @@ function renderOpSelector(){
     ),
     h('div',{style:{fontSize:'22px',color:'#ef9f27',opacity:'0.85'}},'›')
   ));
-  wrap.appendChild(nucCard);
+  cardsGrid.appendChild(nucCard);
 
   // Reports card
-  const repCard=h('button',{className:'op-card',style:{background:'#1a3a2a',border:'1.5px solid #2d6a4433',marginTop:'10px'},onClick:()=>setState({op:'__reports__'})});
+  const repCard=h('button',{className:'op-card',style:{background:'#1a3a2a',border:'1.5px solid #2d6a4433'},onClick:()=>setState({op:'__reports__'})});
   repCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
     h('div',null,
       h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Reports'),
@@ -2751,10 +2765,10 @@ function renderOpSelector(){
     ),
     h('div',{style:{fontSize:'22px',color:'#7ecb8f',opacity:'0.8'}},'›')
   ));
-  wrap.appendChild(repCard);
+  cardsGrid.appendChild(repCard);
 
   const lastExportIso=getLastExportTimestamp();
-  const exportCard=h('button',{className:'op-card',style:{background:'#2e1f3a',border:'1.5px solid #9b59b633',marginTop:'10px'},onClick:()=>setState({op:'__export__'})});
+  const exportCard=h('button',{className:'op-card',style:{background:'#2e1f3a',border:'1.5px solid #9b59b633'},onClick:()=>setState({op:'__export__'})});
   exportCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
     h('div',null,
       h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Export Data'),
@@ -2763,9 +2777,9 @@ function renderOpSelector(){
     ),
     h('div',{style:{fontSize:'22px',color:'#c39bd3',opacity:'0.8'}},'›')
   ));
-  wrap.appendChild(exportCard);
+  cardsGrid.appendChild(exportCard);
 
-  const notesCard=h('button',{className:'op-card',style:{background:'#1e2e2a',border:'1.5px solid #3d7a4f33',marginTop:'10px'},onClick:()=>setState({op:'__seasonnotes__'})});
+  const notesCard=h('button',{className:'op-card',style:{background:'#1e2e2a',border:'1.5px solid #3d7a4f33'},onClick:()=>setState({op:'__seasonnotes__'})});
   notesCard.appendChild(h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
     h('div',null,
       h('div',{style:{fontSize:'19px',fontWeight:'700',color:'#fff',letterSpacing:'-.01em'}},'Season Notes'),
@@ -2773,7 +2787,7 @@ function renderOpSelector(){
     ),
     h('div',{style:{fontSize:'22px',color:'#7ecb8f',opacity:'0.8'}},'›')
   ));
-  wrap.appendChild(notesCard);
+  cardsGrid.appendChild(notesCard);
 
   // Save offline copy button
   const saveOfflineBtn=h('button',{style:{marginTop:'18px',padding:'11px 20px',background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:'10px',color:'rgba(255,255,255,0.55)',fontSize:'13px',fontWeight:'600',cursor:'pointer',width:'100%',textAlign:'center'},
