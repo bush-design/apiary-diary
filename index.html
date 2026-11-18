@@ -1524,6 +1524,10 @@ function subscribeRealtime(){
       if(newSaved>=currSaved){
         STATE.entries[entry_key]=data;
         saveLocal(STATE.entries);
+        // Refresh the view so the new entry is visible — but only when no diary
+        // form is open (STATE.editing !== null means a form is in progress and
+        // a render would reset the cursor / in-progress field values).
+        if(!STATE.editing) render();
       }
     }
   }).subscribe();
@@ -3457,7 +3461,7 @@ function renderNucsScreen(){
     _tblZoom=Math.max(0.4,Math.min(1.5,_tblZoom));
 
     const tableWrap=h('div',{style:{overflowX:'auto',overflowY:'auto',maxHeight:'65vh',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'16px',WebkitOverflowScrolling:'touch',position:'relative'}});
-    const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:'680px',fontSize:'13px',zoom:String(_tblZoom)}});
+    const tbl=h('table',{style:{borderCollapse:'separate',borderSpacing:'0',width:'100%',minWidth:'680px',fontSize:'13px',zoom:String(_tblZoom)}});
 
     const thead=h('thead',null);
     const hdrRow=h('tr',null);
@@ -15565,7 +15569,7 @@ document.addEventListener('visibilitychange',async()=>{
   if(_sbLoaded){
     try{ subscribeRealtime(); }catch(e){} // cheap to re-subscribe; catches a silently-dropped channel
     await flushPending();
-    await pullFromSupabase(true);
+    await pullFromSupabase(STATE.editing!==null);
   }
   updateSyncDot('online');
 });
@@ -15573,9 +15577,11 @@ document.addEventListener('visibilitychange',async()=>{
 // Safety-net poll — while the tab is actually visible and online, periodically pull the latest
 // data even if realtime hasn't fired anything. This is what makes "just leave the app open and
 // it updates on its own" actually true, rather than relying solely on the WebSocket staying up.
+// Skip the re-render only when a diary form is open (STATE.editing !== null); modals live on
+// document.body and are unaffected by render(), so they don't need this guard.
 setInterval(async()=>{
   if(document.hidden||!navigator.onLine||!_sbLoaded) return;
-  try{ await pullFromSupabase(true); }catch(e){}
+  try{ await pullFromSupabase(STATE.editing!==null); }catch(e){}
 },30000);
 
 // ── Service Worker (offline caching) ─────────────────────────────────────────
