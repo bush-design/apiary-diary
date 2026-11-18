@@ -2580,6 +2580,7 @@ function h(tag,attrs,...children){
     if(k==='style'&&typeof v==='object')Object.assign(el.style,v);
     else if(k.startsWith('on')&&typeof v==='function')el.addEventListener(k.slice(2).toLowerCase(),v);
     else if(k==='className')el.className=v;
+    else if(k==='checked'||k==='disabled'||k==='selected')el[k]=v; // boolean DOM properties — setAttribute would stringify false as "false" which still counts as present
     else el.setAttribute(k,v);
   });
   children.flat(Infinity).forEach(c=>{
