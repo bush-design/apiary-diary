@@ -8676,7 +8676,9 @@ function renderRoundTable(op){
   const CUM_FIELDS=new Set(['splits','tops','nuc_splits','cell_in','nucs_in',
     'fd_on','fd_second_on','fd_third_on','on_34','on_34_second','on_34_third',
     'fd_harv','harv_34','honeycomb_fd','honeycomb_hd',
-    'hives_fed','honey_hives_fed','pollen_hives_fed','dead_hives','dead']);
+    'hives_fed','honey_hives_fed','pollen_hives_fed']);
+    // dead/dead_hives are NOT cumulative — each visit records current dead count, not a running total
+    // They are handled via the anchor-entry logic below (same as yard summary card)
 
   // Build one row per site
   const anyHiveSection=sections.some(s=>s.k==='hive');
@@ -8706,8 +8708,11 @@ function renderRoundTable(op){
         });
       });
       if(anyHiveSection){
-        const dh=entries.reduce((a,e)=>a+(parseInt(e.dead_hives)||0),0);
-        const dd=entries.reduce((a,e)=>a+(parseInt(e.dead)||0),0);
+        // dead/dead_hives: pull from most recent entry that has a hive count — same anchor as the
+        // yard summary card — NOT a sum across entries (each visit records current dead, not cumulative)
+        const anchorEntry=sorted.find(e=>e.hives!==undefined&&e.hives!==null&&e.hives!=='')||sorted[0]||null;
+        const dh=anchorEntry?(parseInt(anchorEntry.dead_hives)||0):0;
+        const dd=anchorEntry?(parseInt(anchorEntry.dead)||0):0;
         row.dead_hives=dh||dd;
         // If site currently has 0 hives, zero out composition fields — old entry values are stale
         if(hives===0){
