@@ -3179,16 +3179,44 @@ function showChangeSourceModal(op, nucYardKey, batchIdx, onSave){
   document.body.appendChild(overlay);
 }
 
+// Multi-batch send modal — shows all available mated nucs across batches/sites
+// preselectKey: {yardKey, batchIdx} to pre-check a specific batch (optional)
 function showSendNucsModal(op, nucYardKey, batchIdx, onSave){
-  const all=loadNucYards();
-  const batch=all[nucYardKey].batches[batchIdx];
-  const matedNucs=(batch.nucs||[]).filter(n=>n.status==='mated'&&!n.transferredTo);
-  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:'200',padding:'16px',overflowY:'auto'}});
-  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'360px'}});
-  box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px',marginBottom:'4px'}},'Send nucs to yard'));
-  box.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'12px'}},matedNucs.length+' mated nuc'+(matedNucs.length!==1?'s':'')+' available to send'));
+  showSendNucsMultiModal(op?[op]:null, onSave, nucYardKey&&batchIdx!=null?{yardKey:nucYardKey,batchIdx}:null);
+}
 
-  // Destination yard search
+function showSendNucsMultiModal(filterOps, onSave, preselectBatch){
+  const all=loadNucYards();
+
+  // Collect all mated, not-yet-transferred nucs grouped by batch (skip in_yard)
+  const groups=[];
+  Object.entries(all).forEach(([key,yard])=>{
+    if(filterOps&&!filterOps.includes(yard.op)) return;
+    (yard.batches||[]).forEach((batch,bi)=>{
+      if(batch.splitType==='in_yard') return;
+      const mated=(batch.nucs||[]).filter(n=>n.status==='mated'&&!n.transferredTo);
+      if(!mated.length) return;
+      groups.push({key,yard,batch,bi,mated});
+    });
+  });
+
+  const totalAvail=groups.reduce((s,g)=>s+g.mated.length,0);
+
+  // Overlay — no flex centering so tall content can scroll from the top
+  const overlay=h('div',{style:{position:'fixed',inset:'0',background:'rgba(0,0,0,0.65)',overflowY:'auto',zIndex:'200',padding:'16px 16px 32px',WebkitOverflowScrolling:'touch'}});
+  const box=h('div',{style:{background:'#fff',borderRadius:'16px',padding:'20px',width:'100%',maxWidth:'420px',margin:'0 auto'}});
+
+  // Header
+  const hdrRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'4px'}});
+  hdrRow.appendChild(h('div',{style:{fontWeight:'700',fontSize:'16px'}},'Send nucs to yard'));
+  const closeBtn=h('button',{type:'button',style:{background:'none',border:'none',fontSize:'20px',color:'#aaa',cursor:'pointer',padding:'0 0 0 8px',lineHeight:'1'}},'×');
+  closeBtn.addEventListener('click',()=>overlay.remove());
+  hdrRow.appendChild(closeBtn);
+  box.appendChild(hdrRow);
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'#888',marginBottom:'14px'}},totalAvail+' mated nuc'+(totalAvail!==1?'s':'')+' available across '+groups.length+' batch'+(groups.length!==1?'es':'')));
+
+  // Destination yard
+  box.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:'4px',fontWeight:'700'}},'Destination yard'));
   const destSearch=h('div',null);
   const destDisplay=h('div',{style:{display:'none',background:'#e6f2eb',border:'1.5px solid #3d7a4f',borderRadius:'8px',padding:'8px 12px',justifyContent:'space-between',alignItems:'center'}});
   let destSite='';
@@ -3199,49 +3227,84 @@ function showSendNucsModal(op, nucYardKey, batchIdx, onSave){
     const chg=h('button',{style:{background:'none',border:'none',color:'#3d7a4f',fontSize:'12px',cursor:'pointer'},onClick:()=>{destDisplay.style.display='none';destSearch.style.display='block';destSite='';}});
     chg.textContent='Change';destDisplay.appendChild(chg);
   });
-  box.appendChild(h('label',{style:{fontSize:'11px',color:'#aaa',display:'block',marginBottom:'4px',textTransform:'uppercase'}},'Destination yard'));
   box.appendChild(destSearch);box.appendChild(destDisplay);
 
   // Date
-  const dateInp=h('input',{type:'date',value:todayStr(),style:{display:'block',width:'100%',padding:'9px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'14px',marginTop:'10px',boxSizing:'border-box'}});
-  box.appendChild(h('label',{style:{fontSize:'11px',color:'#aaa',display:'block',marginTop:'10px',marginBottom:'4px',textTransform:'uppercase'}},'Date'));
+  box.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.05em',marginTop:'12px',marginBottom:'4px',fontWeight:'700'}},'Date'));
+  const dateInp=h('input',{type:'date',value:todayStr(),style:{display:'block',width:'100%',padding:'9px',border:'.5px solid #ccc',borderRadius:'8px',fontSize:'14px',boxSizing:'border-box'}});
   box.appendChild(dateInp);
 
-  // Which nucs to send
-  box.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',marginTop:'12px',marginBottom:'6px'}},'Select nucs to send'));
+  // Nuc selection — grouped by batch
   const nucChecks=[];
-  matedNucs.forEach(nuc=>{
-    const row=h('div',{style:{display:'flex',alignItems:'center',gap:'8px',marginBottom:'6px'}});
-    const cb=h('input',{type:'checkbox',checked:true,style:{width:'16px',height:'16px',cursor:'pointer'}});
-    row.appendChild(cb);
-    row.appendChild(h('span',{style:{fontSize:'13px',color:'#333'}},batch.sourceYard+' '+((batch.nucs||[]).indexOf(nuc)+1)));
-    box.appendChild(row);
-    nucChecks.push({nuc,cb});
-  });
+  if(!groups.length){
+    box.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'16px 0',textAlign:'center'}},'No mated nucs available to send'));
+  } else {
+    // Select-all / deselect-all row
+    const selAllRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'14px',marginBottom:'4px'}});
+    selAllRow.appendChild(h('div',{style:{fontSize:'11px',color:'#aaa',textTransform:'uppercase',letterSpacing:'.05em',fontWeight:'700'}},'Select nucs to send'));
+    const selAllBtn=h('button',{type:'button',style:{fontSize:'11px',fontWeight:'700',color:'#3d7a4f',background:'none',border:'none',cursor:'pointer',padding:'0'}},'Select all');
+    let allSel=true;
+    selAllBtn.addEventListener('click',()=>{
+      allSel=!allSel;
+      nucChecks.forEach(({cb})=>{cb.checked=allSel;});
+      selAllBtn.textContent=allSel?'Deselect all':'Select all';
+    });
+    selAllRow.appendChild(selAllBtn);
+    box.appendChild(selAllRow);
 
-  if(!matedNucs.length){
-    box.appendChild(h('div',{style:{color:'#bbb',fontSize:'13px',padding:'10px 0'}},'No mated nucs available — update nuc status to Mated first'));
+    groups.forEach(g=>{
+      // Batch group header
+      const isPreselect=preselectBatch&&preselectBatch.yardKey===g.key&&preselectBatch.batchIdx===g.bi;
+      const grpHdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 0 4px',borderTop:'.5px solid #eee',marginTop:'6px'}});
+      grpHdr.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#555'}},g.batch.sourceYard||'—'));
+      const grpSel=h('button',{type:'button',style:{fontSize:'11px',color:'#999',background:'none',border:'none',cursor:'pointer',padding:'0'}},'All');
+      let grpAllSel=true;
+      const grpChecks=[];
+      grpSel.addEventListener('click',()=>{
+        grpAllSel=!grpAllSel;
+        grpChecks.forEach(cb=>{cb.checked=grpAllSel;});
+        grpSel.textContent=grpAllSel?'None':'All';
+      });
+      grpHdr.appendChild(grpSel);
+      box.appendChild(grpHdr);
+
+      g.mated.forEach(nuc=>{
+        const nucIdx=(g.batch.nucs||[]).indexOf(nuc)+1;
+        const row=h('div',{style:{display:'flex',alignItems:'center',gap:'10px',padding:'5px 0',borderBottom:'.5px solid #f5f5f5'}});
+        const cb=h('input',{type:'checkbox',checked:!preselectBatch||isPreselect,style:{width:'18px',height:'18px',cursor:'pointer',flexShrink:'0'}});
+        row.appendChild(cb);
+        row.appendChild(h('span',{style:{fontSize:'13px',color:'#333',flex:'1'}},g.batch.sourceYard+' '+nucIdx));
+        if(nuc.matedDate)row.appendChild(h('span',{style:{fontSize:'11px',color:'#999'}},fmtDate(nuc.matedDate)));
+        box.appendChild(row);
+        nucChecks.push({nuc,cb,yardKey:g.key,batchIdx:g.bi});
+        grpChecks.push(cb);
+      });
+    });
   }
 
-  const btnRow=h('div',{style:{display:'flex',gap:'10px',marginTop:'14px'}});
-  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#3d7a4f',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'},
-    onClick:()=>{
-      if(!destSite){showToast('Select a destination yard');return;}
-      const selected=nucChecks.filter(({cb})=>cb.checked).map(({nuc})=>nuc);
-      if(!selected.length){showToast('Select at least one nuc');return;}
-      const _now=new Date().toISOString();
-      selected.forEach(nuc=>{
-        nuc.transferredTo=destSite;
-        nuc.transferredDate=dateInp.value;
-        nuc._updatedAt=_now;
-      });
-      saveNucYards(all);
-      showToast(selected.length+' nuc'+(selected.length!==1?'s':'')+' sent to '+destSite);
-      overlay.remove();onSave();
-    }},'Send'));
-  btnRow.appendChild(h('button',{style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
+  // Buttons
+  const btnRow=h('div',{style:{display:'flex',gap:'10px',marginTop:'18px'}});
+  btnRow.appendChild(h('button',{type:'button',style:{flex:'1',padding:'12px',background:'#3d7a4f',color:'#fff',border:'none',borderRadius:'8px',fontSize:'14px',fontWeight:'700',cursor:'pointer'}},
+    'Send'));
+  btnRow.lastChild.addEventListener('click',()=>{
+    if(!destSite){showToast('Select a destination yard');return;}
+    const selected=nucChecks.filter(({cb})=>cb.checked);
+    if(!selected.length){showToast('Select at least one nuc');return;}
+    const _now=new Date().toISOString();
+    selected.forEach(({nuc})=>{
+      nuc.transferredTo=destSite;
+      nuc.transferredDate=dateInp.value;
+      nuc._updatedAt=_now;
+    });
+    saveNucYards(all);
+    showToast(selected.length+' nuc'+(selected.length!==1?'s':'')+' sent to '+destSite);
+    overlay.remove();if(onSave)onSave();
+  });
+  btnRow.appendChild(h('button',{type:'button',style:{flex:'1',padding:'12px',background:'#f0f0ee',color:'#333',border:'none',borderRadius:'8px',fontSize:'14px',cursor:'pointer'},onClick:()=>overlay.remove()},'Cancel'));
   box.appendChild(btnRow);
-  overlay.appendChild(box);overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+
+  overlay.appendChild(box);
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
   document.body.appendChild(overlay);
 }
 
@@ -3305,6 +3368,13 @@ function renderNucsScreen(){
   tableBtn.addEventListener('click',()=>{splitsPageView='table';STATE._splitsPageView='table';refreshPageViewBtns();renderTableSection();});
   cardsBtn.addEventListener('click',()=>{splitsPageView='cards';STATE._splitsPageView='cards';refreshPageViewBtns();});
   pageViewRow.appendChild(tableBtn);pageViewRow.appendChild(cardsBtn);
+  // Global "Send to yard" button — works across all batches
+  const sendAllBtn=h('button',{type:'button',style:{marginLeft:'auto',padding:'6px 16px',borderRadius:'20px',border:'1.5px solid #3d7a4f',background:'#3d7a4f',color:'#fff',fontSize:'13px',fontWeight:'700',cursor:'pointer',flexShrink:'0'}},'Send to yard →');
+  sendAllBtn.addEventListener('click',()=>{
+    const activeOps=selectedOps.size===0?null:[...selectedOps];
+    showSendNucsMultiModal(activeOps,()=>{renderTableSection();renderBatches();},null);
+  });
+  pageViewRow.appendChild(sendAllBtn);
   screen.appendChild(pageViewRow);
 
   const tableSection=h('div',{style:{display:splitsPageView==='table'?'block':'none'}});
