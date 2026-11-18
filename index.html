@@ -3404,12 +3404,15 @@ function renderNucsScreen(){
         const used=cells.filter(c=>!!c.transferredTo).length; // already placed in hives
         // in_yard queens are already in their hive — not available for transfer
         const available=batch.splitType==='in_yard'?0:cells.filter(c=>c.status==='mated'&&!c.transferredTo).length;
+        // Tally where transferred nucs went: { yardName: count }
+        const sentTo={};
+        cells.filter(c=>!!c.transferredTo).forEach(c=>{ sentTo[c.transferredTo]=(sentTo[c.transferredTo]||0)+1; });
         const dest=batch.destYard||'(In Yard)';
         if(!destMap.has(dest)) destMap.set(dest,[]);
         destMap.get(dest).push({
           yardKey:key,yardName:yard.name||key,op:yard.op,bi,batch,
           sourceYard:batch.sourceYard||'—',dateAdded:batch.dateAdded||'',
-          splitType:batch.splitType||'nuc',total:cells.length,cellIn,virgin,mated,failed,needCell,used,available
+          splitType:batch.splitType||'nuc',total:cells.length,cellIn,virgin,mated,failed,needCell,used,available,sentTo
         });
       });
     });
@@ -3500,17 +3503,42 @@ function renderNucsScreen(){
         tr.appendChild(srcTd);
         tr.appendChild(mk(r.dateAdded?fmtDate(r.dateAdded):'—','#999'));
         tr.appendChild(mk(String(r.total),'#333',true));
-        tr.appendChild(mk(r.used>0?String(r.used):'—',r.used>0?'#3d7a4f':'#ddd',r.used>0));
+        // Used cell — shows count + destination yard(s)
+        const usedTd=h('td',{style:{padding:'6px 12px',whiteSpace:'nowrap',verticalAlign:'middle'}});
+        if(r.used>0){
+          usedTd.appendChild(h('span',{style:{fontWeight:'700',fontSize:'13px',color:'#3d7a4f'}},String(r.used)));
+          const dests=Object.entries(r.sentTo||{});
+          if(dests.length){
+            const destWrap=h('div',{style:{marginTop:'2px',display:'flex',flexDirection:'column',gap:'1px'}});
+            dests.forEach(([yard,cnt])=>{
+              destWrap.appendChild(h('span',{style:{fontSize:'10px',color:'#3d7a4f',opacity:'.8'}},
+                '→ '+yard+(dests.length>1||cnt!==r.used?' ('+cnt+')':'')));
+            });
+            usedTd.appendChild(destWrap);
+          }
+        } else {
+          usedTd.appendChild(h('span',{style:{color:'#ddd',fontSize:'13px'}},'—'));
+        }
+        tr.appendChild(usedTd);
         tr.appendChild(mk(r.available>0?String(r.available):'—',r.available>0?'#1a6fb0':'#ddd',r.available>0));
         tr.appendChild(mk(r.cellIn>0?String(r.cellIn):'—',r.cellIn>0?'#b07800':'#ddd',r.cellIn>0));
         tr.appendChild(mk(r.virgin>0?String(r.virgin):'—',r.virgin>0?'#9b59b6':'#ddd',r.virgin>0));
         tr.appendChild(mk(r.mated>0?String(r.mated):'—',r.mated>0?'#3d7a4f':'#ddd',r.mated>0));
         tr.appendChild(mk(r.failed>0?String(r.failed):'—',r.failed>0?'#c0392b':'#ddd'));
         tr.appendChild(mk(r.needCell>0?'⚠ '+r.needCell:'—',r.needCell>0?'#b07800':'#ddd',r.needCell>0));
-        const editTd=h('td',{style:{padding:'6px 10px',whiteSpace:'nowrap'}});
-        const editBtn=h('button',{type:'button',style:{padding:'4px 12px',borderRadius:'6px',background:'#f0f0ee',border:'.5px solid #ddd',color:'#555',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},'Edit');
+        const editTd=h('td',{style:{padding:'6px 8px',whiteSpace:'nowrap'}});
+        const editBtn=h('button',{type:'button',style:{padding:'4px 10px',borderRadius:'6px',background:'#f0f0ee',border:'.5px solid #ddd',color:'#555',fontSize:'12px',fontWeight:'600',cursor:'pointer'}},'Edit');
         editBtn.addEventListener('click',e=>{e.stopPropagation();showBatchTableEditModal(r,()=>{renderTableSection();renderBatches();});});
-        editTd.appendChild(editBtn);tr.appendChild(editTd);
+        editTd.appendChild(editBtn);
+        if(r.available>0){
+          const sendBtn=h('button',{type:'button',style:{padding:'4px 10px',borderRadius:'6px',background:'#3d7a4f',border:'none',color:'#fff',fontSize:'12px',fontWeight:'700',cursor:'pointer',marginLeft:'5px'}},'Send →');
+          sendBtn.addEventListener('click',e=>{
+            e.stopPropagation();
+            showSendNucsMultiModal([r.op],()=>{renderTableSection();renderBatches();},{yardKey:r.yardKey,batchIdx:r.bi});
+          });
+          editTd.appendChild(sendBtn);
+        }
+        tr.appendChild(editTd);
         tbody.appendChild(tr);
       });
     });
