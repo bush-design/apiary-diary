@@ -9509,9 +9509,17 @@ function showNucModal(op,nucYardKey,batchIdx,nucIdx,onSave){
       }
     },'Record transfer'));
   } else if(nuc.transferredTo){
-    box.appendChild(h('div',{style:{background:'#e6f2eb',borderRadius:'8px',padding:'10px',fontSize:'13px',color:'#3d7a4f',fontWeight:'600'}},
-      '✓ Transferred to '+nuc.transferredTo+(nuc.transferredDate?' on '+fmtDate(nuc.transferredDate):'')
+    const txInfo=h('div',{style:{background:'#e6f2eb',borderRadius:'8px',padding:'10px 12px',display:'flex',justifyContent:'space-between',alignItems:'center'}});
+    txInfo.appendChild(h('span',{style:{fontSize:'13px',color:'#3d7a4f',fontWeight:'600'}},
+      '✓ Transferred to '+nuc.transferredTo+(nuc.transferredDate?' · '+fmtDate(nuc.transferredDate):'')
     ));
+    const clearBtn=h('button',{type:'button',style:{background:'none',border:'none',color:'#e24b4a',fontSize:'12px',fontWeight:'700',cursor:'pointer',marginLeft:'8px',flexShrink:'0'}},'Remove');
+    clearBtn.addEventListener('click',()=>{
+      nuc.transferredTo='';nuc.transferredDate='';nuc._updatedAt=new Date().toISOString();
+      saveNucYards(all);overlay.remove();onSave();
+    });
+    txInfo.appendChild(clearBtn);
+    box.appendChild(txInfo);
   }
 
   // Notes
