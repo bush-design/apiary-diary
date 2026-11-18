@@ -8247,7 +8247,53 @@ function showBatchTableEditModal(row, onDone){
 
   box.appendChild(h('div',{style:{fontWeight:'700',fontSize:'17px',marginBottom:'2px'}},row.yardName));
   box.appendChild(h('div',{style:{fontSize:'12px',color:'#999',marginBottom:'4px'}},row.sourceYard+(row.dateAdded?' · cells in '+fmtDate(row.dateAdded):'')));
-  box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'18px'}},'Total: '+row.total+' splits'));
+  box.appendChild(h('div',{style:{fontSize:'12px',color:'#aaa',marginBottom:'14px'}},'Total: '+row.total+' splits'));
+
+  // Movements section — show existing transfers + allow clearing/adding
+  const movSection=h('div',{style:{marginBottom:'18px'}});
+  const renderMovSection=()=>{
+    movSection.innerHTML='';
+    const freshAll=loadNucYards();
+    const freshNucs=(freshAll[row.yardKey]?.batches?.[row.bi]?.nucs)||[];
+    const transferred=freshNucs.filter(n=>!!n.transferredTo);
+    const hdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'6px'}});
+    hdr.appendChild(h('span',{style:{fontSize:'11px',fontWeight:'700',color:'#aaa',textTransform:'uppercase',letterSpacing:'.05em'}},'Movements'+(transferred.length?' ('+transferred.length+')':'')));
+    const sendBtn2=h('button',{type:'button',style:{fontSize:'11px',fontWeight:'700',color:'#3d7a4f',background:'none',border:'1px solid #3d7a4f',borderRadius:'5px',cursor:'pointer',padding:'2px 8px'}},'+ Send to yard');
+    sendBtn2.addEventListener('click',()=>{
+      overlay.remove();
+      showSendNucsMultiModal([row.op],()=>{onDone();},{yardKey:row.yardKey,batchIdx:row.bi});
+    });
+    hdr.appendChild(sendBtn2);
+    movSection.appendChild(hdr);
+    if(!transferred.length){
+      movSection.appendChild(h('div',{style:{fontSize:'12px',color:'#ccc',paddingBottom:'8px',borderBottom:'.5px solid #f0f0ee'}},'No movements yet'));
+    } else {
+      // Group by destination
+      const byDest={};
+      transferred.forEach(n=>{byDest[n.transferredTo]=(byDest[n.transferredTo]||[]).concat(n);});
+      Object.entries(byDest).forEach(([dest,nucs])=>{
+        const dRow=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:'.5px solid #f5f5f5'}});
+        const dLeft=h('div',null);
+        dLeft.appendChild(h('span',{style:{fontSize:'13px',fontWeight:'600',color:'#3d7a4f'}},'→ '+dest));
+        dLeft.appendChild(h('span',{style:{fontSize:'12px',color:'#aaa',marginLeft:'6px'}},nucs.length+' nuc'+(nucs.length!==1?'s':'')));
+        if(nucs[0].transferredDate) dLeft.appendChild(h('span',{style:{fontSize:'11px',color:'#bbb',marginLeft:'6px'}},fmtDate(nucs[0].transferredDate)));
+        dRow.appendChild(dLeft);
+        const clrBtn=h('button',{type:'button',style:{fontSize:'11px',fontWeight:'700',color:'#e24b4a',background:'none',border:'none',cursor:'pointer',padding:'4px 6px'}},'Clear');
+        clrBtn.addEventListener('click',()=>{
+          const a2=loadNucYards();
+          const ns=(a2[row.yardKey]?.batches?.[row.bi]?.nucs)||[];
+          const _now=new Date().toISOString();
+          ns.filter(n=>n.transferredTo===dest).forEach(n=>{n.transferredTo='';n.transferredDate='';n._updatedAt=_now;});
+          saveNucYards(a2);
+          renderMovSection();
+        });
+        dRow.appendChild(clrBtn);
+        movSection.appendChild(dRow);
+      });
+    }
+  };
+  renderMovSection();
+  box.appendChild(movSection);
 
   let newMated=row.mated, newVirgin=row.virgin, newFailed=row.failed;
 
