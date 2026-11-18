@@ -3257,9 +3257,12 @@ function showSendNucsMultiModal(filterOps, onSave, preselectBatch){
       const isPreselect=preselectBatch&&preselectBatch.yardKey===g.key&&preselectBatch.batchIdx===g.bi;
       const grpHdr=h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'7px 0 4px',borderTop:'.5px solid #eee',marginTop:'6px'}});
       grpHdr.appendChild(h('span',{style:{fontSize:'12px',fontWeight:'700',color:'#555'}},g.batch.sourceYard||'—'));
-      const grpSel=h('button',{type:'button',style:{fontSize:'11px',color:'#999',background:'none',border:'none',cursor:'pointer',padding:'0'}},'All');
-      let grpAllSel=true;
       const grpChecks=[];
+      // Initial checked state for this group: checked if no preselect filter, or this batch matches
+      const grpStartsChecked=!preselectBatch||isPreselect;
+      let grpAllSel=grpStartsChecked;
+      const grpSel=h('button',{type:'button',style:{fontSize:'11px',fontWeight:'700',color:'#3d7a4f',background:'none',border:'1px solid #3d7a4f',borderRadius:'5px',cursor:'pointer',padding:'2px 8px'}}
+        ,grpStartsChecked?'None':'All');
       grpSel.addEventListener('click',()=>{
         grpAllSel=!grpAllSel;
         grpChecks.forEach(cb=>{cb.checked=grpAllSel;});
