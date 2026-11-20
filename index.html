@@ -3313,12 +3313,22 @@ function showSendNucsMultiModal(filterOps, onSave, preselectBatch){
     const selected=nucChecks.filter(({cb})=>cb.checked);
     if(!selected.length){showToast('Select at least one nuc');return;}
     const _now=new Date().toISOString();
-    selected.forEach(({nuc})=>{
+    // Reload fresh data so we don't overwrite any changes that arrived via sync
+    // while this modal was open (the 30-second poll can update localStorage under us).
+    const fresh=loadNucYards();
+    selected.forEach(({nuc,yardKey,batchIdx})=>{
+      // Apply the transfer onto the freshest copy of this nuc (matched by id)
+      const freshNucs=(fresh[yardKey]?.batches?.[batchIdx]?.nucs)||[];
+      const freshNuc=freshNucs.find(n=>n.id===nuc.id)||nuc;
+      freshNuc.transferredTo=destSite;
+      freshNuc.transferredDate=dateInp.value;
+      freshNuc._updatedAt=_now;
+      // Also update the in-memory reference so the UI reflects the change immediately
       nuc.transferredTo=destSite;
       nuc.transferredDate=dateInp.value;
       nuc._updatedAt=_now;
     });
-    saveNucYards(all);
+    saveNucYards(fresh);
     showToast(selected.length+' nuc'+(selected.length!==1?'s':'')+' sent to '+destSite);
     overlay.remove();if(onSave)onSave();
   }
