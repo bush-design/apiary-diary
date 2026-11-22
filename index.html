@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Apiary Diary">
@@ -1525,9 +1525,11 @@ function subscribeRealtime(){
         STATE.entries[entry_key]=data;
         saveLocal(STATE.entries);
         // Refresh the view so the new entry is visible — but only when no diary
-        // form is open (STATE.editing !== null means a form is in progress and
-        // a render would reset the cursor / in-progress field values).
-        if(!STATE.editing) render();
+        // form is open AND no input/textarea is currently focused (typing anywhere
+        // counts as "in progress").
+        const _focused=document.activeElement;
+        const _typing=_focused&&['INPUT','TEXTAREA','SELECT'].includes(_focused.tagName);
+        if(!STATE.editing&&!_typing) render();
       }
     }
   }).subscribe();
@@ -3342,7 +3344,8 @@ function showSendNucsMultiModal(filterOps, onSave, preselectBatch){
   box.appendChild(btnRow);
 
   overlay.appendChild(box);
-  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+  // No tap-outside-to-close — tapping the dark backdrop while selecting nucs is too easy
+  // to do accidentally, and a silently-dismissed send is hard to notice. Use Cancel instead.
   document.body.appendChild(overlay);
 }
 
@@ -8706,10 +8709,11 @@ function renderRoundTable(op){
   // Swap sections to only non-splits for the flat table below
   const sectionsForTable=splitsSelected?nonSplitSections:sections;
 
-  // Fields summed across the whole round vs taken from latest entry
+  // Fields summed across the whole round vs taken from latest entry.
+  // "Boxes on" fields (fd_on, on_34, honeycomb etc.) are CURRENT STATE — each visit records what
+  // is on the hives RIGHT NOW, not an increment. Only harvest and fed counts are genuinely cumulative.
   const CUM_FIELDS=new Set(['splits','tops','nuc_splits','cell_in','nucs_in',
-    'fd_on','fd_second_on','fd_third_on','on_34','on_34_second','on_34_third',
-    'fd_harv','harv_34','honeycomb_fd','honeycomb_hd',
+    'fd_harv','harv_34',
     'hives_fed','honey_hives_fed','pollen_hives_fed']);
     // dead/dead_hives are NOT cumulative — each visit records current dead count, not a running total
     // They are handled via the anchor-entry logic below (same as yard summary card)
@@ -15578,7 +15582,9 @@ document.addEventListener('visibilitychange',async()=>{
   if(_sbLoaded){
     try{ subscribeRealtime(); }catch(e){} // cheap to re-subscribe; catches a silently-dropped channel
     await flushPending();
-    await pullFromSupabase(STATE.editing!==null);
+    const _fv=document.activeElement;
+    const _busyV=STATE.editing!==null||(_fv&&['INPUT','TEXTAREA','SELECT'].includes(_fv.tagName));
+    await pullFromSupabase(_busyV);
   }
   updateSyncDot('online');
 });
@@ -15586,11 +15592,13 @@ document.addEventListener('visibilitychange',async()=>{
 // Safety-net poll — while the tab is actually visible and online, periodically pull the latest
 // data even if realtime hasn't fired anything. This is what makes "just leave the app open and
 // it updates on its own" actually true, rather than relying solely on the WebSocket staying up.
-// Skip the re-render only when a diary form is open (STATE.editing !== null); modals live on
-// document.body and are unaffected by render(), so they don't need this guard.
+// Skip the re-render when a diary form is open OR when the user is actively typing in any
+// input/textarea — both indicate in-progress work that a render would wipe out.
 setInterval(async()=>{
   if(document.hidden||!navigator.onLine||!_sbLoaded) return;
-  try{ await pullFromSupabase(STATE.editing!==null); }catch(e){}
+  const _f=document.activeElement;
+  const _busy=STATE.editing!==null||(_f&&['INPUT','TEXTAREA','SELECT'].includes(_f.tagName));
+  try{ await pullFromSupabase(_busy); }catch(e){}
 },30000);
 
 // ── Service Worker (offline caching) ─────────────────────────────────────────
