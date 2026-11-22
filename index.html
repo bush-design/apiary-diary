@@ -8817,8 +8817,10 @@ function renderRoundTable(op){
   }
 
   // Build table
+  let _rTblZoom=parseFloat((()=>{try{return localStorage.getItem('roundTableZoom');}catch(e){return null;}})() || '1');
+  _rTblZoom=Math.max(0.4,Math.min(1.5,_rTblZoom));
   const tableWrap=h('div',{style:{overflowX:'auto',borderRadius:'10px',border:'.5px solid #ddd',marginBottom:'10px',WebkitOverflowScrolling:'touch'}});
-  const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:Math.max(360,cols.length*90)+'px',fontSize:'13px'}});
+  const tbl=h('table',{style:{borderCollapse:'collapse',width:'100%',minWidth:Math.max(360,cols.length*90)+'px',fontSize:'13px',zoom:String(_rTblZoom)}});
   const thead=h('thead',null);
   const hdrRow=h('tr',{style:{background:'#f4f4f2',borderBottom:'1.5px solid #ddd'}});
   const mkTh=(label,key,sticky,align)=>{
@@ -8910,6 +8912,20 @@ function renderRoundTable(op){
   });
   tbl.appendChild(tbody);
   tableWrap.appendChild(tbl);
+  // Pinch-to-zoom on the round table
+  {
+    let _pStart=null,_pZoom=_rTblZoom;
+    const _pd=e=>{const dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;return Math.sqrt(dx*dx+dy*dy);};
+    tableWrap.addEventListener('touchstart',e=>{if(e.touches.length===2){_pStart=_pd(e);_pZoom=_rTblZoom;}},{passive:true});
+    tableWrap.addEventListener('touchmove',e=>{
+      if(e.touches.length===2&&_pStart){
+        e.preventDefault();
+        const z=Math.max(0.4,Math.min(1.5,_pZoom*(_pd(e)/_pStart)));
+        _rTblZoom=z;tbl.style.zoom=String(z);
+      }
+    },{passive:false});
+    tableWrap.addEventListener('touchend',e=>{if(_pStart){_pStart=null;try{localStorage.setItem('roundTableZoom',String(_rTblZoom));}catch(err){}}},{passive:true});
+  }
   wrap.appendChild(tableWrap);
   wrap.appendChild(h('div',{style:{fontSize:'11px',color:'#bbb',marginBottom:'12px',lineHeight:'1.5'}},
     'One row per site — most recent '+sections.map(s=>s.l).join(' / ')+' entry. Cumulative fields (splits, cell in, etc.) show round totals. Faded = no data yet this round. Tap a row to open that yard.'
