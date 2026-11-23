@@ -10599,8 +10599,8 @@ function renderEntriesList(){
         // Use only real diary entries as source for compositional fields.
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        // fd_on/on_34/honeycomb_fd/honeycomb_hd carry forward until a harvest entry clears them
-        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','on_34','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
+        // fd_on/fd_second_on/fd_third_on/on_34/honeycomb carry forward until a harvest entry clears them
+        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','fd_second_on','fd_third_on','on_34','on_34_second','on_34_third','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
         // tops carry forward when no destination set (still in yard); clears when dest is filled or count hits 0
@@ -12287,8 +12287,8 @@ function renderEntriesList(){
         // Use only real diary entries as source for compositional fields.
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        // fd_on/on_34/honeycomb_fd/honeycomb_hd carry forward until a harvest entry clears them
-        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','on_34','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
+        // fd_on/fd_second_on/fd_third_on/on_34/honeycomb carry forward until a harvest entry clears them
+        ['dead','singles','doubles','lids_floors','alive_hives','dead_hives','breeders','fd_on','fd_second_on','fd_third_on','on_34','on_34_second','on_34_third','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
         // tops carry forward when no destination set (still in yard); clears when dest is filled or count hits 0
@@ -12597,7 +12597,7 @@ function renderRoundPicker(){
         const lastEntries=Object.keys(ROUNDS).flatMap(rk2=>(STATE.entries[eKey(STATE.op,STATE.site,rk2)]||[])).sort((a,b)=>{const dc=(b.date||'').localeCompare(a.date||'');if(dc!==0)return dc;const la=b.logged_at||b.saved_at||'';const lb=a.logged_at||a.saved_at||'';return la.localeCompare(lb);});
         const lastRealE=lastEntries.find(e=>!e._movement)||{};
         const prefill={date:todayStr()};
-        ['dead','singles','doubles','weak','alive_hives','dead_hives','fd_on','on_34','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
+        ['dead','singles','doubles','weak','alive_hives','dead_hives','fd_on','fd_second_on','fd_third_on','on_34','on_34_second','on_34_third','honeycomb_fd','honeycomb_hd','treatment'].forEach(key=>{
           if(lastRealE[key]!==undefined&&lastRealE[key]!==null&&lastRealE[key]!=='') prefill[key]=lastRealE[key];
         });
         // tops carry forward when no destination set (still in yard); clears when dest is filled or count hits 0
